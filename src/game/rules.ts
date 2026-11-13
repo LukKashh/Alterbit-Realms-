@@ -1,7 +1,7 @@
 import {
+  BEDROCK_ROWS,
   MAX_REACH_TILES,
   PLANT_DEFAULT_GROWTH_MS,
-  PLAYABLE_ROWS,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
   TILE_SIZE,
@@ -19,16 +19,36 @@ export interface PlayerContext {
   height?: number;
 }
 
-export function tileIndex(tx: number, ty: number): number {
-  return ty * WORLD_WIDTH + tx;
+export function worldWidth(world?: Pick<WorldState, 'width'> | null): number {
+  return world?.width || WORLD_WIDTH;
 }
 
-export function inBounds(tx: number, ty: number): boolean {
-  return Number.isInteger(tx) && Number.isInteger(ty) && tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT;
+export function worldHeight(world?: Pick<WorldState, 'height'> | null): number {
+  return world?.height || WORLD_HEIGHT;
 }
 
-export function isBedrockRow(ty: number): boolean {
-  return ty >= PLAYABLE_ROWS;
+export function tileIndex(tx: number, ty: number, width = WORLD_WIDTH): number {
+  return ty * width + tx;
+}
+
+export function tileIndexIn(world: Pick<WorldState, 'width'>, tx: number, ty: number): number {
+  return ty * worldWidth(world) + tx;
+}
+
+export function inBounds(tx: number, ty: number, width = WORLD_WIDTH, height = WORLD_HEIGHT): boolean {
+  return Number.isInteger(tx) && Number.isInteger(ty) && tx >= 0 && tx < width && ty >= 0 && ty < height;
+}
+
+export function inBoundsWorld(world: Pick<WorldState, 'width' | 'height'>, tx: number, ty: number): boolean {
+  return inBounds(tx, ty, worldWidth(world), worldHeight(world));
+}
+
+export function isBedrockRow(ty: number, height = WORLD_HEIGHT): boolean {
+  return ty >= height - BEDROCK_ROWS;
+}
+
+export function isBedrockRowWorld(world: Pick<WorldState, 'height'>, ty: number): boolean {
+  return isBedrockRow(ty, worldHeight(world));
 }
 
 export function isWithinReach(
@@ -112,9 +132,9 @@ export function canBreakTile(
   tx: number,
   ty: number,
   reachTiles = MAX_REACH_TILES
-): { ok: boolean; layer?: 'fg' | 'bg' | 'plant'; reason?: string } {
-  if (!inBounds(tx, ty)) return { ok: false, reason: 'Out of world bounds.' };
-  if (isBedrockRow(ty)) return { ok: false, reason: 'Bedrock is indestructible.' };
+): { ok: boolean; layer?: 'fg' | 'bg' | 'plant' | 'fluid'; reason?: string } {
+  if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of world bounds.' };
+  if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Bedrock is indestructible.' };
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
   if (!hasEditPermission(world, player.id, tx, ty)) {
     return { ok: false, reason: 'Protected by Lock.' };
@@ -125,7 +145,7 @@ export function canBreakTile(
     return { ok: true, layer: 'plant' };
   }
 
-  const idx = tileIndex(tx, ty);
+  const idx = tileIndexIn(world, tx, ty);
   const fgId = world.fg[idx];
   if (fgId !== ITEM_IDS.AIR) {
     const def = getItemDef(fgId);
@@ -150,7 +170,21 @@ export function canBreakTile(
         return { ok: false, reason: 'Withdraw stock and earnings with Wrench before breaking.' };
       }
     }
+    if (fgId === ITEM_IDS.BFG_COLLECTOR) {
+      const bfg = world.bfgCollectors?.[key];
+      if (bfg && bfg.ownerId !== player.id && world.worldLock?.ownerId !== player.id) {
+        return { ok: false, reason: 'Only the BFG Collector owner can break it.' };
+      }
+      if (bfg && (bfg.storedGems > 0 || bfg.storedItems.length > 0)) {
+        return { ok: false, reason: 'Withdraw stored Gems & items with Wrench before breaking.' };
+      }
+    }
     return { ok: true, layer: 'fg' };
+  }
+
+  // Allow draining fluid tile directly when fg is air
+  if ((world.fluidLevel?.[idx] ?? 0) > 0 && (world.fluidType?.[idx] ?? 0) > 0) {
+    return { ok: true, layer: 'fluid' };
   }
 
   const bgId = world.bg[idx];
@@ -166,7 +200,7 @@ export function canBreakTile(
 }
 
 export function hasPlacementSupport(world: WorldState, tx: number, ty: number): boolean {
-  const idx = tileIndex(tx, ty);
+  const idx = tileIndexIn(world, tx, ty);
   if (world.bg[idx] !== ITEM_IDS.BG_SKY) return true;
   const neighbors = [
     [tx - 1, ty],
@@ -175,8 +209,8 @@ export function hasPlacementSupport(world: WorldState, tx: number, ty: number): 
     [tx, ty + 1],
   ];
   for (const [nx, ny] of neighbors) {
-    if (!inBounds(nx, ny)) continue;
-    const nIdx = tileIndex(nx, ny);
+    if (!inBoundsWorld(world, nx, ny)) continue;
+    const nIdx = tileIndexIn(world, nx, ny);
     if (world.fg[nIdx] !== ITEM_IDS.AIR || world.bg[nIdx] !== ITEM_IDS.BG_SKY) {
       return true;
     }
@@ -191,9 +225,9 @@ export function canPlaceTile(
   tx: number,
   ty: number,
   reachTiles = MAX_REACH_TILES
-): { ok: boolean; layer?: 'fg' | 'bg' | 'seed'; reason?: string } {
-  if (!inBounds(tx, ty)) return { ok: false, reason: 'Out of bounds.' };
-  if (isBedrockRow(ty)) return { ok: false, reason: 'Cannot build on bedrock.' };
+): { ok: boolean; layer?: 'fg' | 'bg' | 'seed' | 'fluid'; reason?: string } {
+  if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of bounds.' };
+  if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Cannot build on bedrock.' };
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
   if (!hasEditPermission(world, player.id, tx, ty)) {
     return { ok: false, reason: 'Protected by Lock.' };
@@ -202,7 +236,8 @@ export function canPlaceTile(
   const def = getItemDef(itemId);
   if (!def || !def.placeable) return { ok: false, reason: 'Item cannot be placed.' };
 
-  const idx = tileIndex(tx, ty);
+  const idx = tileIndexIn(world, tx, ty);
+  const isMine = world.worldKind === 'mine_shaft';
 
   if (def.category === 'background') {
     if (world.bg[idx] !== ITEM_IDS.BG_SKY) {
@@ -215,15 +250,25 @@ export function canPlaceTile(
   }
 
   if (def.category === 'seed') {
+    if (isMine) {
+      return { ok: false, reason: 'Trees cannot be planted inside Mining Shafts.' };
+    }
     if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
       return { ok: false, reason: 'Tile is occupied.' };
     }
-    if (ty + 1 >= WORLD_HEIGHT) return { ok: false, reason: 'Cannot plant here.' };
-    const belowId = world.fg[tileIndex(tx, ty + 1)];
+    if (ty + 1 >= worldHeight(world)) return { ok: false, reason: 'Cannot plant here.' };
+    const belowId = world.fg[tileIndexIn(world, tx, ty + 1)];
     if (!isForegroundSolid(belowId)) {
       return { ok: false, reason: 'Seeds must be planted on solid ground.' };
     }
     return { ok: true, layer: 'seed' };
+  }
+
+  if (def.category === 'fluid') {
+    if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
+      return { ok: false, reason: 'Tile is occupied.' };
+    }
+    return { ok: true, layer: 'fluid' };
   }
 
   // Foreground / Lock / Interactive
@@ -233,6 +278,10 @@ export function canPlaceTile(
 
   if (def.collision === 'solid' && playerOverlapsTile(player, tx, ty)) {
     return { ok: false, reason: 'Cannot place solid block on yourself.' };
+  }
+
+  if (isMine && (def.category === 'lock' || def.category === 'interactive')) {
+    return { ok: false, reason: 'Locks and machines cannot be placed inside Mining Shafts.' };
   }
 
   if (itemId === ITEM_IDS.WORLD_LOCK && world.worldLock) {
@@ -245,6 +294,16 @@ export function canPlaceTile(
     }
     if (hasAreaLockConflict(world, tx, ty, def.lockRadius ?? 3)) {
       return { ok: false, reason: 'Overlaps with an existing Area Lock.' };
+    }
+  }
+
+  if (itemId === ITEM_IDS.BFG_COLLECTOR) {
+    const areaLock = getCoveringAreaLock(world, tx, ty);
+    const hasProtection =
+      (world.worldLock && (world.worldLock.ownerId === player.id || world.worldLock.editors.includes(player.id))) ||
+      (areaLock && (areaLock.ownerId === player.id || areaLock.editors.includes(player.id)));
+    if (!hasProtection) {
+      return { ok: false, reason: 'BFG Collector must be placed inside your World Lock or Area Lock.' };
     }
   }
 

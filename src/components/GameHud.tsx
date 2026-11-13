@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeftRight,
   Backpack,
   Globe,
   Lock,
@@ -10,6 +11,7 @@ import {
   Smartphone,
   Sparkles,
   Star,
+  Timer,
   Trophy,
   Users,
   Volume2,
@@ -20,13 +22,17 @@ import {
   GEM_STORE_LISTINGS,
   getItemDef,
   ITEM_IDS,
+  SPLICE_RECIPES,
+  type BiomeBranch,
   type PlayerStatKey,
   type StoreSection,
 } from '../game/catalog.ts';
 import { getItemIconUrl, type EquippedWearables } from '../game/pixelArt.ts';
 import { xpForNextLevel } from '../game/rules.ts';
 import type {
+  ActiveBuff,
   ChatMessage,
+  ExchangeSnapshot,
   FriendEntry,
   FriendRequestEntry,
   InventorySlot,
@@ -36,6 +42,8 @@ import type {
 import type { GameConfig } from '../game/config.ts';
 import type { TileInspectInfo } from '../game/engine.ts';
 import { AdminPanel } from './AdminPanel.tsx';
+import { ExchangeModal } from './ExchangeModal.tsx';
+import { BfgPanel, FurnacePanel } from './MachinePanels.tsx';
 
 interface GameHudProps {
   mode: 'playing' | 'paused';
@@ -117,6 +125,30 @@ interface GameHudProps {
   onDismissInspect: () => void;
   toastMessage: string | null;
   connected: boolean;
+  worldKind?: 'standard' | 'mine_shaft';
+  mineExpiresAt?: number | null;
+  activeBuffs: ActiveBuff[];
+  unclaimedWl: number;
+  exchange: ExchangeSnapshot;
+  fishingActive: boolean;
+  fishingBiting: boolean;
+  onExitMineShaft: () => void;
+  onUseConsumable: (itemId: number) => void;
+  onReelFishing: () => void;
+  onConfigureFurnace: (
+    tx: number,
+    ty: number,
+    opts: { action: 'craft' | 'collect' | 'repair'; recipeId?: string; toolItemId?: number }
+  ) => void;
+  onConfigureBfg: (tx: number, ty: number, opts: { action: 'toggle' | 'withdraw' }) => void;
+  onExchangeAction: (opts: {
+    action: 'list' | 'post' | 'buy' | 'cancel' | 'claim_wl';
+    itemId?: number;
+    bundleSize?: number;
+    bundles?: number;
+    priceWl?: number;
+    listingId?: string;
+  }) => void;
 }
 
 type ActivePanel =
@@ -128,6 +160,7 @@ type ActivePanel =
   | 'store'
   | 'friends'
   | 'profile'
+  | 'exchange'
   | 'admin';
 
 interface PunchJoystickProps {
@@ -237,7 +270,13 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
             ? 'Punch'
             : selectedItemId === ITEM_IDS.WRENCH
               ? 'Use'
-              : 'Place'}
+              : getItemDef(selectedItemId)?.toolKind === 'rod'
+                ? 'Fish'
+                : getItemDef(selectedItemId)?.toolKind === 'pickaxe'
+                  ? 'Mine'
+                  : getItemDef(selectedItemId)?.category === 'consumable'
+                    ? 'Use'
+                    : 'Place'}
         </span>
       </div>
     </div>
@@ -302,6 +341,19 @@ export const GameHud: React.FC<GameHudProps> = ({
   onDismissInspect,
   toastMessage,
   connected,
+  worldKind = 'standard',
+  mineExpiresAt = null,
+  activeBuffs,
+  unclaimedWl,
+  exchange,
+  fishingActive,
+  fishingBiting,
+  onExitMineShaft,
+  onUseConsumable,
+  onReelFishing,
+  onConfigureFurnace,
+  onConfigureBfg,
+  onExchangeAction,
 }) => {
   const [activePanel, setActivePanel] = useState<ActivePanel>('none');
   const [worldInput, setWorldInput] = useState('');
@@ -309,10 +361,12 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [chatInput, setChatInput] = useState('');
   const [spliceA, setSpliceA] = useState<number | null>(null);
   const [spliceB, setSpliceB] = useState<number | null>(null);
+  const [spliceBranch, setSpliceBranch] = useState<'all' | BiomeBranch>('all');
   const [assignSlot, setAssignSlot] = useState<number>(2);
   const [storeCategory, setStoreCategory] = useState<StoreSection>('locks');
   const [profileTab, setProfileTab] = useState<'achievements' | 'wardrobe'>('achievements');
   const [friendInput, setFriendInput] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Inspector local form state
   const [editorInput, setEditorInput] = useState('');
@@ -321,6 +375,12 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [vmStockQty, setVmStockQty] = useState<number>(5);
   const [vmPriceItemId, setVmPriceItemId] = useState<number>(ITEM_IDS.SMALL_LOCK);
   const [vmPriceQty, setVmPriceQty] = useState<number>(1);
+
+  useEffect(() => {
+    if (worldKind !== 'mine_shaft' && activeBuffs.length === 0) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [worldKind, activeBuffs.length]);
 
   useEffect(() => {
     if (inspectInfo?.signText !== undefined && inspectInfo?.signText !== null) {
@@ -333,6 +393,16 @@ export const GameHud: React.FC<GameHudProps> = ({
       if (vm.priceQty > 0) setVmPriceQty(vm.priceQty);
     }
   }, [inspectInfo]);
+
+  const liveBuffs = activeBuffs.filter((b) => b.expiresAt > nowMs);
+  const mineRemainingSec =
+    worldKind === 'mine_shaft' && mineExpiresAt
+      ? Math.max(0, Math.ceil((mineExpiresAt - nowMs) / 1000))
+      : null;
+  const mineTimerText =
+    mineRemainingSec !== null
+      ? `${Math.floor(mineRemainingSec / 60)}:${String(mineRemainingSec % 60).padStart(2, '0')}`
+      : null;
 
   const nextXp = xpForNextLevel(level);
   const xpPct = Math.min(100, Math.round((xp / nextXp) * 100));
@@ -412,8 +482,20 @@ export const GameHud: React.FC<GameHudProps> = ({
           </span>
         </div>
 
-        {/* Top-right: Single Menu Button (all navigation lives in Menu View) */}
+        {/* Top-right: Mine Shaft Exit / Status + Single Menu Button */}
         <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {worldKind === 'mine_shaft' && (
+            <button
+              type="button"
+              data-testid="leave-mine-button"
+              onClick={onExitMineShaft}
+              className="h-9 sm:h-10 px-2.5 rounded-md bg-[#332210]/95 hover:bg-[#4a3117] border-2 border-[#f2b738] text-[#ffe18c] flex items-center gap-1.5 font-mono-num font-bold text-xs shadow-[0_3px_0_rgba(6,12,20,0.8)] cursor-pointer"
+            >
+              <Timer className="w-3.5 h-3.5 shrink-0" />
+              <span>{mineTimerText ?? 'Mine'}</span>
+              <span className="text-[10px] uppercase text-[#fff3cf]">Exit</span>
+            </button>
+          )}
           {!connected && (
             <span className="px-2 py-1 rounded bg-[#3b181b] border border-[#80333a] text-[11px] font-bold text-[#ffb0b0] whitespace-nowrap">
               Reconnecting
@@ -441,15 +523,45 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       </div>
 
-      {/* Transient Toast or Wrench Inspector / Vending / Lock / Sign Modal */}
+      {/* Active Timed Culinary Buffs + Fishing Reel CTA + Toast + Inspector */}
       <div className="flex flex-col items-center gap-2 pointer-events-none">
+        {liveBuffs.length > 0 && (
+          <div className="flex flex-wrap items-center justify-center gap-1.5 bg-[#0f1d2c]/90 border border-[#38e8d8]/60 rounded px-2.5 py-1 text-[10px] font-mono-num text-[#8cf7ee]">
+            {liveBuffs.map((b) => {
+              const remSec = Math.max(0, Math.ceil((b.expiresAt - nowMs) / 1000));
+              const m = Math.floor(remSec / 60);
+              const s = String(remSec % 60).padStart(2, '0');
+              return (
+                <span key={b.buffType} className="font-bold">
+                  {b.label} +{b.bonusPct}% ({m}:{s})
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {fishingActive && (
+          <button
+            type="button"
+            data-testid="fishing-reel-button"
+            onClick={onReelFishing}
+            className={`pointer-events-auto px-4 py-2 rounded-md border-2 font-bold text-xs shadow-[0_4px_0_rgba(6,12,20,0.85)] cursor-pointer ${
+              fishingBiting
+                ? 'bg-[#f2b738] hover:bg-[#ffd262] border-[#fff3cf] text-[#1a1204] animate-bounce'
+                : 'bg-[#12334d]/94 hover:bg-[#194669] border-[#78c8f5] text-[#eaf6ff]'
+            }`}
+          >
+            {fishingBiting ? '! BITE ! Tap to Reel Catch!' : 'Fishing Cast Active · Tap to Reel'}
+          </button>
+        )}
+
         {toastMessage && (
           <div className="bg-[#101f2e]/95 border-2 border-[#f2b738] text-[#fff3cf] text-xs font-bold px-3 py-1.5 rounded shadow-[0_3px_0_rgba(0,0,0,0.6)]">
             {toastMessage}
           </div>
         )}
         {inspectInfo && (
-          <div className="pointer-events-auto bg-[#0f1d2c]/96 border-2 border-[#78c8f5] rounded-md p-3 w-80 max-w-[92vw] text-xs shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
+          <div className="pointer-events-auto bg-[#0f1d2c]/96 border-2 border-[#78c8f5] rounded-md p-3 w-80 max-w-[92vw] max-h-[65vh] overflow-y-auto text-xs shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
             <div className="flex items-center justify-between gap-4">
               <span className="font-bold text-[#89d6ff]">
                 {inspectInfo.fgName} ({inspectInfo.tx}, {inspectInfo.ty})
@@ -710,6 +822,63 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </div>
               </form>
             )}
+
+            {/* Stone Furnace Panel */}
+            {inspectInfo.furnace && (
+              <FurnacePanel
+                furnace={inspectInfo.furnace}
+                inventory={inventory}
+                onCraft={(recipeId) =>
+                  onConfigureFurnace(inspectInfo.tx, inspectInfo.ty, { action: 'craft', recipeId })
+                }
+                onCollect={() =>
+                  onConfigureFurnace(inspectInfo.tx, inspectInfo.ty, { action: 'collect' })
+                }
+                onRepair={(toolItemId) =>
+                  onConfigureFurnace(inspectInfo.tx, inspectInfo.ty, {
+                    action: 'repair',
+                    toolItemId,
+                  })
+                }
+              />
+            )}
+
+            {/* BFG Auto-Collector Panel */}
+            {inspectInfo.bfgCollector && (
+              <BfgPanel
+                bfg={inspectInfo.bfgCollector}
+                canManage={
+                  inspectInfo.bfgCollector.ownerId === playerId ||
+                  inspectInfo.worldLock?.ownerId === playerId
+                }
+                onToggle={() =>
+                  onConfigureBfg(inspectInfo.tx, inspectInfo.ty, { action: 'toggle' })
+                }
+                onWithdraw={() =>
+                  onConfigureBfg(inspectInfo.tx, inspectInfo.ty, { action: 'withdraw' })
+                }
+              />
+            )}
+
+            {/* Global Exchange Terminal Quick Launch */}
+            {inspectInfo.isExchangeTerminal && (
+              <div className="border-t border-[#28425e] pt-2 flex flex-col gap-1.5">
+                <span className="text-[11px] text-[#9cb5cc]">
+                  Trade World Lock bundles cross-world via the Global Exchange.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDismissInspect();
+                    onExchangeAction({ action: 'list' });
+                    setActivePanel('exchange');
+                  }}
+                  className="py-1.5 px-3 rounded bg-[#f2b738] hover:bg-[#ffd262] text-[#1a1204] font-bold text-xs cursor-pointer"
+                >
+                  Open Global Exchange
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -726,8 +895,13 @@ export const GameHud: React.FC<GameHudProps> = ({
           <div className="flex items-center gap-1 sm:gap-1.5 bg-[#0f1d2c]/92 border-2 border-[#314a66] rounded-md p-1 sm:p-1.5 shadow-[0_4px_0_rgba(6,12,20,0.85)]">
             {hotbarItemIds.map((itemId, idx) => {
               const def = getItemDef(itemId);
+              const invSlot = inventory.find((s) => s.itemId === itemId);
               const qty = itemId === ITEM_IDS.FIST || itemId === ITEM_IDS.WRENCH ? null : getQty(itemId);
               const active = selectedItemId === itemId;
+              const hasDurability = typeof invSlot?.maxDurability === 'number' && invSlot.maxDurability > 0;
+              const durRatio = hasDurability
+                ? Math.max(0, Math.min(1, (invSlot!.durability ?? invSlot!.maxDurability!) / invSlot!.maxDurability!))
+                : 1;
               return (
                 <button
                   key={`${idx}-${itemId}`}
@@ -756,10 +930,20 @@ export const GameHud: React.FC<GameHudProps> = ({
                       referrerPolicy="no-referrer"
                     />
                   )}
-                  {qty !== null && (
+                  {qty !== null && !hasDurability && (
                     <span className="absolute bottom-0 right-1 text-[10px] font-mono-num font-bold text-white drop-shadow-[0_1px_1px_#000]">
                       {qty}
                     </span>
+                  )}
+                  {hasDurability && (
+                    <div className="absolute inset-x-1 bottom-1 h-1 bg-[#060d14] rounded-xs overflow-hidden">
+                      <div
+                        className={`h-full ${
+                          durRatio > 0.4 ? 'bg-[#4ec46a]' : durRatio > 0.15 ? 'bg-[#f2b738]' : 'bg-[#e6482e]'
+                        }`}
+                        style={{ width: `${Math.round(durRatio * 100)}%` }}
+                      />
+                    </div>
                   )}
                 </button>
               );
@@ -841,13 +1025,13 @@ export const GameHud: React.FC<GameHudProps> = ({
               Close
             </button>
           </div>
-          <div className="grid grid-cols-4 gap-1">
-            {(['locks', 'blocks', 'seeds', 'wearables'] as const).map((cat) => (
+          <div className="grid grid-cols-5 gap-1">
+            {(['locks', 'tools', 'blocks', 'seeds', 'wearables'] as const).map((cat) => (
               <button
                 key={cat}
                 type="button"
                 onClick={() => setStoreCategory(cat)}
-                className={`py-1 rounded text-[11px] font-bold uppercase cursor-pointer ${
+                className={`py-1 rounded text-[10px] font-bold uppercase cursor-pointer ${
                   storeCategory === cat
                     ? 'bg-[#214463] border border-[#38e8d8] text-[#8cf7ee]'
                     : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
@@ -896,7 +1080,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Backpack Drawer */}
       {activePanel === 'backpack' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-80 max-w-[92vw] max-h-[65vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
+        <div className="pointer-events-auto fixed right-3 top-14 w-84 max-w-[92vw] max-h-[68vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h2 className="font-pixel text-xs text-[#ffe18c]">Backpack</h2>
             <button
@@ -908,8 +1092,21 @@ export const GameHud: React.FC<GameHudProps> = ({
             </button>
           </div>
           <p className="text-[11px] text-[#9cb5cc]">
-            Click an item to equip it and assign to hotbar slot {assignSlot < 2 ? 3 : assignSlot + 1}.
+            Click an item to equip it to hotbar slot {assignSlot < 2 ? 3 : assignSlot + 1}.
           </p>
+          {selectedDef?.category === 'consumable' && (
+            <button
+              type="button"
+              data-testid="use-consumable-btn"
+              onClick={() => {
+                onUseConsumable(selectedDef.id);
+                setActivePanel('none');
+              }}
+              className="py-1.5 px-3 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border border-[#82e068] text-[#081709] font-bold text-xs cursor-pointer"
+            >
+              Use {selectedDef.name}
+            </button>
+          )}
           <div className="grid grid-cols-5 gap-1.5 overflow-y-auto pr-1">
             {inventory.map((slot) => {
               const def = getItemDef(slot.itemId);
@@ -919,6 +1116,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                 equipped.head === slot.itemId ||
                 equipped.face === slot.itemId ||
                 equipped.back === slot.itemId;
+              const hasDur = typeof slot.maxDurability === 'number' && slot.maxDurability > 0;
+              const durRatio = hasDur
+                ? Math.max(0, Math.min(1, (slot.durability ?? slot.maxDurability!) / slot.maxDurability!))
+                : 1;
               return (
                 <button
                   key={slot.itemId}
@@ -949,10 +1150,20 @@ export const GameHud: React.FC<GameHudProps> = ({
                     className="w-7 h-7 pixelated"
                     referrerPolicy="no-referrer"
                   />
-                  {slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH && (
+                  {slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH && !hasDur && (
                     <span className="absolute bottom-0 right-1 text-[10px] font-mono-num font-bold text-white">
                       {slot.qty}
                     </span>
+                  )}
+                  {hasDur && (
+                    <div className="absolute inset-x-1 bottom-1 h-1 bg-[#060d14] rounded-xs overflow-hidden">
+                      <div
+                        className={`h-full ${
+                          durRatio > 0.4 ? 'bg-[#4ec46a]' : durRatio > 0.15 ? 'bg-[#f2b738]' : 'bg-[#e6482e]'
+                        }`}
+                        style={{ width: `${Math.round(durRatio * 100)}%` }}
+                      />
+                    </div>
                   )}
                 </button>
               );
@@ -963,9 +1174,9 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Seed Splicer Drawer */}
       {activePanel === 'splice' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-80 max-w-[92vw] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
+        <div className="pointer-events-auto fixed right-3 top-14 w-88 max-w-[92vw] max-h-[75vh] overflow-y-auto bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
-            <h2 className="font-pixel text-xs text-[#82e068]">Seed Splicer</h2>
+            <h2 className="font-pixel text-xs text-[#82e068]">Biome Seed Splicer</h2>
             <button
               type="button"
               onClick={() => setActivePanel('none')}
@@ -974,9 +1185,22 @@ export const GameHud: React.FC<GameHudProps> = ({
               Close
             </button>
           </div>
-          <p className="text-[11px] text-[#b5cde3]">
-            Combine two seeds to discover hybrid trees (e.g. Granite + Soil, Granite + Turf, Timber + Soil).
-          </p>
+          <div className="grid grid-cols-6 gap-1">
+            {(['all', 'starter', 'desert', 'arctic', 'cave', 'tech'] as const).map((branch) => (
+              <button
+                key={branch}
+                type="button"
+                onClick={() => setSpliceBranch(branch)}
+                className={`py-1 rounded text-[9px] font-bold uppercase cursor-pointer border ${
+                  spliceBranch === branch
+                    ? 'bg-[#1f422b] border-[#82e068] text-[#b4f7a1]'
+                    : 'bg-[#09131d] border-[#263c52] text-[#9cb5cc]'
+                }`}
+              >
+                {branch}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center justify-center gap-3 py-1">
             <div className="w-12 h-12 rounded border-2 border-[#3a597a] bg-[#08101a] flex items-center justify-center">
               {spliceA ? (
@@ -998,29 +1222,36 @@ export const GameHud: React.FC<GameHudProps> = ({
             {seedsInBag.length === 0 && (
               <p className="col-span-5 text-xs text-[#8aa4bd]">Mine blocks to collect seeds first.</p>
             )}
-            {seedsInBag.map((s) => (
-              <button
-                key={s.itemId}
-                type="button"
-                onClick={() => {
-                  if (!spliceA) setSpliceA(s.itemId);
-                  else if (!spliceB) setSpliceB(s.itemId);
-                  else {
-                    setSpliceA(s.itemId);
-                    setSpliceB(null);
-                  }
-                }}
-                className="relative h-11 rounded bg-[#09131d] border-2 border-[#263c52] hover:border-[#82e068] flex items-center justify-center cursor-pointer"
-              >
-                <img
-                  src={getItemIconUrl(s.itemId)}
-                  alt={getItemDef(s.itemId)?.name ?? 'Seed'}
-                  className="w-6 h-6 pixelated"
-                  referrerPolicy="no-referrer"
-                />
-                <span className="absolute bottom-0 right-1 text-[10px] font-mono-num text-white">{s.qty}</span>
-              </button>
-            ))}
+            {seedsInBag
+              .filter((s) => {
+                if (spliceBranch === 'all') return true;
+                const def = getItemDef(s.itemId);
+                return (def?.biomeBranch ?? 'starter') === spliceBranch;
+              })
+              .map((s) => (
+                <button
+                  key={s.itemId}
+                  type="button"
+                  title={getItemDef(s.itemId)?.name ?? 'Seed'}
+                  onClick={() => {
+                    if (!spliceA) setSpliceA(s.itemId);
+                    else if (!spliceB) setSpliceB(s.itemId);
+                    else {
+                      setSpliceA(s.itemId);
+                      setSpliceB(null);
+                    }
+                  }}
+                  className="relative h-11 rounded bg-[#09131d] border-2 border-[#263c52] hover:border-[#82e068] flex items-center justify-center cursor-pointer"
+                >
+                  <img
+                    src={getItemIconUrl(s.itemId)}
+                    alt={getItemDef(s.itemId)?.name ?? 'Seed'}
+                    className="w-6 h-6 pixelated"
+                    referrerPolicy="no-referrer"
+                  />
+                  <span className="absolute bottom-0 right-1 text-[10px] font-mono-num text-white">{s.qty}</span>
+                </button>
+              ))}
           </div>
           <div className="flex gap-2">
             <button
@@ -1047,6 +1278,47 @@ export const GameHud: React.FC<GameHudProps> = ({
             >
               Clear
             </button>
+          </div>
+
+          <div className="border-t border-[#243d57] pt-2 flex flex-col gap-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#9cb5cc]">
+              Biome Tech Tree Recipes ({spliceBranch})
+            </span>
+            <div className="max-h-32 overflow-y-auto flex flex-col gap-1 pr-0.5">
+              {SPLICE_RECIPES.filter(
+                (r) => spliceBranch === 'all' || r.branch === spliceBranch
+              ).map((r) => {
+                const nameA = getItemDef(r.seedA)?.name.replace(/ Seed$/, '') ?? '';
+                const nameB = getItemDef(r.seedB)?.name.replace(/ Seed$/, '') ?? '';
+                const nameRes = getItemDef(r.resultSeedId)?.name ?? 'Hybrid';
+                const hasBoth =
+                  r.seedA === r.seedB
+                    ? getQty(r.seedA) >= 2
+                    : getQty(r.seedA) >= 1 && getQty(r.seedB) >= 1;
+                return (
+                  <button
+                    key={`${r.seedA}-${r.seedB}-${r.resultSeedId}`}
+                    type="button"
+                    onClick={() => {
+                      if (hasBoth) {
+                        setSpliceA(r.seedA);
+                        setSpliceB(r.seedB);
+                      }
+                    }}
+                    className={`flex items-center justify-between gap-2 px-2 py-1 rounded text-left text-[10px] border ${
+                      hasBoth
+                        ? 'bg-[#12261d] border-[#4aa64d] text-[#d8f7d4] cursor-pointer'
+                        : 'bg-[#09131d] border-[#1f344a] text-[#7e9ab5] cursor-default'
+                    }`}
+                  >
+                    <span className="truncate font-bold">{nameRes}</span>
+                    <span className="shrink-0 font-mono-num">
+                      {nameA} + {nameB}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -1483,9 +1755,28 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
+      {/* Global World Lock Exchange Drawer */}
+      {activePanel === 'exchange' && (
+        <div className="pointer-events-auto fixed inset-x-2 top-12 bottom-2 md:inset-x-auto md:bottom-auto md:right-3 md:w-[680px] md:max-w-[94vw] md:h-[82vh] md:max-h-[620px] z-30 bg-[#0f1d2c]/98 border-2 border-[#f2b738] rounded-lg p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col overflow-hidden">
+          <ExchangeModal
+            playerId={playerId}
+            gems={gems}
+            inventory={inventory}
+            unclaimedWl={unclaimedWl}
+            exchange={exchange}
+            onRefresh={() => onExchangeAction({ action: 'list' })}
+            onPostListing={(opts) => onExchangeAction({ action: 'post', ...opts })}
+            onBuyListing={(listingId) => onExchangeAction({ action: 'buy', listingId })}
+            onCancelListing={(listingId) => onExchangeAction({ action: 'cancel', listingId })}
+            onClaimWl={() => onExchangeAction({ action: 'claim_wl' })}
+            onClose={() => setActivePanel('none')}
+          />
+        </div>
+      )}
+
       {/* In-World Administrator Dev Config Panel */}
       {activePanel === 'admin' && role === 'admin' && (
-        <div className="pointer-events-auto fixed inset-x-3 top-14 bottom-3 md:inset-x-auto md:bottom-auto md:right-3 md:w-[680px] md:max-w-[92vw] md:h-[78vh] md:max-h-[580px] z-30 bg-[#0f1d2c]/96 border-2 border-[#f2b738] rounded-md p-3.5 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col">
+        <div className="pointer-events-auto fixed inset-x-2 top-12 bottom-2 md:inset-x-auto md:bottom-auto md:right-3 md:w-[700px] md:max-w-[94vw] md:h-[82vh] md:max-h-[640px] z-30 bg-[#0f1d2c]/98 border-2 border-[#f2b738] rounded-lg p-2.5 sm:p-3.5 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col overflow-hidden">
           <AdminPanel
             gameConfig={gameConfig}
             inWorld={true}
@@ -1613,6 +1904,19 @@ export const GameHud: React.FC<GameHudProps> = ({
               >
                 <Globe className="w-4 h-4 text-[#78c8f5]" />
                 <span>Switch World</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onResume();
+                  onExchangeAction({ action: 'list' });
+                  setActivePanel('exchange');
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#ffe18c] cursor-pointer"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+                <span>WL Exchange</span>
               </button>
 
               {role === 'admin' && (

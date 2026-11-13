@@ -9,7 +9,12 @@ import {
   WORLD_WIDTH,
 } from './constants.ts';
 import { ACHIEVEMENTS, GEM_STORE_LISTINGS, ITEM_IDS } from './catalog.ts';
-import { generateWorld } from './worldGen.ts';
+import { generateMineShaft, generateWorld } from './worldGen.ts';
+import {
+  ensureFluidArrays,
+  floodFillLiquidDepth,
+  stepFluidFrontier,
+} from './fluids.ts';
 import {
   addXp,
   canBreakTile,
@@ -21,6 +26,7 @@ import {
   hasEditPermission,
   resolveSplice,
   tileIndex,
+  tileIndexIn,
   validateWorldName,
 } from './rules.ts';
 import { createPlayerBody, stepPlayerPhysics } from './physics.ts';
@@ -241,7 +247,14 @@ import {
   PLAYER_WIDTH,
   PLAYER_WIDTH_TILES,
 } from './constants.ts';
-import { getEffectiveItemDef, sanitizeGameConfig } from './config.ts';
+import {
+  applyFarmabilityTier,
+  buildFarmabilityOverride,
+  calculateFarmabilityProfile,
+  DEFAULT_GAME_CONFIG,
+  getEffectiveItemDef,
+  sanitizeGameConfig,
+} from './config.ts';
 import { isWithinReach } from './rules.ts';
 import { AuthoritativeWorldStore } from '../../server/worldStore.ts';
 
@@ -347,6 +360,7 @@ test('seeded admin login, empty Fist+Wrench starter inventory, and centered tile
     if (joined.ok) {
       const tx = joined.world.state.spawnX + 1;
       const ty = joined.world.state.spawnY + 1;
+      const surfaceId = joined.world.state.fg[tileIndex(tx, ty)];
       // Set hardness 1 override momentarily to test single-punch break and drop coords
       const prevCfg = store.getGameConfig();
       const testCfg = sanitizeGameConfig({
@@ -354,9 +368,9 @@ test('seeded admin login, empty Fist+Wrench starter inventory, and centered tile
         mechanics: { ...prevCfg.mechanics, punchCooldownMs: 60 },
         itemOverrides: {
           ...prevCfg.itemOverrides,
-          [ITEM_IDS.GP_GRASS]: {
+          [surfaceId]: {
             hardness: 1,
-            drops: [{ itemId: ITEM_IDS.GP_GRASS, chance: 1, minQty: 1, maxQty: 1 }],
+            drops: [{ itemId: surfaceId, chance: 1, minQty: 1, maxQty: 1 }],
           },
         },
       });
@@ -433,3 +447,401 @@ test('admin store editor customization, live store purchase, and in-world landsc
   assert.ok(cfg.mechanics.moveSpeed <= 240, 'move speed must be smoothed/slowed <= 240 px/s');
   assert.ok(cfg.mechanics.punchCooldownMs >= 280, 'punch cooldown must be calmer >= 280 ms');
 });
+
+test('calculated Farmability system function determines positive block yield ranges and assigns tiers accurately', () => {
+  // 1. Seed-linked block (Dirt #500)
+  const dirtDefault = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, DEFAULT_GAME_CONFIG);
+  assert.equal(dirtDefault.hasSeedCycle, true);
+  assert.equal(dirtDefault.linkedSeedId, ITEM_IDS.GP_SEED_DIRT);
+  assert.ok(dirtDefault.expectedBlockYield > 1.0, 'Default Dirt with 100% block + 20% seed is positive yield');
+  assert.ok(
+    dirtDefault.positiveYieldRanges.blockRateRangePct[0] >= 50 &&
+      dirtDefault.positiveYieldRanges.blockRateRangePct[1] <= 100
+  );
+  assert.ok(
+    dirtDefault.positiveYieldRanges.seedRateRangePct[0] >= 15 &&
+      dirtDefault.positiveYieldRanges.seedRateRangePct[1] >= dirtDefault.positiveYieldRanges.seedRateRangePct[0]
+  );
+
+  // Assign Sink vs Balanced vs Farmable vs Abundant to Dirt
+  const sinkCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.GP_DIRT], 'sink');
+  const dirtSink = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, sinkCfg);
+  assert.ok(dirtSink.expectedBlockYield < 1.0, 'Sink tier must yield < 1.0x');
+  assert.equal(dirtSink.isPositiveYield, false);
+
+  const balancedCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.GP_DIRT], 'balanced');
+  const dirtBalanced = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, balancedCfg);
+  assert.ok(dirtBalanced.expectedBlockYield > 1.0 && dirtBalanced.expectedBlockYield < 1.2);
+  assert.equal(dirtBalanced.isPositiveYield, true);
+
+  const farmableCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.GP_DIRT], 'farmable');
+  const dirtFarmable = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, farmableCfg);
+  assert.ok(dirtFarmable.expectedBlockYield >= 1.25, 'Farmable tier must yield >= 1.25x positive block yield');
+  assert.equal(dirtFarmable.isPositiveYield, true);
+
+  const abundantCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.GP_DIRT], 'abundant');
+  const dirtAbundant = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, abundantCfg);
+  assert.ok(dirtAbundant.expectedBlockYield >= 1.65, 'Abundant tier must yield >= 1.65x');
+
+  // 2. Biome blocks now have Biome Seeds (Desert Sand #700 -> #750, Blue Ice #725 -> #760, Crystal Ore #746 -> #771)
+  for (const biomeId of [ITEM_IDS.DESERT_SAND, ITEM_IDS.BLUE_ICE, ITEM_IDS.CRYSTAL_ORE]) {
+    const baseProfile = calculateFarmabilityProfile(biomeId, DEFAULT_GAME_CONFIG);
+    assert.equal(baseProfile.hasSeedCycle, true);
+    assert.ok(baseProfile.expectedBlockYield > 1.0);
+
+    const { targetItemId, override } = buildFarmabilityOverride(biomeId, 'farmable', DEFAULT_GAME_CONFIG);
+    assert.equal(targetItemId, biomeId);
+    assert.ok(override.drops && override.drops.length >= 1);
+
+    const nextCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [biomeId], 'farmable');
+    const farmProfile = calculateFarmabilityProfile(biomeId, nextCfg);
+    assert.ok(
+      farmProfile.expectedBlockYield >= 1.3,
+      `Biome block #${biomeId} farmable override must produce positive block yield >= 1.3x (got ${farmProfile.expectedBlockYield})`
+    );
+    assert.equal(farmProfile.isPositiveYield, true);
+  }
+
+  // Direct non-seed item (Stone Furnace #120) has no seed cycle
+  const furnaceProfile = calculateFarmabilityProfile(ITEM_IDS.STONE_FURNACE, DEFAULT_GAME_CONFIG);
+  assert.equal(furnaceProfile.hasSeedCycle, false);
+});
+
+test('dynamic fluids CA gravity, lateral flow, depth BFS tiers, and parkour/hazard physics', () => {
+  const world = generateWorld('FLUIDS');
+  ensureFluidArrays(world);
+
+  // Carve a basin from x=20..30, y=20..25 with solid stone floor at y=26 and walls at x=19,31
+  for (let x = 20; x <= 30; x++) {
+    for (let y = 18; y <= 25; y++) {
+      world.fg[tileIndexIn(world, x, y)] = ITEM_IDS.AIR;
+    }
+    world.fg[tileIndexIn(world, x, 26)] = ITEM_IDS.GP_ROCK;
+  }
+  for (let y = 18; y <= 26; y++) {
+    world.fg[tileIndexIn(world, 19, y)] = ITEM_IDS.GP_ROCK;
+    world.fg[tileIndexIn(world, 31, y)] = ITEM_IDS.GP_ROCK;
+  }
+
+  // Place a Water Source at (25, 20) and step frontier
+  world.fg[tileIndexIn(world, 25, 20)] = ITEM_IDS.WATER_SOURCE;
+  const frontier = new Set<string>(['25,20']);
+  let totalDeltas = 0;
+  for (let step = 0; step < 30; step++) {
+    const deltas = stepFluidFrontier(world, frontier, 220);
+    totalDeltas += deltas.length;
+  }
+  assert.ok(totalDeltas > 0, 'Water source must produce fluid deltas');
+  assert.equal(world.fluidType![tileIndexIn(world, 25, 25)], 1, 'Water must fall to basin floor');
+  assert.ok(world.fluidLevel![tileIndexIn(world, 24, 25)] > 0, 'Water must spread laterally');
+
+  const pool = floodFillLiquidDepth(world, 25, 25);
+  assert.equal(pool.fluidType, 1);
+  assert.ok(pool.depth >= 4 && (pool.depthTier === 'deep' || pool.depthTier === 'abyssal'));
+
+  // Test Acid pool tier detection & physics hazard
+  world.fluidType![tileIndexIn(world, 15, 25)] = 2;
+  world.fluidLevel![tileIndexIn(world, 15, 25)] = 4;
+  assert.equal(floodFillLiquidDepth(world, 15, 25).depthTier, 'acid');
+
+  // Test Bounce Pad high upward launch and Blue Ice low-friction slide
+  const bounceX = 40;
+  const bounceY = 30;
+  world.fg[tileIndexIn(world, bounceX, bounceY)] = ITEM_IDS.BOUNCE_PAD;
+  world.fg[tileIndexIn(world, bounceX, bounceY - 1)] = ITEM_IDS.AIR;
+  world.fg[tileIndexIn(world, bounceX, bounceY - 2)] = ITEM_IDS.AIR;
+  const body = createPlayerBody(bounceX, bounceY - 1);
+  const idleInput = { left: false, right: false, jumpHeld: false, jumpJustPressed: false, down: false };
+  let minVy = 0;
+  for (let i = 0; i < 20; i++) {
+    stepPlayerPhysics(body, world, idleInput, 1 / 60);
+    if (body.vy < minVy) minVy = body.vy;
+  }
+  assert.ok(minVy < -600, `Bounce pad must launch player strongly upward (minVy=${minVy})`);
+
+  // Blue Ice slide test
+  for (let x = 50; x <= 62; x++) {
+    world.fg[tileIndexIn(world, x, 30)] = ITEM_IDS.BLUE_ICE;
+    world.fg[tileIndexIn(world, x, 29)] = ITEM_IDS.AIR;
+    world.fg[tileIndexIn(world, x, 28)] = ITEM_IDS.AIR;
+  }
+  const iceBody = createPlayerBody(52, 28);
+  for (let i = 0; i < 25; i++) {
+    stepPlayerPhysics(iceBody, world, { ...idleInput, right: true }, 1 / 60);
+  }
+  const speedOnIce = Math.abs(iceBody.vx);
+  for (let i = 0; i < 8; i++) {
+    stepPlayerPhysics(iceBody, world, idleInput, 1 / 60);
+  }
+  assert.ok(Math.abs(iceBody.vx) > speedOnIce * 0.65, 'Blue Ice should preserve horizontal slide momentum');
+
+  // Acid hazard trigger
+  world.fg[tileIndexIn(world, 15, 26)] = ITEM_IDS.GP_ROCK;
+  world.fg[tileIndexIn(world, 15, 25)] = ITEM_IDS.AIR;
+  world.fg[tileIndexIn(world, 15, 24)] = ITEM_IDS.AIR;
+  const acidBody = createPlayerBody(15, 24);
+  let hazardSeen: string | null = null;
+  for (let i = 0; i < 25; i++) {
+    const res = stepPlayerPhysics(acidBody, world, idleInput, 1 / 60);
+    if (res.hazardHit) hazardSeen = res.hazardHit;
+  }
+  assert.equal(hazardSeen, 'acid');
+});
+
+test('mining shaft 50x150 isolation (0 Gems), pickaxe durability + furnace crafting/repair & fishing', () => {
+  const shaft = generateMineShaft('MINE_TEST', 'Tester');
+  assert.equal(shaft.width, 50);
+  assert.equal(shaft.height, 150);
+  assert.equal(shaft.worldKind, 'mine_shaft');
+  assert.equal(shaft.fg.length, 7500);
+
+  const store = new AuthoritativeWorldStore();
+  const suffix = Math.random().toString(36).slice(2, 7);
+  const reg = store.registerAccount({
+    email: `miner_${suffix}@example.com`,
+    username: `Miner_${suffix}`,
+    password: 'password123',
+  });
+  assert.equal(reg.ok, true);
+  if (!reg.ok) return;
+  const acct = reg.account;
+
+  // Give Mining Scroll + Stone Pickaxe + Bamboo Rod + Furnace + Copper Fragments + Coal + Glacier Trout
+  store.addInventory(acct, ITEM_IDS.MINING_SCROLL, 1);
+  store.addInventory(acct, ITEM_IDS.STONE_PICKAXE, 1);
+  store.addInventory(acct, ITEM_IDS.BAMBOO_ROD, 1);
+  store.addInventory(acct, ITEM_IDS.STONE_FURNACE, 1);
+  store.addInventory(acct, ITEM_IDS.COPPER_FRAGMENT, 3);
+  store.addInventory(acct, ITEM_IDS.COAL_FUEL, 2);
+  store.addInventory(acct, ITEM_IDS.FISH_GLACIER_TROUT, 2);
+
+  // Activate Mining Scroll -> creates ephemeral MINE_* shaft
+  const scrollRes = store.handleUseConsumable(acct, ITEM_IDS.MINING_SCROLL);
+  assert.equal(scrollRes.ok, true);
+  if (!scrollRes.ok || !scrollRes.mineWorldName) return;
+
+  const joined = store.joinWorld(acct, scrollRes.mineWorldName);
+  assert.equal(joined.ok, true);
+  if (!joined.ok) return;
+
+  // Break an ore/stone tile inside shaft using Stone Pickaxe -> 0 Gems, durability decrements
+  const tx = joined.world.state.spawnX + 1;
+  const ty = joined.world.state.spawnY + 1;
+  joined.world.state.fg[tileIndexIn(joined.world.state, tx, ty)] = ITEM_IDS.COPPER_VEIN;
+  const pickSlotBefore = acct.inventory.find((s) => s.itemId === ITEM_IDS.STONE_PICKAXE);
+  const durBefore = pickSlotBefore?.durability ?? 0;
+  assert.ok(durBefore > 0);
+
+  for (let i = 0; i < 6; i++) {
+    store['lastPunchAt'].delete(acct.id);
+    const punch = store.handlePunchTile(joined.world, acct, tx, ty, ITEM_IDS.STONE_PICKAXE);
+    if (punch.ok && punch.broken) {
+      assert.equal(punch.gemsGained, 0, 'Mining shafts must award 0 standard Gems');
+      assert.ok(!punch.drops.some((d) => d.isGem), 'Mining shaft drops must not spawn Gems');
+      break;
+    }
+  }
+  const durAfter = acct.inventory.find((s) => s.itemId === ITEM_IDS.STONE_PICKAXE)?.durability ?? 0;
+  assert.equal(durAfter, durBefore - 1, 'Pickaxe durability must decrement by 1 per broken foreground tile');
+
+  // Leave mine shaft & verify furnace smelting + repair + culinary buff in a dedicated test world
+  store.leaveWorld(scrollRes.mineWorldName, acct.id);
+  const testWorldName = `CRAFT_${suffix.toUpperCase()}`;
+  const startJoined = store.joinWorld(acct, testWorldName);
+  assert.equal(startJoined.ok, true);
+  if (!startJoined.ok) return;
+
+  const fTx = startJoined.world.state.spawnX + 2;
+  const fTy = startJoined.world.state.spawnY;
+  startJoined.world.state.fg[tileIndexIn(startJoined.world.state, fTx, fTy)] = ITEM_IDS.AIR;
+  const placeFurnace = store.handlePlaceTile(startJoined.world, acct, ITEM_IDS.STONE_FURNACE, fTx, fTy);
+  assert.equal(placeFurnace.ok, true);
+
+  // Repair Stone Pickaxe using Rock
+  store.addInventory(acct, ITEM_IDS.GP_ROCK, 10);
+  const repairRes = store.handleConfigureFurnace(startJoined.world, acct, fTx, fTy, {
+    action: 'repair',
+    toolItemId: ITEM_IDS.STONE_PICKAXE,
+  });
+  assert.equal(repairRes.ok, true);
+  const pickAfterRepair = acct.inventory.find((s) => s.itemId === ITEM_IDS.STONE_PICKAXE);
+  assert.equal(pickAfterRepair?.durability, pickAfterRepair?.maxDurability);
+
+  // Smelt Copper Ingot & fast-forward finish timestamp
+  const craftRes = store.handleConfigureFurnace(startJoined.world, acct, fTx, fTy, {
+    action: 'craft',
+    recipeId: 'smelt_copper',
+  });
+  assert.equal(craftRes.ok, true);
+  startJoined.world.state.furnaces![`${fTx},${fTy}`].finishesAt = Date.now() - 100;
+  const collectRes = store.handleConfigureFurnace(startJoined.world, acct, fTx, fTy, {
+    action: 'collect',
+  });
+  assert.equal(collectRes.ok, true);
+  assert.ok((acct.inventory.find((s) => s.itemId === ITEM_IDS.COPPER_INGOT)?.qty ?? 0) >= 1);
+
+  // Cook & consume Glacier Fillet for move_speed buff
+  const cookRes = store.handleConfigureFurnace(startJoined.world, acct, fTx, fTy, {
+    action: 'craft',
+    recipeId: 'cook_glacier_fillet',
+  });
+  assert.equal(cookRes.ok, true);
+  startJoined.world.state.furnaces![`${fTx},${fTy}`].finishesAt = Date.now() - 100;
+  store.handleConfigureFurnace(startJoined.world, acct, fTx, fTy, { action: 'collect' });
+  const buffRes = store.handleUseConsumable(acct, ITEM_IDS.BUFF_GLACIER_FILLET);
+  assert.equal(buffRes.ok, true);
+  assert.ok(acct.activeBuffs.some((b) => b.buffType === 'move_speed' && b.bonusPct > 0));
+
+  // Cast & reel fishing inside Water pool (0 Gems awarded)
+  const wTx = startJoined.world.state.spawnX - 2;
+  const wTy = startJoined.world.state.spawnY;
+  ensureFluidArrays(startJoined.world.state);
+  startJoined.world.state.fg[tileIndexIn(startJoined.world.state, wTx, wTy)] = ITEM_IDS.AIR;
+  startJoined.world.state.fluidType![tileIndexIn(startJoined.world.state, wTx, wTy)] = 1;
+  startJoined.world.state.fluidLevel![tileIndexIn(startJoined.world.state, wTx, wTy)] = 4;
+
+  const gemsBeforeFish = acct.gems;
+  const castRes = store.handleCastFishing(startJoined.world, acct, wTx, wTy, ITEM_IDS.BAMBOO_ROD);
+  assert.equal(castRes.ok, true);
+  const castObj = startJoined.world.activeCasts.get(acct.id);
+  assert.ok(castObj);
+  if (castObj) castObj.biting = true;
+  const reelRes = store.handleReelFishing(startJoined.world, acct);
+  assert.equal(reelRes.ok, true);
+  if (reelRes.ok) {
+    assert.equal(reelRes.caught, true);
+    assert.ok(reelRes.caughtItemId);
+  }
+  assert.equal(acct.gems, gemsBeforeFish, 'Fishing must yield fish/XP without standard Gems');
+
+  store.leaveWorld(testWorldName, acct.id);
+});
+
+test('Global WL Exchange escrow, 5% WL sink, 10-Gem clearing fee, Claim Vault & BFG Auto-Collector', () => {
+  const store = new AuthoritativeWorldStore();
+  const s1 = Math.random().toString(36).slice(2, 7);
+  const s2 = Math.random().toString(36).slice(2, 7);
+  const sellerReg = store.registerAccount({
+    email: `seller_${s1}@example.com`,
+    username: `Seller_${s1}`,
+    password: 'password123',
+  });
+  const buyerReg = store.registerAccount({
+    email: `buyer_${s2}@example.com`,
+    username: `Buyer_${s2}`,
+    password: 'password123',
+  });
+  assert.equal(sellerReg.ok && buyerReg.ok, true);
+  if (!sellerReg.ok || !buyerReg.ok) return;
+
+  const seller = sellerReg.account;
+  const buyer = buyerReg.account;
+  store.addInventory(seller, ITEM_IDS.IRON_INGOT, 20);
+  store.addInventory(buyer, ITEM_IDS.WORLD_LOCK, 25);
+  seller.gems = 20;
+
+  // 1. 1-WL listing charges 10-Gem anti-spam clearing fee per bundle
+  const oneWlPost = store.handleExchangeAction(seller, {
+    action: 'post',
+    itemId: ITEM_IDS.IRON_INGOT,
+    bundleSize: 5,
+    bundles: 1,
+    priceWl: 1,
+  });
+  assert.equal(oneWlPost.ok, true);
+  assert.equal(seller.gems, 10);
+  assert.ok(store.getExchangeSnapshot().totalGemsCleared >= 10);
+
+  // 2. 20-WL listing applies 5% WL sink (1 WL burned, 19 WL in Claim Vault)
+  const twentyWlPost = store.handleExchangeAction(seller, {
+    action: 'post',
+    itemId: ITEM_IDS.IRON_INGOT,
+    bundleSize: 10,
+    bundles: 1,
+    priceWl: 20,
+  });
+  assert.equal(twentyWlPost.ok, true);
+  const targetListing = store
+    .getExchangeSnapshot()
+    .listings.find((l) => l.sellerId === seller.id && l.priceWl === 20);
+  assert.ok(targetListing);
+  if (!targetListing) return;
+
+  const burnedBefore = store.getExchangeSnapshot().totalWlBurned;
+  const buyRes = store.handleExchangeAction(buyer, {
+    action: 'buy',
+    listingId: targetListing.id,
+    txId: `tx_ex_${Date.now()}`,
+  });
+  assert.equal(buyRes.ok, true);
+  assert.equal(store.getExchangeSnapshot().totalWlBurned, burnedBefore + 1);
+  assert.equal(buyer.inventory.find((s) => s.itemId === ITEM_IDS.IRON_INGOT)?.qty, 10);
+  assert.equal(buyer.inventory.find((s) => s.itemId === ITEM_IDS.WORLD_LOCK)?.qty, 5);
+  assert.equal(seller.unclaimedWl, 19);
+
+  // Seller claims World Locks from Claim Vault
+  const claimRes = store.handleExchangeAction(seller, { action: 'claim_wl' });
+  assert.equal(claimRes.ok, true);
+  assert.equal(seller.unclaimedWl, 0);
+  assert.equal(seller.inventory.find((s) => s.itemId === ITEM_IDS.WORLD_LOCK)?.qty, 19);
+
+  // 3. BFG Auto-Collector requires locked world & harvests/magnets into buffer
+  const bfgWorldName = `BFGTEST_${s1.toUpperCase()}`;
+  const joinedBfg = store.joinWorld(seller, bfgWorldName);
+  assert.equal(joinedBfg.ok, true);
+  if (!joinedBfg.ok) return;
+
+  const bTx = joinedBfg.world.state.spawnX + 2;
+  const bTy = joinedBfg.world.state.spawnY;
+  joinedBfg.world.state.fg[tileIndexIn(joinedBfg.world.state, bTx, bTy)] = ITEM_IDS.AIR;
+  joinedBfg.world.state.fg[tileIndexIn(joinedBfg.world.state, bTx - 1, bTy)] = ITEM_IDS.AIR;
+
+  const unlockedCheck = canPlaceTile(
+    joinedBfg.world.state,
+    { id: seller.id, x: joinedBfg.world.state.spawnX * TILE_SIZE, y: joinedBfg.world.state.spawnY * TILE_SIZE },
+    ITEM_IDS.BFG_COLLECTOR,
+    bTx,
+    bTy
+  );
+  assert.equal(unlockedCheck.ok, false, 'BFG Auto-Collector must reject placement in unlocked world');
+
+  // Place World Lock then BFG Auto-Collector
+  const wlPlace = store.handlePlaceTile(
+    joinedBfg.world,
+    seller,
+    ITEM_IDS.WORLD_LOCK,
+    bTx - 1,
+    bTy
+  );
+  assert.equal(wlPlace.ok, true);
+
+  store.addInventory(seller, ITEM_IDS.BFG_COLLECTOR, 1);
+  const bfgPlace = store.handlePlaceTile(joinedBfg.world, seller, ITEM_IDS.BFG_COLLECTOR, bTx, bTy);
+  assert.equal(bfgPlace.ok, true);
+
+  // Plant a mature tree 2 tiles away -> BFG tick harvests & stores it
+  const treeTx = bTx + 2;
+  joinedBfg.world.state.plants[`${treeTx},${bTy}`] = {
+    x: treeTx,
+    y: bTy,
+    seedId: ITEM_IDS.GP_SEED_DIRT,
+    plantedAt: 1000,
+    maturityAt: 2000,
+    ownerId: seller.id,
+  };
+  store.tickBfgCollectors(Date.now());
+  const bfgRec = joinedBfg.world.state.bfgCollectors![`${bTx},${bTy}`];
+  assert.ok(bfgRec.storedItems.length >= 1, 'BFG tick must buffer harvested blocks');
+  assert.ok(bfgRec.storedGems >= 2, 'BFG tick must buffer harvest Gems');
+
+  const withdrawRes = store.handleConfigureBfg(joinedBfg.world, seller, bTx, bTy, {
+    action: 'withdraw',
+  });
+  assert.equal(withdrawRes.ok, true);
+  assert.equal(bfgRec.storedGems, 0);
+  assert.equal(bfgRec.storedItems.length, 0);
+
+  store.leaveWorld(bfgWorldName, seller.id);
+});
+
+

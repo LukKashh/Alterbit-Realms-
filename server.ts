@@ -5,7 +5,8 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { AuthoritativeWorldStore, type LiveWorld, type PlayerAccount } from './server/worldStore.ts';
 import { adminAuth } from './src/lib/firebase-admin.ts';
 import type { ClientMessage, ServerMessage } from './src/game/network.ts';
-import { tileIndex } from './src/game/rules.ts';
+import { TILE_SIZE } from './src/game/constants.ts';
+import { tileIndexIn, worldHeight, worldWidth } from './src/game/rules.ts';
 
 interface ClientSession {
   ws: WebSocket;
@@ -40,6 +41,10 @@ async function startServer() {
 
   app.get('/api/config', (_req, res) => {
     res.json({ gameConfig: store.getGameConfig() });
+  });
+
+  app.get('/api/exchange', (_req, res) => {
+    res.json({ ok: true, exchange: store.getExchangeSnapshot() });
   });
 
   app.post('/api/auth/register', (req, res) => {
@@ -157,6 +162,8 @@ async function startServer() {
       incomingRequests: account.incomingRequests,
       favoriteWorlds: account.favoriteWorlds,
       recentWorlds: account.recentWorlds,
+      activeBuffs: store.pruneAndGetBuffs(account),
+      unclaimedWl: account.unclaimedWl ?? 0,
       notice,
     });
   }
@@ -179,7 +186,7 @@ async function startServer() {
   }
 
   function broadcastTileSnapshot(live: LiveWorld, tx: number, ty: number) {
-    const idx = tileIndex(tx, ty);
+    const idx = tileIndexIn(live.state, tx, ty);
     const key = `${tx},${ty}`;
     broadcastWorld(live.state.name, {
       type: 'tile_updated',
@@ -187,10 +194,14 @@ async function startServer() {
       ty,
       fg: live.state.fg[idx],
       bg: live.state.bg[idx],
+      fluidType: live.state.fluidType?.[idx] ?? 0,
+      fluidLevel: live.state.fluidLevel?.[idx] ?? 0,
       plant: live.state.plants[key] ?? null,
       worldLock: live.state.worldLock,
       areaLock: live.state.areaLocks?.[key] ?? null,
       vendingMachine: live.state.vendingMachines?.[key] ?? null,
+      furnace: live.state.furnaces?.[key] ?? null,
+      bfgCollector: live.state.bfgCollectors?.[key] ?? null,
       signText: live.state.signs?.[key] ?? null,
       revision: live.state.revision,
     });
@@ -202,6 +213,35 @@ async function startServer() {
     store.leaveWorld(prevWorld, session.account.id);
     session.worldName = null;
     broadcastWorld(prevWorld, { type: 'player_left', playerId: session.account.id });
+    broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
+  }
+
+  function enterWorldSession(
+    session: ClientSession,
+    ws: WebSocket,
+    account: PlayerAccount,
+    targetWorldName: string
+  ) {
+    leaveCurrentWorld(session);
+    const res = store.joinWorld(account, targetWorldName);
+    if (!res.ok) {
+      sendTo(ws, { type: 'world_error', message: res.message });
+      return;
+    }
+    session.worldName = res.world.state.name;
+    sendTo(ws, {
+      type: 'world_joined',
+      world: res.world.state,
+      players: Array.from(res.world.players.values()),
+      drops: Array.from(res.world.drops.values()),
+      chatHistory: res.world.chatHistory,
+    });
+    sendProfileUpdate(ws, account);
+    broadcastWorld(
+      res.world.state.name,
+      { type: 'player_joined', player: res.remote },
+      ws
+    );
     broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
   }
 
@@ -249,7 +289,10 @@ async function startServer() {
           incomingRequests: account.incomingRequests,
           favoriteWorlds: account.favoriteWorlds,
           recentWorlds: account.recentWorlds,
+          activeBuffs: store.pruneAndGetBuffs(account),
+          unclaimedWl: account.unclaimedWl ?? 0,
           gameConfig: store.getGameConfig(),
+          exchange: store.getExchangeSnapshot(),
         });
         return;
       }
@@ -268,27 +311,45 @@ async function startServer() {
       }
 
       if (msg.type === 'join_world') {
-        leaveCurrentWorld(session);
-        const res = store.joinWorld(account, msg.worldName);
+        enterWorldSession(session, ws, account, msg.worldName);
+        return;
+      }
+
+      if (msg.type === 'use_consumable') {
+        const res = store.handleUseConsumable(account, msg.itemId);
         if (!res.ok) {
           sendTo(ws, { type: 'world_error', message: res.message });
           return;
         }
-        session.worldName = res.world.state.name;
-        sendTo(ws, {
-          type: 'world_joined',
-          world: res.world.state,
-          players: Array.from(res.world.players.values()),
-          drops: Array.from(res.world.drops.values()),
-          chatHistory: res.world.chatHistory,
-        });
-        sendProfileUpdate(ws, account);
-        broadcastWorld(
-          res.world.state.name,
-          { type: 'player_joined', player: res.remote },
-          ws
-        );
-        broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
+        if (res.kind === 'mine_scroll' && res.mineWorldName) {
+          enterWorldSession(session, ws, account, res.mineWorldName);
+          sendProfileUpdate(ws, account, res.notice);
+        } else {
+          sendProfileUpdate(ws, account, res.notice);
+        }
+        return;
+      }
+
+      if (msg.type === 'exit_mine_shaft') {
+        enterWorldSession(session, ws, account, 'START');
+        return;
+      }
+
+      if (msg.type === 'exchange_action') {
+        if (msg.action === 'list') {
+          sendTo(ws, { type: 'exchange_updated', exchange: store.getExchangeSnapshot() });
+          return;
+        }
+        const res = store.handleExchangeAction(account, msg);
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        sendProfileUpdate(ws, account, res.notice);
+        broadcastAll({ type: 'exchange_updated', exchange: store.getExchangeSnapshot() });
+        if (res.sellerIdToNotify) {
+          sendProfileToPlayerId(res.sellerIdToNotify, 'Global Exchange sale! Claim WL in your Vault.');
+        }
         return;
       }
 
@@ -407,8 +468,10 @@ async function startServer() {
       if (!remote) return;
 
       if (msg.type === 'move') {
-        remote.x = Math.max(0, Math.min(99 * 48, msg.x));
-        remote.y = Math.max(0, Math.min(59 * 48, msg.y));
+        const maxPxX = (worldWidth(live.state) - 1) * TILE_SIZE;
+        const maxPxY = (worldHeight(live.state) - 1) * TILE_SIZE;
+        remote.x = Math.max(0, Math.min(maxPxX, msg.x));
+        remote.y = Math.max(0, Math.min(maxPxY, msg.y));
         remote.vx = msg.vx;
         remote.vy = msg.vy;
         remote.facing = msg.facing;
@@ -421,7 +484,7 @@ async function startServer() {
       }
 
       if (msg.type === 'punch_tile') {
-        const res = store.handlePunchTile(live, account, msg.tx, msg.ty);
+        const res = store.handlePunchTile(live, account, msg.tx, msg.ty, msg.toolItemId);
         if (!res.ok) {
           if (res.reason) sendTo(ws, { type: 'world_error', message: res.reason });
           return;
@@ -433,14 +496,14 @@ async function startServer() {
             ty: msg.ty,
             hits: res.hits,
             maxHits: res.maxHits,
-            layer: res.layer,
+            layer: res.layer as 'fg' | 'bg' | 'plant',
           });
         } else {
           broadcastTileSnapshot(live, msg.tx, msg.ty);
           for (const d of res.drops) {
             broadcastWorld(live.state.name, { type: 'drop_spawned', drop: d });
           }
-          sendProfileUpdate(ws, account);
+          sendProfileUpdate(ws, account, res.notice);
         }
         return;
       }
@@ -518,6 +581,73 @@ async function startServer() {
         return;
       }
 
+      if (msg.type === 'configure_furnace') {
+        const res = store.handleConfigureFurnace(live, account, msg.tx, msg.ty, {
+          action: msg.action,
+          recipeId: msg.recipeId,
+          toolItemId: msg.toolItemId,
+        });
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        broadcastTileSnapshot(live, msg.tx, msg.ty);
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
+      if (msg.type === 'configure_bfg') {
+        const res = store.handleConfigureBfg(live, account, msg.tx, msg.ty, {
+          action: msg.action,
+        });
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        broadcastTileSnapshot(live, msg.tx, msg.ty);
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
+      if (msg.type === 'cast_fishing') {
+        const res = store.handleCastFishing(live, account, msg.tx, msg.ty, msg.rodItemId);
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        broadcastWorld(live.state.name, {
+          type: 'fishing_started',
+          cast: {
+            playerId: res.cast.playerId,
+            playerName: res.cast.playerName,
+            bobberTx: res.cast.bobberTx,
+            bobberTy: res.cast.bobberTy,
+            fluidType: res.cast.fluidType,
+            depthTier: res.cast.depthTier,
+            biting: false,
+            startedAt: res.cast.startedAt,
+          },
+        });
+        return;
+      }
+
+      if (msg.type === 'reel_fishing') {
+        const res = store.handleReelFishing(live, account);
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        broadcastWorld(live.state.name, {
+          type: 'fishing_ended',
+          playerId: account.id,
+          caughtItemId: res.caughtItemId,
+          caughtName: res.caughtName,
+          depthTier: res.depthTier,
+        });
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
       if (msg.type === 'chat') {
         const chatMsg = store.handleChat(live, account, msg.text);
         if (chatMsg) {
@@ -531,6 +661,59 @@ async function startServer() {
       sessions.delete(session);
     });
   });
+
+  // Authoritative 250ms simulation tick: fluid CA, fishing bites/timeouts, furnace completion & mine timers
+  const simTickTimer = setInterval(() => {
+    const tick = store.tickAllWorlds(Date.now());
+    for (const fu of tick.fluidUpdates) {
+      broadcastWorld(fu.worldName, { type: 'fluid_delta', deltas: fu.deltas });
+    }
+    for (const fb of tick.fishingBites) {
+      broadcastWorld(fb.worldName, {
+        type: 'fishing_bite',
+        playerId: fb.cast.playerId,
+        bobberTx: fb.cast.bobberTx,
+        bobberTy: fb.cast.bobberTy,
+        depthTier: fb.cast.depthTier,
+      });
+    }
+    for (const ft of tick.fishingTimeouts) {
+      broadcastWorld(ft.worldName, { type: 'fishing_ended', playerId: ft.playerId });
+    }
+    for (const cf of tick.completedFurnaces) {
+      const lw = store.getExistingWorld(cf.worldName);
+      if (lw) broadcastTileSnapshot(lw, cf.tx, cf.ty);
+    }
+    for (const em of tick.expiredMines) {
+      for (const s of sessions) {
+        if (s.worldName === em.worldName && s.account) {
+          s.worldName = null;
+          sendTo(s.ws, {
+            type: 'mine_shaft_expired',
+            worldName: em.worldName,
+            message: `Mining Shaft ${em.worldName} collapsed! Returning to START.`,
+          });
+          enterWorldSession(s, s.ws, s.account, 'START');
+        }
+      }
+    }
+  }, 250);
+  simTickTimer.unref();
+
+  // Authoritative 2500ms BFG Auto-Collector tick
+  const bfgTickTimer = setInterval(() => {
+    const updates = store.tickBfgCollectors(Date.now());
+    for (const u of updates) {
+      const lw = store.getExistingWorld(u.worldName);
+      if (!lw) continue;
+      for (const t of u.harvestedTiles) broadcastTileSnapshot(lw, t.tx, t.ty);
+      for (const t of u.collectorTiles) broadcastTileSnapshot(lw, t.tx, t.ty);
+      for (const dropId of u.removedDropIds) {
+        broadcastWorld(u.worldName, { type: 'drop_removed', dropId });
+      }
+    }
+  }, 2500);
+  bfgTickTimer.unref();
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');

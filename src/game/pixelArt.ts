@@ -650,6 +650,319 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       break;
     }
 
+    // --- Desert Blast Biome Blocks (700..707) ---
+    case ITEM_IDS.DESERT_SAND:
+    case ITEM_IDS.SALT_CRUST: {
+      drawFramedPanel16(ctx, def.colorPrimary);
+      const ramp = deriveColorRamp(def.colorPrimary);
+      p3(ctx, 3, 4, ramp.highlight, 4, 1);
+      p3(ctx, 9, 6, ramp.shadow, 4, 1);
+      p3(ctx, 4, 10, ramp.highlight, 5, 1);
+      p3(ctx, 10, 12, ramp.shadow, 3, 1);
+      break;
+    }
+    case ITEM_IDS.RED_SANDSTONE:
+    case ITEM_IDS.DESERT_HARDPAN: {
+      const ramp = deriveColorRamp(def.colorPrimary);
+      drawMasonryBricks16(ctx, ramp.highlight, ramp.base, ramp.shadow, ramp.outline);
+      p3(ctx, 2, 5, ramp.highlight, 12, 1);
+      p3(ctx, 2, 11, ramp.shadow, 12, 1);
+      break;
+    }
+    case ITEM_IDS.DUNE_GRASS: {
+      drawFramedPanel16(ctx, '#d9b96b');
+      p3(ctx, 2, 2, '#656532', 12, 4);
+      p3(ctx, 3, 2, '#a9a04f', 10, 3);
+      p3(ctx, 4, 2, '#d3c978', 3, 2);
+      p3(ctx, 9, 2, '#d3c978', 3, 2);
+      break;
+    }
+    case ITEM_IDS.CACTUS: {
+      p3(ctx, 3, 0, THEME.ink.outline, 10, 16);
+      p3(ctx, 4, 1, '#28613b', 8, 14);
+      p3(ctx, 5, 1, '#4f9b55', 6, 14);
+      p3(ctx, 6, 1, '#9cdb79', 2, 14);
+      p3(ctx, 2, 4, '#fff6a3', 1, 1);
+      p3(ctx, 13, 6, '#fff6a3', 1, 1);
+      p3(ctx, 2, 11, '#fff6a3', 1, 1);
+      break;
+    }
+    case ITEM_IDS.DRY_ROOT: {
+      drawFramedPanel16(ctx, '#b8945e');
+      p3(ctx, 6, 2, '#5b422e', 3, 12);
+      p3(ctx, 4, 6, '#5b422e', 3, 2);
+      p3(ctx, 9, 8, '#5b422e', 3, 2);
+      p3(ctx, 7, 3, '#c79c63', 1, 9);
+      break;
+    }
+    case ITEM_IDS.DESERT_GRAVEL:
+    case ITEM_IDS.CAVE_GRAVEL: {
+      drawFramedPanel16(ctx, def.colorPrimary);
+      const ramp = deriveColorRamp(def.colorPrimary);
+      for (const [gx, gy] of [
+        [3, 3],
+        [9, 4],
+        [5, 8],
+        [10, 10],
+        [4, 12],
+      ]) {
+        p3(ctx, gx, gy, ramp.shadow, 3, 2);
+        p3(ctx, gx, gy, ramp.highlight, 2, 1);
+      }
+      break;
+    }
+
+    // --- Arctic Tundra Biome Blocks (720..727) ---
+    case ITEM_IDS.FROST_SNOW:
+    case ITEM_IDS.PACKED_SNOW: {
+      drawFramedPanel16(ctx, def.colorPrimary);
+      p3(ctx, 2, 2, '#ffffff', 12, 3);
+      p3(ctx, 4, 8, '#ffffff', 3, 2);
+      p3(ctx, 10, 10, def.colorSecondary, 3, 2);
+      break;
+    }
+    case ITEM_IDS.GLACIER_ICE:
+    case ITEM_IDS.BLUE_ICE: {
+      drawFramedPanel16(ctx, def.colorPrimary);
+      p3(ctx, 3, 3, def.colorAccent, 5, 2);
+      p3(ctx, 5, 5, def.colorAccent, 5, 2);
+      p3(ctx, 8, 9, def.colorAccent, 4, 2);
+      p3(ctx, 3, 11, def.colorSecondary, 5, 2);
+      break;
+    }
+    case ITEM_IDS.PERMAFROST:
+    case ITEM_IDS.FROZEN_DIRT: {
+      drawFramedPanel16(ctx, def.colorPrimary);
+      p3(ctx, 2, 2, '#d5f8ff', 12, 2);
+      p3(ctx, 4, 7, def.colorSecondary, 3, 3);
+      p3(ctx, 10, 9, def.colorAccent, 3, 2);
+      break;
+    }
+    case ITEM_IDS.FROST_ROCK:
+    case ITEM_IDS.CAVE_LIMESTONE:
+    case ITEM_IDS.CAVE_SHALE:
+    case ITEM_IDS.GRANITE:
+    case ITEM_IDS.UNDERGROUND_CLAY: {
+      const ramp = deriveColorRamp(def.colorPrimary);
+      drawMasonryBricks16(ctx, ramp.highlight, ramp.base, ramp.shadow, ramp.outline);
+      p3(ctx, 4, 4, ramp.highlight, 3, 2);
+      p3(ctx, 10, 9, ramp.shadow, 3, 2);
+      break;
+    }
+    case ITEM_IDS.ICICLE:
+    case ITEM_IDS.STALACTITE: {
+      p3(ctx, 2, 0, THEME.ink.outline, 12, 4);
+      p3(ctx, 4, 4, THEME.ink.outline, 8, 5);
+      p3(ctx, 6, 9, THEME.ink.outline, 4, 5);
+      p3(ctx, 3, 1, def.colorPrimary, 10, 3);
+      p3(ctx, 5, 4, def.colorPrimary, 6, 5);
+      p3(ctx, 7, 9, def.colorAccent, 2, 4);
+      break;
+    }
+    case ITEM_IDS.STALAGMITE: {
+      p3(ctx, 6, 2, THEME.ink.outline, 4, 5);
+      p3(ctx, 4, 7, THEME.ink.outline, 8, 5);
+      p3(ctx, 2, 12, THEME.ink.outline, 12, 4);
+      p3(ctx, 7, 3, def.colorAccent, 2, 4);
+      p3(ctx, 5, 7, def.colorPrimary, 6, 5);
+      p3(ctx, 3, 12, def.colorPrimary, 10, 3);
+      break;
+    }
+    case ITEM_IDS.CRYSTAL_ORE: {
+      drawFramedPanel16(ctx, '#4b4569');
+      for (const [cx, cy] of [
+        [3, 3],
+        [9, 4],
+        [5, 9],
+        [10, 10],
+      ]) {
+        p3(ctx, cx, cy, '#d7c8ff', 3, 3);
+        p3(ctx, cx + 1, cy + 1, '#8d79ce', 2, 2);
+      }
+      break;
+    }
+    case ITEM_IDS.CAVE_BACKGROUND_WALL: {
+      const ramp = deriveColorRamp(def.colorPrimary);
+      drawMasonryBricks16(ctx, ramp.highlight, ramp.base, ramp.shadow, ramp.outline);
+      break;
+    }
+
+    // --- Fluids & Parkour ---
+    case ITEM_IDS.WATER_SOURCE: {
+      p3(ctx, 1, 2, THEME.ink.outline, 14, 13);
+      p3(ctx, 2, 3, '#1d69a8', 12, 11);
+      p3(ctx, 2, 3, '#38a8eb', 12, 8);
+      p3(ctx, 3, 4, '#b8f3ff', 4, 2);
+      p3(ctx, 9, 5, '#b8f3ff', 3, 2);
+      p3(ctx, 5, 8, '#7ad5ff', 6, 2);
+      break;
+    }
+
+    case ITEM_IDS.ACID_SOURCE: {
+      p3(ctx, 1, 2, THEME.ink.outline, 14, 13);
+      p3(ctx, 2, 3, '#2d7a1d', 12, 11);
+      p3(ctx, 2, 3, '#63d93b', 12, 8);
+      p3(ctx, 4, 4, '#d2ff8c', 3, 2);
+      p3(ctx, 10, 6, '#d2ff8c', 2, 2);
+      p3(ctx, 6, 9, '#9cff63', 4, 2);
+      break;
+    }
+
+    case ITEM_IDS.BOUNCE_PAD: {
+      p3(ctx, 1, 11, THEME.ink.outline, 14, 5);
+      p3(ctx, 2, 12, '#6b3e24', 12, 3);
+      p3(ctx, 4, 7, THEME.metal.steelMid, 2, 5);
+      p3(ctx, 10, 7, THEME.metal.steelMid, 2, 5);
+      p3(ctx, 1, 3, THEME.ink.outline, 14, 5);
+      p3(ctx, 2, 4, '#e67e32', 12, 3);
+      p3(ctx, 3, 4, '#ffe38c', 10, 1);
+      break;
+    }
+
+    // --- Machines & Scrolls ---
+    case ITEM_IDS.STONE_FURNACE: {
+      drawFramedPanel16(ctx, '#6c7480', { bolts: true });
+      p3(ctx, 4, 4, THEME.ink.outline, 8, 8);
+      p3(ctx, 5, 5, '#2b1812', 6, 6);
+      p3(ctx, 6, 7, '#ff6824', 4, 4);
+      p3(ctx, 7, 8, '#ffda66', 2, 3);
+      p3(ctx, 5, 2, '#2d333d', 6, 1);
+      break;
+    }
+
+    case ITEM_IDS.BFG_COLLECTOR: {
+      drawFramedPanel16(ctx, '#3974a8', { bolts: true });
+      p3(ctx, 4, 3, THEME.ink.outline, 8, 9);
+      p3(ctx, 5, 4, '#112233', 6, 7);
+      p3(ctx, 6, 5, '#78f5c8', 4, 5);
+      p3(ctx, 7, 6, '#ffffff', 2, 2);
+      p3(ctx, 3, 13, '#f2b738', 10, 1);
+      break;
+    }
+
+    case ITEM_IDS.EXCHANGE_TERMINAL: {
+      p3(ctx, 1, 1, THEME.ink.outline, 14, 14);
+      p3(ctx, 2, 2, '#2d4b6e', 12, 12);
+      p3(ctx, 3, 3, '#101d2c', 10, 6);
+      p3(ctx, 4, 4, '#f2b738', 3, 4);
+      p3(ctx, 8, 4, '#8cf7ee', 4, 2);
+      p3(ctx, 8, 7, '#82e068', 4, 1);
+      p3(ctx, 4, 10, '#f2b738', 8, 3);
+      break;
+    }
+
+    case ITEM_IDS.MINING_SCROLL: {
+      p3(ctx, 2, 2, THEME.ink.outline, 12, 12);
+      p3(ctx, 3, 3, '#e8d4a3', 10, 10);
+      p3(ctx, 2, 3, '#8c663b', 12, 2);
+      p3(ctx, 2, 11, '#8c663b', 12, 2);
+      p3(ctx, 6, 6, '#38a8eb', 4, 4);
+      p3(ctx, 7, 7, '#ffffff', 2, 2);
+      break;
+    }
+
+    // --- Pickaxes & Fishing Rods ---
+    case ITEM_IDS.STONE_PICKAXE:
+    case ITEM_IDS.IRON_PICKAXE:
+    case ITEM_IDS.CRYSTAL_PICKAXE: {
+      for (let i = 0; i < 8; i++) {
+        p3(ctx, 2 + i, 12 - i, THEME.ink.outline, 3, 3);
+        p3(ctx, 3 + i, 12 - i, def.colorSecondary, 2, 2);
+      }
+      p3(ctx, 5, 2, THEME.ink.outline, 9, 4);
+      p3(ctx, 11, 5, THEME.ink.outline, 3, 6);
+      p3(ctx, 6, 3, def.colorPrimary, 7, 2);
+      p3(ctx, 11, 4, def.colorAccent, 2, 6);
+      break;
+    }
+
+    case ITEM_IDS.BAMBOO_ROD:
+    case ITEM_IDS.ANGLER_ROD: {
+      for (let i = 0; i < 9; i++) {
+        p3(ctx, 2 + i, 13 - i, THEME.ink.outline, 2, 2);
+        p3(ctx, 2 + i, 12 - i, def.colorPrimary, 2, 2);
+      }
+      p3(ctx, 11, 3, '#d9eef7', 1, 7);
+      p3(ctx, 10, 10, THEME.ink.outline, 3, 3);
+      p3(ctx, 11, 10, '#ff6352', 2, 2);
+      break;
+    }
+
+    // --- Fuel, Ore Fragments & Ingots ---
+    case ITEM_IDS.COAL_FUEL: {
+      p3(ctx, 3, 4, THEME.ink.outline, 10, 9);
+      p3(ctx, 4, 5, '#303642', 8, 7);
+      p3(ctx, 5, 5, '#69748a', 3, 2);
+      p3(ctx, 5, 9, '#161921', 6, 2);
+      break;
+    }
+
+    case ITEM_IDS.COPPER_FRAGMENT:
+    case ITEM_IDS.IRON_FRAGMENT:
+    case ITEM_IDS.CRYSTAL_FRAGMENT:
+    case ITEM_IDS.OBSIDIAN_FRAGMENT: {
+      p3(ctx, 4, 3, THEME.ink.outline, 8, 10);
+      p3(ctx, 5, 4, def.colorSecondary, 6, 8);
+      p3(ctx, 6, 5, def.colorPrimary, 4, 6);
+      p3(ctx, 6, 5, def.colorAccent, 2, 3);
+      break;
+    }
+
+    case ITEM_IDS.COPPER_INGOT:
+    case ITEM_IDS.IRON_INGOT:
+    case ITEM_IDS.CRYSTAL_INGOT:
+    case ITEM_IDS.OBSIDIAN_INGOT: {
+      p3(ctx, 2, 5, THEME.ink.outline, 12, 7);
+      p3(ctx, 3, 6, def.colorSecondary, 10, 5);
+      p3(ctx, 3, 6, def.colorPrimary, 9, 3);
+      p3(ctx, 4, 6, def.colorAccent, 6, 1);
+      break;
+    }
+
+    // --- Fish & Culinary Buffs ---
+    case ITEM_IDS.FISH_MINNOW:
+    case ITEM_IDS.FISH_CARP:
+    case ITEM_IDS.FISH_GLACIER_TROUT:
+    case ITEM_IDS.FISH_SLIMEFIN: {
+      p3(ctx, 3, 5, THEME.ink.outline, 9, 6);
+      p3(ctx, 11, 6, THEME.ink.outline, 3, 4);
+      p3(ctx, 4, 6, def.colorPrimary, 7, 4);
+      p3(ctx, 5, 6, def.colorAccent, 4, 2);
+      p3(ctx, 11, 7, def.colorSecondary, 2, 2);
+      p3(ctx, 5, 7, '#151b26', 1, 1);
+      break;
+    }
+
+    case ITEM_IDS.BUFF_GLACIER_FILLET:
+    case ITEM_IDS.BUFF_MINER_CHOWDER:
+    case ITEM_IDS.BUFF_LUCK_BROTH: {
+      p3(ctx, 2, 7, THEME.ink.outline, 12, 6);
+      p3(ctx, 3, 8, '#ebe8e4', 10, 4);
+      p3(ctx, 4, 5, THEME.ink.outline, 8, 4);
+      p3(ctx, 5, 6, def.colorPrimary, 6, 2);
+      p3(ctx, 6, 3, def.colorAccent, 1, 2);
+      p3(ctx, 9, 3, def.colorAccent, 1, 2);
+      break;
+    }
+
+    // --- Mine Ore Veins ---
+    case ITEM_IDS.COAL_VEIN:
+    case ITEM_IDS.COPPER_VEIN:
+    case ITEM_IDS.IRON_VEIN:
+    case ITEM_IDS.OBSIDIAN_VEIN: {
+      drawFramedPanel16(ctx, def.colorSecondary);
+      for (const [ox, oy] of [
+        [3, 3],
+        [9, 4],
+        [4, 9],
+        [10, 10],
+      ]) {
+        p3(ctx, ox, oy, def.colorPrimary, 3, 3);
+        p3(ctx, ox, oy, def.colorAccent, 2, 1);
+      }
+      break;
+    }
+
     default: {
       if (def.category === 'seed') {
         const ramp = deriveColorRamp(def.colorPrimary);

@@ -1,4 +1,4 @@
-import { BEDROCK_ROWS, PLAYABLE_ROWS, WORLD_HEIGHT, WORLD_TILE_COUNT, WORLD_WIDTH } from './constants.ts';
+import { BEDROCK_ROWS, WORLD_HEIGHT, WORLD_TILE_COUNT, WORLD_WIDTH } from './constants.ts';
 import { ITEM_IDS } from './catalog.ts';
 
 export interface PlantedTree {
@@ -43,19 +43,45 @@ export interface VendingMachineRecord {
   earningsQty: number;
 }
 
+export interface FurnaceRecord {
+  x: number;
+  y: number;
+  ownerId: string;
+  recipeId: string | null;
+  startedAt: number | null;
+  finishesAt: number | null;
+  readyOutputItemId: number;
+  readyOutputQty: number;
+}
+
+export interface BfgCollectorRecord {
+  x: number;
+  y: number;
+  ownerId: string;
+  active: boolean;
+  storedGems: number;
+  storedItems: { itemId: number; qty: number }[];
+}
+
 export interface WorldState {
   name: string;
   seed: number;
   width: number;
   height: number;
+  worldKind?: 'standard' | 'mine_shaft';
+  expiresAt?: number;
   spawnX: number;
   spawnY: number;
-  fg: number[]; // length 6000
-  bg: number[]; // length 6000
+  fg: number[]; // length width * height
+  bg: number[]; // length width * height
+  fluidType?: number[]; // 0 = dry, 1 = water, 2 = acid
+  fluidLevel?: number[]; // 0..4
   plants: Record<string, PlantedTree>; // key: `${x},${y}`
   worldLock: WorldLockRecord | null;
   areaLocks?: Record<string, AreaLockRecord>; // key: `${x},${y}`
   vendingMachines?: Record<string, VendingMachineRecord>; // key: `${x},${y}`
+  furnaces?: Record<string, FurnaceRecord>; // key: `${x},${y}`
+  bfgCollectors?: Record<string, BfgCollectorRecord>; // key: `${x},${y}`
   signs?: Record<string, string>; // key: `${x},${y}`
   revision: number;
 }
@@ -96,10 +122,13 @@ export function generateWorld(worldName: string): WorldState {
 
   const fg = new Array<number>(WORLD_TILE_COUNT).fill(ITEM_IDS.AIR);
   const bg = new Array<number>(WORLD_TILE_COUNT).fill(ITEM_IDS.BG_SKY);
+  const fluidType = new Array<number>(WORLD_TILE_COUNT).fill(0);
+  const fluidLevel = new Array<number>(WORLD_TILE_COUNT).fill(0);
 
   const spawnX = Math.floor(WORLD_WIDTH / 2); // 50
   const baseSurfaceY = 24;
   const worldFamily = classifyWorldFamily(normalized);
+  const playableRows = WORLD_HEIGHT - BEDROCK_ROWS;
 
   // Compute smooth rolling surface heights with a flat terrace around spawn
   const surfaceHeights = new Array<number>(WORLD_WIDTH);
@@ -124,7 +153,7 @@ export function generateWorld(worldName: string): WorldState {
       const idx = y * WORLD_WIDTH + x;
 
       // Bottom 6 rows (y = 54..59) are unbreakable bedrock
-      if (y >= PLAYABLE_ROWS) {
+      if (y >= playableRows) {
         fg[idx] = ITEM_IDS.BEDROCK;
         bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
         continue;
@@ -236,23 +265,159 @@ export function generateWorld(worldName: string): WorldState {
   const signY = surfaceHeights[signX] - 1;
   fg[signY * WORLD_WIDTH + signX] = ITEM_IDS.GP_SIGN;
 
-  void BEDROCK_ROWS;
-
   return {
     name: normalized,
     seed,
     width: WORLD_WIDTH,
     height: WORLD_HEIGHT,
+    worldKind: 'standard',
     spawnX,
     spawnY,
     fg,
     bg,
+    fluidType,
+    fluidLevel,
     plants: {},
     worldLock: null,
     areaLocks: {},
     vendingMachines: {},
+    furnaces: {},
+    bfgCollectors: {},
     signs: {
-      [`${signX},${signY}`]: `Welcome to ${normalized}! Mine GrowPixel blocks for seeds & gems, splice items, or use wrench.`,
+      [`${signX},${signY}`]: `Welcome to ${normalized}! Mine blocks for seeds & gems, fish pools, or smelt at a Stone Furnace.`,
+    },
+    revision: 1,
+  };
+}
+
+/**
+ * Ephemeral 50×150 vertical Mining Shaft expedition world.
+ * Stratified into Upper Limestone (8..40), Middle Shale (41..85), Crystal Granite (86..122), and Deep Obsidian (123..143).
+ */
+export function generateMineShaft(shaftName: string, ownerName: string, durationMs = 10 * 60_000): WorldState {
+  const normalized = shaftName.trim().toUpperCase() || 'MINE-SHAFT';
+  const seed = hashWorldSeed(`${normalized}_${Date.now()}`);
+  const rand = createRng(seed);
+
+  const width = 50;
+  const height = 150;
+  const total = width * height;
+  const fg = new Array<number>(total).fill(ITEM_IDS.AIR);
+  const bg = new Array<number>(total).fill(ITEM_IDS.CAVE_BACKGROUND_WALL);
+  const fluidType = new Array<number>(total).fill(0);
+  const fluidLevel = new Array<number>(total).fill(0);
+
+  const spawnX = 25;
+  const spawnY = 7;
+
+  // Stratified stone layers
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (x === 0 || x === width - 1 || y >= height - BEDROCK_ROWS) {
+        fg[idx] = ITEM_IDS.BEDROCK;
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
+        continue;
+      }
+      if (y < 8) {
+        fg[idx] = ITEM_IDS.AIR;
+        bg[idx] = ITEM_IDS.CAVE_BACKGROUND_WALL;
+        continue;
+      }
+      const r = rand();
+      if (y < 42) {
+        // Upper Limestone & Copper / Coal stratum
+        if (r < 0.08) fg[idx] = ITEM_IDS.COAL_VEIN;
+        else if (r < 0.16) fg[idx] = ITEM_IDS.COPPER_VEIN;
+        else fg[idx] = r < 0.4 ? ITEM_IDS.CAVE_GRAVEL : ITEM_IDS.CAVE_LIMESTONE;
+      } else if (y < 86) {
+        // Middle Shale & Iron / Copper stratum
+        if (r < 0.06) fg[idx] = ITEM_IDS.COAL_VEIN;
+        else if (r < 0.13) fg[idx] = ITEM_IDS.COPPER_VEIN;
+        else if (r < 0.23) fg[idx] = ITEM_IDS.IRON_VEIN;
+        else fg[idx] = r < 0.55 ? ITEM_IDS.CAVE_SHALE : ITEM_IDS.CAVE_LIMESTONE;
+      } else if (y < 122) {
+        // Deep Crystal Granite stratum
+        if (r < 0.05) fg[idx] = ITEM_IDS.COAL_VEIN;
+        else if (r < 0.13) fg[idx] = ITEM_IDS.IRON_VEIN;
+        else if (r < 0.24) fg[idx] = ITEM_IDS.CRYSTAL_ORE;
+        else fg[idx] = r < 0.65 ? ITEM_IDS.GRANITE : ITEM_IDS.CAVE_SHALE;
+      } else {
+        // Abyssal Obsidian Core
+        if (r < 0.10) fg[idx] = ITEM_IDS.CRYSTAL_ORE;
+        else if (r < 0.23) fg[idx] = ITEM_IDS.OBSIDIAN_VEIN;
+        else fg[idx] = ITEM_IDS.GP_LAVA_ROCK;
+      }
+    }
+  }
+
+  // Carve winding vertical shaft pockets & wooden ladder platforms
+  let cx = spawnX;
+  for (let y = spawnY + 1; y < height - BEDROCK_ROWS - 4; y += 5) {
+    cx = Math.max(6, Math.min(width - 7, cx + Math.round((rand() - 0.5) * 10)));
+    const pocketW = 3 + Math.floor(rand() * 3);
+    const pocketH = 3 + Math.floor(rand() * 2);
+    for (let dy = 0; dy < pocketH; dy++) {
+      for (let dx = -pocketW; dx <= pocketW; dx++) {
+        const px = cx + dx;
+        const py = y + dy;
+        if (px > 1 && px < width - 2 && py > 8 && py < height - BEDROCK_ROWS - 1) {
+          fg[py * width + px] = ITEM_IDS.AIR;
+        }
+      }
+    }
+    // Wooden walkway platform
+    for (let dx = -2; dx <= 2; dx++) {
+      const px = cx + dx;
+      if (px > 1 && px < width - 2) {
+        fg[(y + pocketH - 1) * width + px] = ITEM_IDS.GP_WOODEN_PLATFORM;
+      }
+    }
+    // Small water or deep acid pools inside caverns for risky mining / subterranean fishing
+    if (rand() < 0.35 && y > 22) {
+      const fKind = y > 105 ? 2 : 1;
+      for (let dx = -1; dx <= 1; dx++) {
+        const pIdx = (y + pocketH - 2) * width + (cx + dx);
+        if (fg[pIdx] === ITEM_IDS.AIR) {
+          fluidType[pIdx] = fKind;
+          fluidLevel[pIdx] = 4;
+        }
+      }
+    }
+  }
+
+  // Clear spawn chamber at y=4..8 around x=20..30
+  for (let y = 4; y <= 7; y++) {
+    for (let x = spawnX - 4; x <= spawnX + 4; x++) {
+      fg[y * width + x] = ITEM_IDS.AIR;
+    }
+  }
+  for (let x = spawnX - 4; x <= spawnX + 4; x++) {
+    fg[8 * width + x] = x >= spawnX - 1 && x <= spawnX + 1 ? ITEM_IDS.GP_WOODEN_PLATFORM : ITEM_IDS.CAVE_LIMESTONE;
+  }
+  fg[spawnY * width + spawnX] = ITEM_IDS.ENTRANCE_PORTAL;
+
+  return {
+    name: normalized,
+    seed,
+    width,
+    height,
+    worldKind: 'mine_shaft',
+    expiresAt: Date.now() + durationMs,
+    spawnX,
+    spawnY,
+    fg,
+    bg,
+    fluidType,
+    fluidLevel,
+    plants: {},
+    worldLock: null,
+    areaLocks: {},
+    vendingMachines: {},
+    furnaces: {},
+    bfgCollectors: {},
+    signs: {
+      [`${spawnX - 2},${spawnY}`]: `Mine Shaft Expedition (${ownerName}) — Exclusive Coal, Copper, Iron, Crystal & Obsidian Ores!`,
     },
     revision: 1,
   };

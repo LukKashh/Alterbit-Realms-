@@ -1,20 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowUp,
   BookOpen,
-  Copy,
-  Edit2,
-  Package,
+  ChevronLeft,
+  ChevronRight,
+  Coins,
   Plus,
   RotateCcw,
+  Save,
   Search,
-  Shield,
   ShoppingBag,
   Sliders,
+  Sparkles,
+  Sprout,
   Trash2,
+  TrendingUp,
   Wrench,
+  X,
 } from 'lucide-react';
 import {
   CATALOG,
@@ -22,15 +23,21 @@ import {
   ITEM_IDS,
   type DropEntry,
   type GemStoreListing,
-  type ItemCategory,
   type ItemDefinition,
-  type ItemRarity,
   type StoreSection,
 } from '../game/catalog.ts';
 import {
+  applyFarmabilityTier,
+  buildFarmabilityOverride,
+  calculateFarmabilityProfile,
   cloneGameConfig,
+  DEFAULT_GAME_CONFIG,
+  FARMABILITY_TIERS,
   getEffectiveItemDef,
+  type FarmabilityTier,
   type GameConfig,
+  type GameMechanicsConfig,
+  type ItemConfigOverride,
 } from '../game/config.ts';
 import { getItemIconUrl } from '../game/pixelArt.ts';
 
@@ -47,67 +54,26 @@ interface AdminPanelProps {
   onClose?: () => void;
 }
 
-type AdminSubTab = 'catalogue' | 'drops' | 'store' | 'mechanics' | 'tools';
+type AdminSection = 'catalog' | 'drops' | 'store' | 'tools';
 
-const ALL_CATALOG_ITEMS: ItemDefinition[] = Object.values(CATALOG).filter(
-  (item) => item.id !== ITEM_IDS.AIR && item.id !== ITEM_IDS.BG_SKY
-);
+type QuickFilterChip =
+  | 'all'
+  | 'blocks'
+  | 'biome'
+  | 'backgrounds'
+  | 'seeds'
+  | 'farmable'
+  | 'modified'
+  | 'locks'
+  | 'wearables';
 
-const ALL_DROP_CANDIDATES = Object.values(CATALOG).filter(
-  (item) =>
-    item.id !== ITEM_IDS.AIR &&
-    item.id !== ITEM_IDS.BG_SKY &&
-    item.id !== ITEM_IDS.FIST &&
-    item.id !== ITEM_IDS.WRENCH &&
-    item.id !== ITEM_IDS.BEDROCK &&
-    item.id !== ITEM_IDS.ENTRANCE_PORTAL
-);
+type CatalogSortKey = 'id' | 'name' | 'yield' | 'rarity' | 'hardness';
 
-const RARITY_ORDER: Record<ItemRarity, number> = {
-  common: 1,
-  uncommon: 2,
-  rare: 3,
-  epic: 4,
-};
-
-const CATEGORY_NAMES: Record<ItemCategory, string> = {
-  foreground: 'Block',
-  background: 'Background',
-  seed: 'Seed',
-  lock: 'Lock',
-  interactive: 'Interactive',
-  wearable: 'Wearable',
-  tool: 'Tool',
-};
-
-const RARITY_STYLES: Record<
-  ItemRarity,
-  { border: string; bg: string; text: string; badgeBg: string }
-> = {
-  common: {
-    border: 'border-[#3b526b]',
-    bg: 'bg-[#0a1520]',
-    text: 'text-[#a9c2db]',
-    badgeBg: 'bg-[#1b2b3d]',
-  },
-  uncommon: {
-    border: 'border-[#4aa64d]',
-    bg: 'bg-[#0b1f11]',
-    text: 'text-[#82e068]',
-    badgeBg: 'bg-[#15381c]',
-  },
-  rare: {
-    border: 'border-[#38a3d8]',
-    bg: 'bg-[#0a1e2f]',
-    text: 'text-[#89d6ff]',
-    badgeBg: 'bg-[#13324d]',
-  },
-  epic: {
-    border: 'border-[#d06ae6]',
-    bg: 'bg-[#220d2b]',
-    text: 'text-[#f5afff]',
-    badgeBg: 'bg-[#3d184d]',
-  },
+const RARITY_BADGE: Record<string, string> = {
+  common: 'bg-[#1a2e42] text-[#b8d0e8] border-[#355473]',
+  uncommon: 'bg-[#193829] text-[#82e068] border-[#33704d]',
+  rare: 'bg-[#18324d] text-[#78c8f5] border-[#32689e]',
+  epic: 'bg-[#382a12] text-[#ffe18c] border-[#8c6822]',
 };
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -117,1195 +83,1576 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onAdminAction,
   onClose,
 }) => {
-  const [subTab, setSubTab] = useState<AdminSubTab>('catalogue');
+  const [section, setSection] = useState<AdminSection>('catalog');
   const [draft, setDraft] = useState<GameConfig>(() => cloneGameConfig(gameConfig));
-  const [selectedTileId, setSelectedTileId] = useState<number>(ITEM_IDS.GP_GRASS);
+  const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.GP_DIRT);
+  const [grantQty, setGrantQty] = useState<number>(50);
+  const [grantGemsAmt] = useState<number>(500);
+  const [newDropItemId, setNewDropItemId] = useState<number>(ITEM_IDS.GP_SEED_DIRT);
+  const [feedbackBanner, setFeedbackBanner] = useState<string | null>(null);
 
-  // Catalogue Filters
-  const [catalogueSearch, setCatalogueSearch] = useState('');
-  const [catalogueType, setCatalogueType] = useState<ItemCategory | 'all'>('all');
-  const [catalogueRarity, setCatalogueRarity] = useState<ItemRarity | 'all'>('all');
-  const [catalogueSort, setCatalogueSort] = useState<
-    'id_asc' | 'id_desc' | 'name' | 'rarity' | 'hardness' | 'gems'
-  >('id_asc');
+  // Minimized Whole-Catalogue Filter State
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [quickFilter, setQuickFilter] = useState<QuickFilterChip>('all');
+  const [sortBy, setSortBy] = useState<CatalogSortKey>('id');
 
-  // Store Editor State
-  const [storeSectionFilter, setStoreSectionFilter] = useState<StoreSection | 'all'>('all');
-  const [editingListing, setEditingListing] = useState<GemStoreListing | null>(null);
-
-  // Quick Tools state
-  const [grantItemId, setGrantItemId] = useState<number>(ITEM_IDS.GP_DIRT);
-  const [grantQty, setGrantQty] = useState<number>(25);
-  const [grantGemsAmt, setGrantGemsAmt] = useState<number>(500);
+  // Store editor state
+  const [selectedStoreIdx, setSelectedStoreIdx] = useState<number>(0);
+  const [newGrantItemId, setNewGrantItemId] = useState<number>(ITEM_IDS.GP_DIRT);
+  const [newGrantQty, setNewGrantQty] = useState<number>(25);
 
   useEffect(() => {
     setDraft(cloneGameConfig(gameConfig));
   }, [gameConfig]);
 
-  const effectiveDef = getEffectiveItemDef(selectedTileId, draft);
-  const currentOverride = draft.itemOverrides[selectedTileId] ?? {};
-  const activeDrops: DropEntry[] = currentOverride.drops ?? effectiveDef?.drops ?? [];
+  const showFeedback = (msg: string) => {
+    setFeedbackBanner(msg);
+    window.setTimeout(() => {
+      setFeedbackBanner((prev) => (prev === msg ? null : prev));
+    }, 2600);
+  };
 
-  // Item modification helpers
-  const updateItemField = (field: 'hardness' | 'gemValue' | 'xpValue', value: number) => {
-    setDraft((prev) => {
-      const next = cloneGameConfig(prev);
-      next.itemOverrides[selectedTileId] = {
-        ...(next.itemOverrides[selectedTileId] ?? {}),
-        [field]: value,
-      };
-      return next;
+  const editableItems = useMemo<ItemDefinition[]>(
+    () =>
+      Object.values(CATALOG)
+        .filter((i) => i.id !== ITEM_IDS.AIR)
+        .sort((a, b) => a.id - b.id),
+    []
+  );
+
+  // Pre-compute farmability analysis for all catalogue items against current draft
+  const farmabilityMap = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof calculateFarmabilityProfile>>();
+    for (const item of editableItems) {
+      map.set(item.id, calculateFarmabilityProfile(item.id, draft));
+    }
+    return map;
+  }, [editableItems, draft]);
+
+  // Whole-catalogue minimized filter + sort
+  const filteredCatalogItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const list = editableItems.filter((item) => {
+      const farm = farmabilityMap.get(item.id);
+      const isModified = Boolean(draft.itemOverrides[item.id]);
+      const isBiome = item.id >= 700 && item.id <= 748;
+
+      if (quickFilter === 'blocks' && item.category !== 'foreground') return false;
+      if (quickFilter === 'biome' && !isBiome) return false;
+      if (quickFilter === 'backgrounds' && item.category !== 'background') return false;
+      if (quickFilter === 'seeds' && item.category !== 'seed') return false;
+      if (quickFilter === 'farmable' && (!farm?.isFarmCandidate || !farm?.isPositiveYield)) {
+        return false;
+      }
+      if (quickFilter === 'modified' && !isModified) return false;
+      if (
+        quickFilter === 'locks' &&
+        item.category !== 'lock' &&
+        item.category !== 'interactive'
+      ) {
+        return false;
+      }
+      if (
+        quickFilter === 'wearables' &&
+        item.category !== 'wearable' &&
+        item.category !== 'tool' &&
+        item.category !== 'consumable'
+      ) {
+        return false;
+      }
+
+      if (q) {
+        const biomeTag =
+          item.id >= 700 && item.id < 720
+            ? 'desert biome'
+            : item.id >= 720 && item.id < 740
+              ? 'arctic tundra snow ice biome'
+              : item.id >= 740 && item.id <= 748
+                ? 'cave underground biome'
+                : '';
+        const matchName = item.name.toLowerCase().includes(q);
+        const matchKey = item.key.toLowerCase().includes(q);
+        const matchId = String(item.id).includes(q) || `#${item.id}` === q;
+        const matchCat = item.category.toLowerCase().includes(q);
+        const matchRarity = item.rarity.toLowerCase().includes(q);
+        const matchBiome = biomeTag.includes(q);
+        if (!matchName && !matchKey && !matchId && !matchCat && !matchRarity && !matchBiome) {
+          return false;
+        }
+      }
+      return true;
     });
-  };
 
-  const updateDropsList = (nextDrops: DropEntry[]) => {
-    setDraft((prev) => {
-      const next = cloneGameConfig(prev);
-      next.itemOverrides[selectedTileId] = {
-        ...(next.itemOverrides[selectedTileId] ?? {}),
-        drops: nextDrops,
-      };
-      return next;
+    const rarityRank: Record<string, number> = {
+      common: 1,
+      uncommon: 2,
+      rare: 3,
+      epic: 4,
+    };
+
+    list.sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
+      if (sortBy === 'yield') {
+        const ya = farmabilityMap.get(a.id)?.expectedBlockYield ?? 0;
+        const yb = farmabilityMap.get(b.id)?.expectedBlockYield ?? 0;
+        return yb - ya || a.id - b.id;
+      }
+      if (sortBy === 'rarity') {
+        const ra = a.growPixelRarity ?? rarityRank[a.rarity] ?? 1;
+        const rb = b.growPixelRarity ?? rarityRank[b.rarity] ?? 1;
+        return rb - ra || a.id - b.id;
+      }
+      if (sortBy === 'hardness') {
+        const ha = getEffectiveItemDef(a.id, draft)?.hardness ?? a.hardness;
+        const hb = getEffectiveItemDef(b.id, draft)?.hardness ?? b.hardness;
+        return hb - ha || a.id - b.id;
+      }
+      return a.id - b.id;
     });
-  };
 
-  const addDropEntry = () => {
-    const nextDrops: DropEntry[] = [
-      ...activeDrops,
-      { itemId: selectedTileId, chance: 0.5, minQty: 1, maxQty: 1 },
-    ];
-    updateDropsList(nextDrops);
-  };
+    return list;
+  }, [editableItems, farmabilityMap, draft, searchQuery, quickFilter, sortBy]);
 
-  const updateMechanic = <K extends keyof GameConfig['mechanics']>(
+  const modifiedCount = Object.keys(draft.itemOverrides).length;
+
+  const setMech = <K extends keyof GameMechanicsConfig>(
     key: K,
-    val: number
+    value: GameMechanicsConfig[K]
   ) => {
     setDraft((prev) => ({
       ...prev,
       mechanics: {
         ...prev.mechanics,
-        [key]: val,
+        [key]: value,
       },
     }));
   };
 
-  // Store Listings Helpers
-  const activeStoreListings: GemStoreListing[] = useMemo(() => {
-    return draft.storeListings ?? [...GEM_STORE_LISTINGS];
-  }, [draft.storeListings]);
+  const baseItem: ItemDefinition | undefined = CATALOG[selectedItemId];
+  const effectiveItem = getEffectiveItemDef(selectedItemId, draft) ?? baseItem;
+  const selectedFarm = useMemo(
+    () => calculateFarmabilityProfile(selectedItemId, draft),
+    [selectedItemId, draft]
+  );
 
-  const updateStoreListings = (nextListings: GemStoreListing[]) => {
-    setDraft((prev) => ({
-      ...prev,
-      storeListings: nextListings,
-    }));
+  const updateItemOverride = (
+    itemId: number,
+    patch: Partial<ItemConfigOverride>
+  ) => {
+    const base = CATALOG[itemId];
+    if (!base) return;
+    const eff = getEffectiveItemDef(itemId, draft) ?? base;
+    setDraft((prev) => {
+      const existing = prev.itemOverrides[itemId] ?? {};
+      const merged: ItemConfigOverride = {
+        hardness: patch.hardness ?? existing.hardness ?? eff.hardness,
+        gemValue: patch.gemValue ?? existing.gemValue ?? eff.gemValue,
+        xpValue: patch.xpValue ?? existing.xpValue ?? eff.xpValue,
+        drops: patch.drops ?? existing.drops ?? eff.drops ?? [],
+      };
+      return {
+        ...prev,
+        itemOverrides: {
+          ...prev.itemOverrides,
+          [itemId]: merged,
+        },
+      };
+    });
   };
 
-  const handleDuplicateListing = (listing: GemStoreListing) => {
-    const suffix = Math.random().toString(36).slice(2, 6);
-    const copy: GemStoreListing = {
-      ...listing,
-      id: `${listing.id}_${suffix}`,
-      name: `${listing.name} (Copy)`,
-      grants: listing.grants.map((g) => ({ ...g })),
+  const handleQuickAssignFarmability = (
+    itemId: number,
+    tier: FarmabilityTier,
+    autoSave = false
+  ) => {
+    const { targetItemId, override } = buildFarmabilityOverride(itemId, tier, draft);
+    const targetName = CATALOG[targetItemId]?.name ?? `#${targetItemId}`;
+    const nextDraft: GameConfig = {
+      ...draft,
+      itemOverrides: {
+        ...draft.itemOverrides,
+        [targetItemId]: override,
+      },
     };
-    updateStoreListings([...activeStoreListings, copy]);
+    setDraft(nextDraft);
+    if (selectedItemId !== targetItemId && section === 'drops') {
+      setSelectedItemId(targetItemId);
+    }
+    const postAnalysis = calculateFarmabilityProfile(targetItemId, nextDraft);
+    if (autoSave) {
+      onSaveConfig(nextDraft);
+      showFeedback(
+        `${targetName} saved as ${tier.toUpperCase()} (${postAnalysis.expectedBlockYield.toFixed(2)}× block yield)`
+      );
+    } else {
+      showFeedback(
+        `Assigned ${tier.toUpperCase()} to ${targetName} → ${postAnalysis.expectedBlockYield.toFixed(2)}× Expected Yield`
+      );
+    }
   };
 
-  const handleDeleteListing = (id: string) => {
-    updateStoreListings(activeStoreListings.filter((l) => l.id !== id));
+  const handleBatchAssignFiltered = (tier: FarmabilityTier) => {
+    const candidateIds = filteredCatalogItems
+      .filter(
+        (i) =>
+          i.breakable &&
+          (i.category === 'foreground' ||
+            i.category === 'background' ||
+            i.category === 'interactive')
+      )
+      .map((i) => i.id);
+    if (candidateIds.length === 0) return;
+    const nextDraft = applyFarmabilityTier(draft, candidateIds, tier);
+    setDraft(nextDraft);
+    showFeedback(
+      `Applied ${tier.toUpperCase()} rates & values to ${candidateIds.length} filtered blocks`
+    );
   };
 
-  const handleMoveListing = (index: number, direction: 'up' | 'down') => {
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= activeStoreListings.length) return;
-    const next = [...activeStoreListings];
-    const temp = next[index];
-    next[index] = next[targetIndex];
-    next[targetIndex] = temp;
-    updateStoreListings(next);
+  const resetItemToDefault = (itemId: number) => {
+    setDraft((prev) => {
+      const nextOverrides = { ...prev.itemOverrides };
+      delete nextOverrides[itemId];
+      return { ...prev, itemOverrides: nextOverrides };
+    });
+    showFeedback(`Reset ${CATALOG[itemId]?.name ?? 'item'} to default values`);
   };
 
-  const handleCreateNewListing = () => {
-    const newId = `store_custom_${Date.now().toString(36).slice(-5)}`;
-    setEditingListing({
+  const updateDropRow = (idx: number, patch: Partial<DropEntry>) => {
+    if (!effectiveItem) return;
+    const currentDrops = [...(effectiveItem.drops ?? [])];
+    if (!currentDrops[idx]) return;
+    const updated = { ...currentDrops[idx], ...patch };
+    if (updated.maxQty < updated.minQty) updated.maxQty = updated.minQty;
+    currentDrops[idx] = updated;
+    updateItemOverride(selectedItemId, { drops: currentDrops });
+  };
+
+  const removeDropRow = (idx: number) => {
+    if (!effectiveItem) return;
+    const currentDrops = (effectiveItem.drops ?? []).filter((_, i) => i !== idx);
+    updateItemOverride(selectedItemId, { drops: currentDrops });
+  };
+
+  const addDropRow = () => {
+    if (!effectiveItem) return;
+    const currentDrops = [...(effectiveItem.drops ?? [])];
+    currentDrops.push({
+      itemId: newDropItemId,
+      chance: 0.25,
+      minQty: 1,
+      maxQty: 1,
+    });
+    updateItemOverride(selectedItemId, { drops: currentDrops });
+  };
+
+  // Store bundle helpers
+  const storeListings: GemStoreListing[] = draft.storeListings ?? GEM_STORE_LISTINGS;
+  const activeListing = storeListings[selectedStoreIdx] ?? storeListings[0];
+
+  const updateStoreListing = (idx: number, patch: Partial<GemStoreListing>) => {
+    setDraft((prev) => {
+      const list = [...(prev.storeListings ?? GEM_STORE_LISTINGS)];
+      if (!list[idx]) return prev;
+      list[idx] = { ...list[idx], ...patch };
+      return { ...prev, storeListings: list };
+    });
+  };
+
+  const addStoreListing = () => {
+    const newId = `custom_pack_${Date.now().toString(36).slice(-4)}`;
+    const newEntry: GemStoreListing = {
       id: newId,
       section: 'blocks',
-      name: 'Special Builder Bundle',
-      description: 'Handpicked items for world builders and architects.',
-      iconItemId: ITEM_IDS.GP_BRICKS,
-      gemPrice: 50,
-      grants: [{ itemId: ITEM_IDS.GP_BRICKS, qty: 25 }],
+      name: 'New Admin Pack',
+      description: 'Custom admin store bundle.',
+      iconItemId: ITEM_IDS.GP_DIRT,
+      gemPrice: 25,
+      grants: [{ itemId: ITEM_IDS.GP_DIRT, qty: 25 }],
+    };
+    setDraft((prev) => {
+      const list = [...(prev.storeListings ?? GEM_STORE_LISTINGS), newEntry];
+      setSelectedStoreIdx(list.length - 1);
+      return { ...prev, storeListings: list };
     });
   };
 
-  const handleSaveListingModal = (savedListing: GemStoreListing) => {
-    const list = [...activeStoreListings];
-    const existingIdx = list.findIndex((l) => l.id === savedListing.id);
-    if (existingIdx >= 0) {
-      list[existingIdx] = savedListing;
-    } else {
-      list.push(savedListing);
-    }
-    updateStoreListings(list);
-    setEditingListing(null);
+  const deleteStoreListing = (idx: number) => {
+    if (storeListings.length <= 1) return;
+    setDraft((prev) => {
+      const list = (prev.storeListings ?? GEM_STORE_LISTINGS).filter((_, i) => i !== idx);
+      setSelectedStoreIdx(Math.max(0, idx - 1));
+      return { ...prev, storeListings: list };
+    });
   };
 
-  // Filtered Catalogue items
-  const filteredCatalogueItems = useMemo(() => {
-    return ALL_CATALOG_ITEMS.filter((item) => {
-      if (catalogueType !== 'all' && item.category !== catalogueType) return false;
-      if (catalogueRarity !== 'all' && item.rarity !== catalogueRarity) return false;
-      if (catalogueSearch.trim()) {
-        const q = catalogueSearch.trim().toLowerCase();
-        const matchesName = item.name.toLowerCase().includes(q);
-        const matchesKey = item.key.toLowerCase().includes(q);
-        const matchesId = String(item.id).includes(q);
-        if (!matchesName && !matchesKey && !matchesId) return false;
-      }
-      return true;
-    }).sort((a, b) => {
-      const defA = getEffectiveItemDef(a.id, draft) ?? a;
-      const defB = getEffectiveItemDef(b.id, draft) ?? b;
-      switch (catalogueSort) {
-        case 'id_desc':
-          return b.id - a.id;
-        case 'name':
-          return a.name.localeCompare(b.name);
-        case 'rarity':
-          return RARITY_ORDER[b.rarity] - RARITY_ORDER[a.rarity];
-        case 'hardness':
-          return (defB.hardness ?? 0) - (defA.hardness ?? 0);
-        case 'gems':
-          return (defB.gemValue ?? 0) - (defA.gemValue ?? 0);
-        case 'id_asc':
-        default:
-          return a.id - b.id;
-      }
-    });
-  }, [catalogueSearch, catalogueType, catalogueRarity, catalogueSort, draft]);
+  const cycleSelectedItem = (dir: -1 | 1) => {
+    const pool = filteredCatalogItems.length > 0 ? filteredCatalogItems : editableItems;
+    const curIdx = pool.findIndex((i) => i.id === selectedItemId);
+    const nextIdx = curIdx === -1 ? 0 : (curIdx + dir + pool.length) % pool.length;
+    setSelectedItemId(pool[nextIdx].id);
+  };
+
+  const filterChips: { id: QuickFilterChip; label: string }[] = [
+    { id: 'all', label: `All (${editableItems.length})` },
+    { id: 'blocks', label: 'Blocks' },
+    { id: 'biome', label: 'Biomes' },
+    { id: 'backgrounds', label: 'Walls' },
+    { id: 'seeds', label: 'Seeds' },
+    { id: 'farmable', label: 'Farmable' },
+    { id: 'modified', label: `Edited (${modifiedCount})` },
+    { id: 'locks', label: 'Locks' },
+    { id: 'wearables', label: 'Gear' },
+  ];
 
   return (
     <div
-      data-testid="admin-dev-panel"
-      className="flex flex-col gap-2.5 text-xs text-[#eaf2fa] h-full overflow-hidden"
+      data-testid="admin-panel"
+      className="flex flex-col h-full min-h-0 text-[#f7f4eb] select-none"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-[#2b4561] pb-2 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded bg-[#f2b738] text-[#1a1204] font-pixel text-[10px]">
-            ADMIN DEV
+      {/* Compact Mobile-First Top Bar */}
+      <div className="flex items-center justify-between gap-1.5 pb-1.5 border-b border-[#28425e] shrink-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="px-1.5 py-0.5 rounded bg-[#f2b738] text-[#1a1204] font-pixel text-[9px] shrink-0">
+            ADMIN
           </span>
-          <h3 className="font-pixel text-xs text-[#ffe18c] truncate">
-            Item Catalogue, Values &amp; Store Editor
-          </h3>
+          <h2 className="font-pixel text-[10px] sm:text-xs text-[#ffe18c] truncate">
+            Control &amp; Farmability
+          </h2>
+          {modifiedCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded bg-[#213b57] border border-[#f2b738]/60 text-[10px] font-mono-num font-bold text-[#ffe18c] shrink-0">
+              {modifiedCount} edited
+            </span>
+          )}
         </div>
-        {onClose && (
+
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
-            onClick={onClose}
-            className="text-xs font-bold text-[#9cb5cc] hover:text-white cursor-pointer px-1.5 py-0.5"
+            onClick={() => onAdminAction({ action: 'grant_gems', gems: 500 })}
+            className="px-2 py-1 rounded bg-[#153447] hover:bg-[#1e4963] border border-[#38e8d8] text-[10px] font-mono-num font-bold text-[#8cf7ee] cursor-pointer"
+            title="Instant +500 Gems"
           >
-            Close
+            +500G
           </button>
-        )}
+          {inWorld && (
+            <button
+              type="button"
+              onClick={() => onAdminAction({ action: 'grow_all_trees' })}
+              className="px-2 py-1 rounded bg-[#1d3b26] hover:bg-[#275234] border border-[#82e068] text-[10px] font-bold text-[#a8f794] cursor-pointer"
+              title="Instantly Mature All Planted Trees"
+            >
+              Grow Trees
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              aria-label="Close Admin Panel"
+              onClick={onClose}
+              className="p-1 rounded bg-[#192b3d] hover:bg-[#243d57] border border-[#3a597a] text-[#c8d9ea] hover:text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Sub-navigation Tabs */}
-      <nav className="flex items-center gap-1 overflow-x-auto whitespace-nowrap pb-1 border-b border-[#20364d] shrink-0">
-        <button
-          type="button"
-          onClick={() => setSubTab('catalogue')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-bold cursor-pointer transition-colors ${
-            subTab === 'catalogue'
-              ? 'bg-[#214463] border border-[#78c8f5] text-white shadow-sm'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
-          }`}
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>Item Catalogue</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSubTab('drops')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-bold cursor-pointer transition-colors ${
-            subTab === 'drops'
-              ? 'bg-[#214463] border border-[#f2b738] text-[#ffe18c] shadow-sm'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
-          }`}
-        >
-          <Package className="w-3.5 h-3.5" />
-          <span>Values &amp; Drops</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSubTab('store')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-bold cursor-pointer transition-colors ${
-            subTab === 'store'
-              ? 'bg-[#214463] border border-[#38e8d8] text-[#8cf7ee] shadow-sm'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
-          }`}
-        >
-          <ShoppingBag className="w-3.5 h-3.5" />
-          <span>Store Editor</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSubTab('mechanics')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-bold cursor-pointer transition-colors ${
-            subTab === 'mechanics'
-              ? 'bg-[#214463] border border-[#a8fff7] text-[#a8fff7] shadow-sm'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
-          }`}
-        >
-          <Sliders className="w-3.5 h-3.5" />
-          <span>Mechanics &amp; Scale</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setSubTab('tools')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-bold cursor-pointer transition-colors ${
-            subTab === 'tools'
-              ? 'bg-[#214463] border border-[#82e068] text-[#82e068] shadow-sm'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
-          }`}
-        >
-          <Wrench className="w-3.5 h-3.5" />
-          <span>Admin Quick Tools</span>
-        </button>
-      </nav>
-
-      {/* SUBTAB 1: ITEM CATALOGUE WITH SIMPLIFIED FILTER SETTINGS */}
-      {subTab === 'catalogue' && (
-        <div className="flex flex-col gap-2.5 flex-1 min-h-0 overflow-hidden">
-          {/* Simplified Filter Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-[#09131d] border border-[#263c52] rounded p-2.5 shrink-0">
-            {/* Search */}
-            <div className="relative flex items-center">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 text-[#7e9cb8] pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search name, key, ID..."
-                value={catalogueSearch}
-                onChange={(e) => setCatalogueSearch(e.target.value)}
-                className="w-full pl-8 pr-2.5 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white focus:outline-none focus:border-[#78c8f5]"
-              />
-            </div>
-
-            {/* Type Filter */}
-            <label className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-[#8aa4bd] whitespace-nowrap">Type:</span>
-              <select
-                value={catalogueType}
-                onChange={(e) => setCatalogueType(e.target.value as ItemCategory | 'all')}
-                className="w-full px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-              >
-                <option value="all">All Types</option>
-                <option value="foreground">Blocks &amp; Terrain</option>
-                <option value="background">Background Walls</option>
-                <option value="seed">Seeds &amp; Saplings</option>
-                <option value="lock">Locks &amp; Security</option>
-                <option value="interactive">Interactive &amp; Vending</option>
-                <option value="wearable">Wearables &amp; Gear</option>
-                <option value="tool">Tools</option>
-              </select>
-            </label>
-
-            {/* Rarity Filter */}
-            <label className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-[#8aa4bd] whitespace-nowrap">Rarity:</span>
-              <select
-                value={catalogueRarity}
-                onChange={(e) => setCatalogueRarity(e.target.value as ItemRarity | 'all')}
-                className="w-full px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-              >
-                <option value="all">All Rarities</option>
-                <option value="common">Common</option>
-                <option value="uncommon">Uncommon</option>
-                <option value="rare">Rare</option>
-                <option value="epic">Epic</option>
-              </select>
-            </label>
-
-            {/* Sort */}
-            <label className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-[#8aa4bd] whitespace-nowrap">Sort:</span>
-              <select
-                value={catalogueSort}
-                onChange={(e) => setCatalogueSort(e.target.value as typeof catalogueSort)}
-                className="w-full px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-              >
-                <option value="id_asc">ID (Low → High)</option>
-                <option value="id_desc">ID (High → Low)</option>
-                <option value="name">Name (A → Z)</option>
-                <option value="rarity">Rarity (Epic First)</option>
-                <option value="hardness">Hardness</option>
-                <option value="gems">Max Gems</option>
-              </select>
-            </label>
-          </div>
-
-          {/* Filter Status Bar */}
-          <div className="flex items-center justify-between text-[11px] px-1 text-[#8aa4bd] shrink-0">
-            <span>
-              Showing <strong className="text-white font-mono-num">{filteredCatalogueItems.length}</strong> items in Game Catalogue
-            </span>
-            <span className="text-[10px] text-[#8cf7ee]">
-              Click any item to modify its Hardness, Drops, and Values
-            </span>
-          </div>
-
-          {/* Items Grid */}
-          <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-            {filteredCatalogueItems.map((item) => {
-              const eff = getEffectiveItemDef(item.id, draft) ?? item;
-              const hasOverride = !!draft.itemOverrides[item.id];
-              const rStyle = RARITY_STYLES[item.rarity];
-              const drops = draft.itemOverrides[item.id]?.drops ?? eff.drops ?? [];
-
-              return (
-                <div
-                  key={item.id}
-                  onClick={() => {
-                    setSelectedTileId(item.id);
-                    setSubTab('drops');
-                  }}
-                  className={`group relative flex flex-col justify-between p-2.5 rounded border-2 ${rStyle.border} ${rStyle.bg} hover:border-[#f2b738] hover:bg-[#16273b] transition-all cursor-pointer shadow-sm`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <img
-                      src={getItemIconUrl(item.id)}
-                      alt={item.name}
-                      className="w-9 h-9 pixelated shrink-0 bg-[#071018] p-1 rounded border border-[#2b4157]"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-bold text-[#f7f4eb] truncate text-xs group-hover:text-[#ffe18c]">
-                          {item.name}
-                        </span>
-                        <span className="font-mono-num text-[10px] text-[#7ea0bf] bg-[#0c1824] px-1.5 py-0.5 rounded">
-                          #{item.id}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                        <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-[#16283d] text-[#8ec8f5] font-semibold">
-                          {CATEGORY_NAMES[item.category] || item.category}
-                        </span>
-                        <span
-                          className={`text-[9px] uppercase px-1.5 py-0.2 rounded ${rStyle.badgeBg} ${rStyle.text} font-bold`}
-                        >
-                          {item.rarity}
-                        </span>
-                        {hasOverride && (
-                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#543b0e] text-[#ffd67a] font-bold">
-                            MODIFIED
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <p className="text-[10px] text-[#8ea4ba] mt-2 line-clamp-2">
-                    {item.description}
-                  </p>
-
-                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#1e344a] text-[10px] font-mono-num text-[#9db7ce]">
-                    <div className="flex items-center gap-2">
-                      <span>Hard: <b className="text-white">{eff.hardness}</b></span>
-                      <span>Gems: <b className="text-[#8cf7ee]">{eff.gemValue}</b></span>
-                      <span>XP: <b className="text-[#ffe18c]">{eff.xpValue}</b></span>
-                    </div>
-                    <span className="text-[#78c8f5] group-hover:translate-x-0.5 transition-transform font-bold">
-                      Edit →
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      {/* Feedback Toast Banner */}
+      {feedbackBanner && (
+        <div className="mt-1.5 px-2.5 py-1 rounded bg-[#183828] border border-[#82e068] text-[11px] font-bold text-[#a8f794] flex items-center justify-between shrink-0">
+          <span className="truncate">{feedbackBanner}</span>
+          <button
+            type="button"
+            onClick={() => setFeedbackBanner(null)}
+            className="ml-2 text-[10px] text-[#82e068] hover:text-white cursor-pointer"
+          >
+            ×
+          </button>
         </div>
       )}
 
-      {/* SUBTAB 2: BLOCK & BG DROPS / ITEM VALUE MODIFICATION */}
-      {subTab === 'drops' && (
-        <div className="flex flex-col gap-2.5 overflow-y-auto pr-1 flex-1">
-          {/* Header with back button */}
-          <div className="flex items-center justify-between bg-[#09131d] border border-[#263c52] rounded p-2">
-            <button
-              type="button"
-              onClick={() => setSubTab('catalogue')}
-              className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#182c42] hover:bg-[#223d5c] text-white font-bold text-xs cursor-pointer"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Catalogue</span>
-            </button>
-            <div className="flex items-center gap-2">
-              <img
-                src={getItemIconUrl(selectedTileId)}
-                alt={effectiveDef?.name ?? 'Selected'}
-                className="w-6 h-6 pixelated"
-                referrerPolicy="no-referrer"
-              />
-              <span className="font-bold text-[#ffe18c] text-xs">
-                Editing: {effectiveDef?.name} (#{selectedTileId})
-              </span>
-            </div>
-          </div>
+      {/* 4-Tab Mobile Navigation Grid */}
+      <div className="grid grid-cols-4 gap-1 my-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={() => setSection('catalog')}
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded text-[10px] sm:text-xs font-bold cursor-pointer transition-colors ${
+            section === 'catalog'
+              ? 'bg-[#362b12] border border-[#f2b738] text-[#ffe18c]'
+              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5 shrink-0" />
+          <span>Catalogue</span>
+        </button>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold text-[#9cb5cc]">
-                Select Item to Modify
-              </span>
-              <select
-                aria-label="Configurable Tile"
-                value={selectedTileId}
-                onChange={(e) => setSelectedTileId(Number(e.target.value))}
-                className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-              >
-                {ALL_CATALOG_ITEMS.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    [{CATEGORY_NAMES[item.category] || item.category.toUpperCase()}] {item.name} (#{item.id})
-                  </option>
-                ))}
-              </select>
-            </label>
+        <button
+          type="button"
+          onClick={() => setSection('drops')}
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded text-[10px] sm:text-xs font-bold cursor-pointer transition-colors ${
+            section === 'drops'
+              ? 'bg-[#1a3829] border border-[#82e068] text-[#a8f794]'
+              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
+          }`}
+        >
+          <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+          <span>Farm &amp; Rates</span>
+        </button>
 
-            <div className="grid grid-cols-3 gap-1.5">
-              <label className="flex flex-col gap-1">
-                <span className="text-[10px] font-semibold text-[#9cb5cc]">Hardness</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={effectiveDef?.hardness ?? 3}
-                  onChange={(e) =>
-                    updateItemField('hardness', Math.max(1, Math.min(20, Number(e.target.value))))
-                  }
-                  className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs font-mono-num text-white"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-[10px] font-semibold text-[#9cb5cc]">Max Gems</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={effectiveDef?.gemValue ?? 0}
-                  onChange={(e) =>
-                    updateItemField('gemValue', Math.max(0, Math.min(100, Number(e.target.value))))
-                  }
-                  className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs font-mono-num text-white"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-[10px] font-semibold text-[#9cb5cc]">XP Value</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={200}
-                  value={effectiveDef?.xpValue ?? 1}
-                  onChange={(e) =>
-                    updateItemField('xpValue', Math.max(0, Math.min(200, Number(e.target.value))))
-                  }
-                  className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs font-mono-num text-white"
-                />
-              </label>
-            </div>
-          </div>
+        <button
+          type="button"
+          onClick={() => setSection('store')}
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded text-[10px] sm:text-xs font-bold cursor-pointer transition-colors ${
+            section === 'store'
+              ? 'bg-[#153447] border border-[#38e8d8] text-[#8cf7ee]'
+              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
+          }`}
+        >
+          <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+          <span>Store</span>
+        </button>
 
-          <div className="flex items-center justify-between pt-1">
-            <div className="flex items-center gap-2">
-              <img
-                src={getItemIconUrl(selectedTileId)}
-                alt={effectiveDef?.name ?? 'Tile'}
-                className="w-6 h-6 pixelated"
-                referrerPolicy="no-referrer"
-              />
-              <span className="font-bold text-[#ffe18c]">
-                {effectiveDef?.name} Drop Table ({activeDrops.length} entries)
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={addDropEntry}
-              className="px-2.5 py-1 rounded bg-[#214463] hover:bg-[#2d5b82] border border-[#78c8f5] text-[11px] font-bold text-white cursor-pointer"
-            >
-              + Add Drop Item
-            </button>
-          </div>
+        <button
+          type="button"
+          onClick={() => setSection('tools')}
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded text-[10px] sm:text-xs font-bold cursor-pointer transition-colors ${
+            section === 'tools'
+              ? 'bg-[#213b57] border border-[#78c8f5] text-white'
+              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
+          }`}
+        >
+          <Sliders className="w-3.5 h-3.5 shrink-0" />
+          <span>Tools</span>
+        </button>
+      </div>
 
-          <div className="flex flex-col gap-1.5">
-            {activeDrops.length === 0 ? (
-              <p className="text-[11px] text-[#8aa4bd] bg-[#09131d] border border-[#263c52] rounded p-2">
-                No custom item drops configured for this tile. Click &quot;+ Add Drop Item&quot; to assign drops.
-              </p>
-            ) : (
-              activeDrops.map((entry, idx) => (
-                <div
-                  key={`${idx}-${entry.itemId}`}
-                  className="grid grid-cols-12 items-center gap-1.5 bg-[#09131d] border border-[#263c52] rounded p-1.5"
+      {/* Main Scrollable Content Area */}
+      <div className="flex-1 overflow-y-auto pr-0.5 flex flex-col gap-2 min-h-0">
+        {/* ===================================================================
+            TAB 1: WHOLE-CATALOGUE MINIMIZED SEARCH & QUICK FARMABILITY ASSIGN
+           =================================================================== */}
+        {section === 'catalog' && (
+          <div className="flex flex-col gap-2">
+            {/* Minimized Single-Bar Search + Sort + Wrapped Pill Filter Strip */}
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2 flex flex-col gap-1.5 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1 min-w-0">
+                  <Search className="w-3.5 h-3.5 text-[#7897b5] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    aria-label="Search Whole Catalogue"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search all 120 items (name, #ID, desert, snow, cave)..."
+                    className="w-full pl-8 pr-7 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs text-white focus:outline-none focus:border-[#f2b738]"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      aria-label="Clear search"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[#8aa4bd] hover:text-white cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  aria-label="Sort Catalogue"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as CatalogSortKey)}
+                  className="px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-[11px] font-semibold text-[#d2e3f3] shrink-0"
                 >
-                  <select
-                    aria-label={`Drop ${idx + 1} Item`}
-                    value={entry.itemId}
-                    onChange={(e) => {
-                      const next = activeDrops.map((d, i) =>
-                        i === idx ? { ...d, itemId: Number(e.target.value) } : d
-                      );
-                      updateDropsList(next);
-                    }}
-                    className="col-span-5 px-1.5 py-1 rounded bg-[#08101a] border border-[#2d4863] text-[11px] text-white"
+                  <option value="id">Sort: #ID</option>
+                  <option value="yield">Sort: Yield ×</option>
+                  <option value="name">Sort: A–Z</option>
+                  <option value="rarity">Sort: Rarity</option>
+                  <option value="hardness">Sort: Hits</option>
+                </select>
+              </div>
+
+              {/* Wrapped Compact Filter Chips (No Horizontal Clipping on Mobile) */}
+              <div className="flex flex-wrap items-center gap-1">
+                {filterChips.map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setQuickFilter(chip.id)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold whitespace-nowrap cursor-pointer border ${
+                      quickFilter === chip.id
+                        ? 'bg-[#214463] border-[#78c8f5] text-white'
+                        : 'bg-[#060d14] border-[#1f3347] text-[#8aa4bd] hover:text-white'
+                    }`}
                   >
-                    {ALL_DROP_CANDIDATES.map((cand) => (
-                      <option key={cand.id} value={cand.id}>
-                        {cand.name}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="col-span-2 flex flex-col">
-                    <span className="text-[9px] text-[#8aa4bd]">Rate %</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={Math.round(entry.chance * 100)}
-                      onChange={(e) => {
-                        const pct = Math.max(0, Math.min(100, Number(e.target.value)));
-                        const next = activeDrops.map((d, i) =>
-                          i === idx ? { ...d, chance: pct / 100 } : d
-                        );
-                        updateDropsList(next);
-                      }}
-                      className="px-1.5 py-0.5 rounded bg-[#08101a] border border-[#2d4863] text-[11px] font-mono-num text-white"
-                    />
-                  </label>
-                  <label className="col-span-2 flex flex-col">
-                    <span className="text-[9px] text-[#8aa4bd]">Min</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={entry.minQty}
-                      onChange={(e) => {
-                        const minQ = Math.max(1, Math.min(50, Number(e.target.value)));
-                        const next = activeDrops.map((d, i) =>
-                          i === idx ? { ...d, minQty: minQ, maxQty: Math.max(minQ, d.maxQty) } : d
-                        );
-                        updateDropsList(next);
-                      }}
-                      className="px-1.5 py-0.5 rounded bg-[#08101a] border border-[#2d4863] text-[11px] font-mono-num text-white"
-                    />
-                  </label>
-                  <label className="col-span-2 flex flex-col">
-                    <span className="text-[9px] text-[#8aa4bd]">Max</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={entry.maxQty}
-                      onChange={(e) => {
-                        const maxQ = Math.max(entry.minQty, Math.min(50, Number(e.target.value)));
-                        const next = activeDrops.map((d, i) =>
-                          i === idx ? { ...d, maxQty: maxQ } : d
-                        );
-                        updateDropsList(next);
-                      }}
-                      className="px-1.5 py-0.5 rounded bg-[#08101a] border border-[#2d4863] text-[11px] font-mono-num text-white"
-                    />
-                  </label>
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Compact Batch Farmability Bar for Filtered Items */}
+              <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-[#182a3d] text-[10px]">
+                <span className="text-[#8aa4bd] font-mono-num">
+                  Showing <strong className="text-white">{filteredCatalogItems.length}</strong> /{' '}
+                  {editableItems.length}
+                </span>
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    aria-label={`Remove Drop ${idx + 1}`}
-                    onClick={() => updateDropsList(activeDrops.filter((_, i) => i !== idx))}
-                    className="col-span-1 py-1 rounded bg-[#3b1b1f] hover:bg-[#57262c] text-[#ffb0b0] font-bold cursor-pointer"
+                    onClick={() => handleBatchAssignFiltered('balanced')}
+                    className="px-2 py-0.5 rounded bg-[#162d42] hover:bg-[#1f405e] border border-[#4b82b8] text-[#b8dcff] font-bold cursor-pointer"
                   >
-                    ×
+                    Set Filtered Balanced (1.06×)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchAssignFiltered('farmable')}
+                    className="px-2 py-0.5 rounded bg-[#193829] hover:bg-[#234f3a] border border-[#82e068] text-[#a8f794] font-bold cursor-pointer"
+                  >
+                    Set Filtered Farmable (+1.38×)
                   </button>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* SUBTAB 3: STORE EDITOR TOOL */}
-      {subTab === 'store' && (
-        <div className="flex flex-col gap-2.5 flex-1 min-h-0 overflow-hidden">
-          {/* Store Controls Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-[#09131d] border border-[#263c52] rounded p-2.5 shrink-0">
-            {/* Filter by section */}
-            <div className="flex items-center gap-1 overflow-x-auto">
-              {(['all', 'locks', 'blocks', 'seeds', 'wearables'] as const).map((sec) => (
-                <button
-                  key={sec}
-                  type="button"
-                  onClick={() => setStoreSectionFilter(sec)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase cursor-pointer ${
-                    storeSectionFilter === sec
-                      ? 'bg-[#214463] border border-[#38e8d8] text-[#8cf7ee]'
-                      : 'bg-[#0a1520] border border-[#23384c] text-[#9cb5cc] hover:text-white'
-                  }`}
-                >
-                  {sec}
-                </button>
-              ))}
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => updateStoreListings([...GEM_STORE_LISTINGS])}
-                className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#203247] hover:bg-[#2b425d] text-[#a5c5e0] text-xs font-semibold cursor-pointer"
-                title="Reset Gem Store to factory defaults"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Reset Defaults</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateNewListing}
-                className="flex items-center gap-1 px-3 py-1 rounded bg-[#4aa64d] hover:bg-[#57ba5a] text-[#081709] font-bold text-xs cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>New Store Item</span>
-              </button>
-            </div>
-          </div>
+            {/* Responsive Mobile-Friendly Catalogue Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {filteredCatalogItems.map((item) => {
+                const eff = getEffectiveItemDef(item.id, draft) ?? item;
+                const isModified = Boolean(draft.itemOverrides[item.id]);
+                const farm = farmabilityMap.get(item.id);
+                const canFarm = Boolean(farm?.isFarmCandidate);
 
-          {/* Store Listings List */}
-          <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-2">
-            {activeStoreListings
-              .filter((l) => storeSectionFilter === 'all' || l.section === storeSectionFilter)
-              .map((listing, index) => {
                 return (
                   <div
-                    key={listing.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#09131d] border border-[#263c52] rounded p-2.5 hover:border-[#38e8d8] transition-colors"
+                    key={item.id}
+                    className={`flex items-center justify-between gap-2 p-2 rounded border transition-colors ${
+                      selectedItemId === item.id
+                        ? 'bg-[#162a40] border-[#f2b738]'
+                        : isModified
+                          ? 'bg-[#102233] border-[#38e8d8]/60'
+                          : 'bg-[#09131d] border-[#22364a]'
+                    }`}
                   >
-                    <div className="flex items-start gap-2.5 min-w-0">
+                    {/* Left: Tap item icon/title to open directly in Rates & Farm editor */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedItemId(item.id);
+                        setSection('drops');
+                      }}
+                      className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer"
+                    >
                       <img
-                        src={getItemIconUrl(listing.iconItemId)}
-                        alt={listing.name}
-                        className="w-8 h-8 pixelated shrink-0 bg-[#071018] p-1 rounded border border-[#283f54]"
+                        src={getItemIconUrl(item.id)}
+                        alt={item.name}
+                        className="w-8 h-8 pixelated shrink-0 bg-[#060d14] p-0.5 rounded border border-[#243b52]"
                         referrerPolicy="no-referrer"
                       />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-[#f7f4eb] text-xs">{listing.name}</span>
-                          <span className="text-[10px] uppercase px-1.5 py-0.2 rounded bg-[#172b3e] text-[#89d6ff] font-semibold">
-                            {listing.section}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-xs font-bold text-[#f7f4eb] truncate">
+                            {item.name}
                           </span>
-                          <span className="text-[11px] font-mono-num font-bold text-[#8cf7ee] bg-[#0c262e] border border-[#1b5059] px-2 py-0.5 rounded">
-                            {listing.gemPrice} Gems
+                          <span className="text-[10px] font-mono-num text-[#7897b5]">
+                            #{item.id}
+                          </span>
+                          <span
+                            className={`px-1 py-0.2 rounded text-[9px] font-bold uppercase border ${
+                              RARITY_BADGE[item.rarity] ?? RARITY_BADGE.common
+                            }`}
+                          >
+                            {item.growPixelRarity ? `R${item.growPixelRarity}` : item.rarity}
                           </span>
                         </div>
-                        <p className="text-[10px] text-[#9cb5cc] mt-0.5">{listing.description}</p>
-                        <div className="flex items-center gap-1.5 mt-1 text-[10px] text-[#ffe18c] flex-wrap">
-                          <span className="text-[#8aa4bd]">Grants:</span>
-                          {listing.grants.map((g, gi) => (
-                            <span key={gi} className="bg-[#122233] px-1.5 py-0.5 rounded font-mono-num">
-                              {g.qty}x {CATALOG[g.itemId]?.name ?? `#${g.itemId}`}
-                            </span>
-                          ))}
+
+                        <div className="flex items-center gap-2 mt-0.5 text-[10px] font-mono-num text-[#9cb5cc] flex-wrap">
+                          <span>{eff.hardness} Hits</span>
+                          <span>·</span>
+                          <span className="text-[#8cf7ee]">{eff.gemValue}G</span>
+                          {canFarm && farm && (
+                            <>
+                              <span>·</span>
+                              <span
+                                className={`font-bold ${
+                                  farm.isPositiveYield ? 'text-[#82e068]' : 'text-[#f2b738]'
+                                }`}
+                              >
+                                {farm.expectedBlockYield.toFixed(2)}× Yield
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
-                    </div>
+                    </button>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 self-end sm:self-center shrink-0">
+                    {/* Right: 1-Tap Quick Actions (Farmable Toggle + Instant Grant + Edit) */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {canFarm && (
+                        <button
+                          type="button"
+                          title="1-Tap Assign Positive Block Yield (Farmable +1.38×)"
+                          onClick={() => handleQuickAssignFarmability(item.id, 'farmable', false)}
+                          className={`px-2 py-1.5 rounded text-[10px] font-bold border cursor-pointer ${
+                            farm?.isPositiveYield
+                              ? 'bg-[#193829] border-[#82e068] text-[#a8f794]'
+                              : 'bg-[#132230] hover:bg-[#193829] border-[#355473] text-[#9cb5cc] hover:text-[#a8f794]'
+                          }`}
+                        >
+                          +Farm
+                        </button>
+                      )}
                       <button
                         type="button"
-                        aria-label="Move Up"
-                        disabled={index === 0}
-                        onClick={() => handleMoveListing(index, 'up')}
-                        className="p-1 rounded bg-[#132233] disabled:opacity-30 text-[#8aa4bd] hover:text-white cursor-pointer"
+                        title={`Grant 50 × ${item.name}`}
+                        onClick={() => {
+                          onAdminAction({ action: 'grant_item', itemId: item.id, qty: 50 });
+                          showFeedback(`Granted 50 × ${item.name}`);
+                        }}
+                        className="px-2 py-1.5 rounded bg-[#1c3650] hover:bg-[#274b6e] border border-[#4b7299] text-[10px] font-mono-num font-bold text-[#e2eef7] cursor-pointer"
                       >
-                        <ArrowUp className="w-3.5 h-3.5" />
+                        +50
                       </button>
                       <button
                         type="button"
-                        aria-label="Move Down"
-                        disabled={index === activeStoreListings.length - 1}
-                        onClick={() => handleMoveListing(index, 'down')}
-                        className="p-1 rounded bg-[#132233] disabled:opacity-30 text-[#8aa4bd] hover:text-white cursor-pointer"
+                        onClick={() => {
+                          setSelectedItemId(item.id);
+                          setSection('drops');
+                        }}
+                        className="px-2 py-1.5 rounded bg-[#2b2312] hover:bg-[#3d3118] border border-[#f2b738]/70 text-[10px] font-bold text-[#ffe18c] cursor-pointer"
                       >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingListing({ ...listing, grants: listing.grants.map((g) => ({ ...g })) })}
-                        className="flex items-center gap-1 px-2 py-1 rounded bg-[#214463] hover:bg-[#2c5880] text-white text-xs font-bold cursor-pointer"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Edit</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDuplicateListing(listing)}
-                        className="flex items-center gap-1 px-2 py-1 rounded bg-[#182f45] hover:bg-[#23405c] text-[#89d6ff] text-xs font-semibold cursor-pointer"
-                        title="Duplicate Listing"
-                      >
-                        <Copy className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteListing(listing.id)}
-                        className="p-1 rounded bg-[#3b1b1f] hover:bg-[#57262c] text-[#ffb0b0] cursor-pointer"
-                        title="Delete Listing"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        Rates
                       </button>
                     </div>
                   </div>
                 );
               })}
+            </div>
           </div>
+        )}
 
-          {/* Edit Listing Modal Drawer */}
-          {editingListing && (
-            <div className="fixed inset-0 z-50 bg-[#07101a]/85 flex items-center justify-center p-3">
-              <div className="w-full max-w-lg bg-[#0e1d2c] border-2 border-[#38e8d8] rounded-lg shadow-2xl p-4 flex flex-col gap-3 max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between border-b border-[#25425c] pb-2">
-                  <h4 className="font-pixel text-xs text-[#8cf7ee]">Edit Gem Store Listing</h4>
-                  <button
-                    type="button"
-                    onClick={() => setEditingListing(null)}
-                    className="text-xs font-bold text-[#9cb5cc] hover:text-white cursor-pointer"
+        {/* ===================================================================
+            TAB 2: RATES, VALUES & QUICK ASSIGNMENT BY FARMABILITY
+           =================================================================== */}
+        {section === 'drops' && effectiveItem && (
+          <div className="flex flex-col gap-2">
+            {/* Compact Mobile Item Switcher Header */}
+            <div className="bg-[#09131d] border border-[#28425e] rounded-md p-2 flex items-center justify-between gap-1.5 shrink-0">
+              <button
+                type="button"
+                aria-label="Previous item"
+                onClick={() => cycleSelectedItem(-1)}
+                className="p-1.5 rounded bg-[#132538] hover:bg-[#1d3752] border border-[#325272] text-[#c8d9ea] cursor-pointer shrink-0"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <img
+                  src={getItemIconUrl(selectedItemId)}
+                  alt={effectiveItem.name}
+                  className="w-8 h-8 pixelated shrink-0 bg-[#060d14] p-0.5 rounded border border-[#2b4763]"
+                  referrerPolicy="no-referrer"
+                />
+                <select
+                  aria-label="Select Item to Configure"
+                  value={selectedItemId}
+                  onChange={(e) => setSelectedItemId(Number(e.target.value))}
+                  className="w-full min-w-0 px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white truncate"
+                >
+                  {editableItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      #{item.id} {item.name} ({item.category})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Next item"
+                onClick={() => cycleSelectedItem(1)}
+                className="p-1.5 rounded bg-[#132538] hover:bg-[#1d3752] border border-[#325272] text-[#c8d9ea] cursor-pointer shrink-0"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onAdminAction({ action: 'grant_item', itemId: selectedItemId, qty: 50 });
+                  showFeedback(`Granted 50 × ${effectiveItem.name}`);
+                }}
+                className="px-2.5 py-1.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] text-[#081709] font-bold text-[11px] shrink-0 cursor-pointer"
+              >
+                +50 Bag
+              </button>
+            </div>
+
+            {/* SYSTEM FUNCTION CARD: CALCULATED FARMABILITY & POSITIVE YIELD QUICK ASSIGNMENT */}
+            <div
+              data-testid="farmability-calculator-card"
+              className="bg-[#091824] border-2 border-[#38e8d8]/70 rounded-md p-2.5 flex flex-col gap-2"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Sprout className="w-4 h-4 text-[#82e068] shrink-0" />
+                  <span className="font-pixel text-[10px] text-[#8cf7ee]">
+                    FARMABILITY & POSITIVE YIELD CALCULATOR
+                  </span>
+                </div>
+                <span
+                  data-testid="farmability-yield-badge"
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono-num font-bold border ${
+                    selectedFarm.isPositiveYield
+                      ? 'bg-[#193829] border-[#82e068] text-[#a8f794]'
+                      : 'bg-[#382412] border-[#f2b738] text-[#ffe18c]'
+                  }`}
+                >
+                  {selectedFarm.isPositiveYield
+                    ? `POSITIVE YIELD (${selectedFarm.expectedBlockYield.toFixed(2)}×)`
+                    : `SINK / BELOW 1× (${selectedFarm.expectedBlockYield.toFixed(2)}×)`}
+                </span>
+              </div>
+
+              {/* Live Calculated Yield Metrics */}
+              <div className="grid grid-cols-3 gap-1.5 bg-[#060f18] border border-[#1f374d] rounded p-2 text-center">
+                <div>
+                  <div className="text-[10px] text-[#8aa4bd]">Expected Block Yield</div>
+                  <div className="text-sm font-mono-num font-bold text-[#82e068]">
+                    {selectedFarm.expectedBlockYield.toFixed(2)}×
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-[#8aa4bd]">Net Block / Break</div>
+                  <div
+                    className={`text-sm font-mono-num font-bold ${
+                      selectedFarm.netBlockGainPerBreak >= 0
+                        ? 'text-[#8cf7ee]'
+                        : 'text-[#ff9b8a]'
+                    }`}
                   >
-                    Cancel
-                  </button>
+                    {selectedFarm.netBlockGainPerBreak >= 0 ? '+' : ''}
+                    {selectedFarm.netBlockGainPerBreak.toFixed(2)}
+                  </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-[#8aa4bd]">Listing Name</span>
-                    <input
-                      type="text"
-                      maxLength={48}
-                      value={editingListing.name}
-                      onChange={(e) =>
-                        setEditingListing({ ...editingListing, name: e.target.value })
-                      }
-                      className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-[#8aa4bd]">Listing ID</span>
-                    <input
-                      type="text"
-                      maxLength={48}
-                      value={editingListing.id}
-                      onChange={(e) =>
-                        setEditingListing({ ...editingListing, id: e.target.value.trim() })
-                      }
-                      className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white font-mono"
-                    />
-                  </label>
+                <div>
+                  <div className="text-[10px] text-[#8aa4bd]">
+                    {selectedFarm.hasSeedCycle ? 'Seeds / Tree Cycle' : 'Direct Block Qty'}
+                  </div>
+                  <div className="text-sm font-mono-num font-bold text-[#ffe18c]">
+                    {selectedFarm.hasSeedCycle
+                      ? `${selectedFarm.expectedSeedsPerTreeCycle.toFixed(2)} 🌱`
+                      : `${selectedFarm.blockDropQty[0]}–${selectedFarm.blockDropQty[1]} blk`}
+                  </div>
                 </div>
+              </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-[#8aa4bd]">Section</span>
-                    <select
-                      value={editingListing.section}
-                      onChange={(e) =>
-                        setEditingListing({
-                          ...editingListing,
-                          section: e.target.value as StoreSection,
-                        })
-                      }
-                      className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-                    >
-                      <option value="locks">Locks &amp; Shops</option>
-                      <option value="blocks">Building Blocks</option>
-                      <option value="seeds">Seeds &amp; Splice</option>
-                      <option value="wearables">Wearables</option>
-                    </select>
-                  </label>
-
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-[#8aa4bd]">Gem Price</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={50000}
-                      value={editingListing.gemPrice}
-                      onChange={(e) =>
-                        setEditingListing({
-                          ...editingListing,
-                          gemPrice: Math.max(1, Number(e.target.value)),
-                        })
-                      }
-                      className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs font-mono-num text-white"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-[#8aa4bd]">Icon Item</span>
-                    <select
-                      value={editingListing.iconItemId}
-                      onChange={(e) =>
-                        setEditingListing({
-                          ...editingListing,
-                          iconItemId: Number(e.target.value),
-                        })
-                      }
-                      className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-                    >
-                      {ALL_DROP_CANDIDATES.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+              {/* Calculated Positive Block Yield Value Ranges */}
+              <div className="bg-[#07121c] border border-[#233d54] rounded p-2 flex flex-col gap-1">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="font-bold text-[#ffe18c]">
+                    System Farmable Value Ranges (Positive Block Yield &gt; 1.05×):
+                  </span>
+                  <span className="font-mono-num text-[#8cf7ee]">
+                    Target #{selectedFarm.targetBlockId}
+                  </span>
                 </div>
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-semibold text-[#8aa4bd]">Description</span>
-                  <textarea
-                    rows={2}
-                    maxLength={160}
-                    value={editingListing.description}
-                    onChange={(e) =>
-                      setEditingListing({ ...editingListing, description: e.target.value })
-                    }
-                    className="px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white resize-none"
-                  />
-                </label>
-
-                {/* Grants items editor */}
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#ffe18c]">
-                      Granted Items upon Purchase
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] font-mono-num mt-0.5">
+                  <div className="bg-[#0c1b2a] border border-[#243c54] rounded px-2 py-1">
+                    <span className="text-[#8aa4bd] block">Block Drop Rate</span>
+                    <strong className="text-[#82e068]">
+                      {selectedFarm.positiveYieldRanges.blockRateRangePct[0]}%–
+                      {selectedFarm.positiveYieldRanges.blockRateRangePct[1]}%
+                    </strong>
+                  </div>
+                  <div className="bg-[#0c1b2a] border border-[#243c54] rounded px-2 py-1">
+                    <span className="text-[#8aa4bd] block">
+                      {selectedFarm.hasSeedCycle ? 'Seed Drop Rate' : 'Block Drop Qty'}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditingListing({
-                          ...editingListing,
-                          grants: [
-                            ...editingListing.grants,
-                            { itemId: ITEM_IDS.GP_GRASS, qty: 10 },
-                          ],
-                        })
-                      }
-                      className="text-[11px] text-[#89d6ff] font-bold hover:underline cursor-pointer"
-                    >
-                      + Add Item Grant
-                    </button>
+                    <strong className="text-[#8cf7ee]">
+                      {selectedFarm.hasSeedCycle
+                        ? `${selectedFarm.positiveYieldRanges.seedRateRangePct[0]}%–${selectedFarm.positiveYieldRanges.seedRateRangePct[1]}%`
+                        : `${selectedFarm.positiveYieldRanges.blockQtyRange[0]}–${selectedFarm.positiveYieldRanges.blockQtyRange[1]} blocks`}
+                    </strong>
                   </div>
-
-                  <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
-                    {editingListing.grants.map((grant, gi) => (
-                      <div
-                        key={gi}
-                        className="flex items-center gap-2 bg-[#09131d] border border-[#243c52] rounded p-1.5"
-                      >
-                        <select
-                          value={grant.itemId}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            const next = editingListing.grants.map((g, i) =>
-                              i === gi ? { ...g, itemId: val } : g
-                            );
-                            setEditingListing({ ...editingListing, grants: next });
-                          }}
-                          className="flex-1 px-1.5 py-1 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-                        >
-                          {ALL_DROP_CANDIDATES.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
-                        <label className="flex items-center gap-1">
-                          <span className="text-[10px] text-[#8aa4bd]">Qty:</span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={200}
-                            value={grant.qty}
-                            onChange={(e) => {
-                              const q = Math.max(1, Math.min(200, Number(e.target.value)));
-                              const next = editingListing.grants.map((g, i) =>
-                                i === gi ? { ...g, qty: q } : g
-                              );
-                              setEditingListing({ ...editingListing, grants: next });
-                            }}
-                            className="w-16 px-1.5 py-1 rounded bg-[#08101a] border border-[#2d4863] text-xs font-mono-num text-white"
-                          />
-                        </label>
-                        {editingListing.grants.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = editingListing.grants.filter((_, i) => i !== gi);
-                              setEditingListing({ ...editingListing, grants: next });
-                            }}
-                            className="px-2 py-1 rounded bg-[#3b1b1f] hover:bg-[#52242a] text-[#ffd4d4] font-bold text-xs cursor-pointer"
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                  <div className="bg-[#0c1b2a] border border-[#243c54] rounded px-2 py-1">
+                    <span className="text-[#8aa4bd] block">Hardness Range</span>
+                    <strong className="text-[#ffe18c]">
+                      {selectedFarm.positiveYieldRanges.hardnessRange[0]}–
+                      {selectedFarm.positiveYieldRanges.hardnessRange[1]} hits
+                    </strong>
+                  </div>
+                  <div className="bg-[#0c1b2a] border border-[#243c54] rounded px-2 py-1">
+                    <span className="text-[#8aa4bd] block">Gem / XP Range</span>
+                    <strong className="text-[#d4b8ff]">
+                      {selectedFarm.positiveYieldRanges.gemValueRange[0]}–
+                      {selectedFarm.positiveYieldRanges.gemValueRange[1]}G ·{' '}
+                      {selectedFarm.positiveYieldRanges.xpValueRange[0]}–
+                      {selectedFarm.positiveYieldRanges.xpValueRange[1]}XP
+                    </strong>
                   </div>
                 </div>
+                <p className="text-[10px] text-[#8aa4bd] mt-0.5">
+                  {selectedFarm.positiveYieldRanges.formulaSummary}
+                </p>
+              </div>
 
-                <div className="flex items-center justify-end gap-2 border-t border-[#25425c] pt-2">
+              {/* 1-Tap Quick Assignment by Farmability Tier */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#9cb5cc]">
+                  Quick Assign Rate &amp; Value Preset by Farmability:
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {FARMABILITY_TIERS.map((t) => {
+                    const isCurrent = selectedFarm.currentTier === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        data-testid={`assign-farm-${t.id}`}
+                        onClick={() => handleQuickAssignFarmability(selectedItemId, t.id, false)}
+                        className={`flex flex-col items-start p-2 rounded border text-left cursor-pointer transition-all ${
+                          isCurrent
+                            ? 'bg-[#193829] border-[#82e068] text-white shadow-[0_0_0_1px_#82e068]'
+                            : 'bg-[#0b1724] hover:bg-[#14293f] border-[#2b4763] text-[#d2e3f3]'
+                        }`}
+                      >
+                        <span className="text-[11px] font-bold text-[#ffe18c]">
+                          {t.shortLabel}
+                        </span>
+                        <span className="text-[9px] text-[#9cb5cc] line-clamp-1">
+                          {t.targetYieldLabel}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Touch-Friendly Core Block Stats (Hardness, Max Gems, XP Value) */}
+            <div className="grid grid-cols-3 gap-1.5 bg-[#09131d] border border-[#263c52] rounded-md p-2.5">
+              {/* Hardness Stepper */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold text-[#9cb5cc]">Hardness (Hits)</span>
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => setEditingListing(null)}
-                    className="px-3 py-1.5 rounded bg-[#1b2b3d] text-[#9cb5cc] font-semibold text-xs cursor-pointer"
+                    onClick={() =>
+                      updateItemOverride(selectedItemId, {
+                        hardness: Math.max(1, effectiveItem.hardness - 1),
+                      })
+                    }
+                    className="w-7 h-7 rounded bg-[#14263a] border border-[#314e6b] font-bold text-xs text-white cursor-pointer"
                   >
-                    Cancel
+                    -
                   </button>
+                  <input
+                    type="number"
+                    aria-label="Hardness Hits"
+                    min={1}
+                    max={20}
+                    value={effectiveItem.hardness}
+                    onChange={(e) =>
+                      updateItemOverride(selectedItemId, {
+                        hardness: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                      })
+                    }
+                    className="w-full min-w-0 text-center py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-white"
+                  />
                   <button
                     type="button"
-                    onClick={() => handleSaveListingModal(editingListing)}
-                    className="px-4 py-1.5 rounded bg-[#38e8d8] text-[#062024] font-bold text-xs cursor-pointer"
+                    onClick={() =>
+                      updateItemOverride(selectedItemId, {
+                        hardness: Math.min(20, effectiveItem.hardness + 1),
+                      })
+                    }
+                    className="w-7 h-7 rounded bg-[#14263a] border border-[#314e6b] font-bold text-xs text-white cursor-pointer"
                   >
-                    Apply to Store
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Gem Value Stepper */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold text-[#8cf7ee]">Max Gems</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateItemOverride(selectedItemId, {
+                        gemValue: Math.max(0, effectiveItem.gemValue - 1),
+                      })
+                    }
+                    className="w-7 h-7 rounded bg-[#14263a] border border-[#314e6b] font-bold text-xs text-white cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    aria-label="Max Gems"
+                    min={0}
+                    max={100}
+                    value={effectiveItem.gemValue}
+                    onChange={(e) =>
+                      updateItemOverride(selectedItemId, {
+                        gemValue: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                      })
+                    }
+                    className="w-full min-w-0 text-center py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-[#8cf7ee]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateItemOverride(selectedItemId, {
+                        gemValue: Math.min(100, effectiveItem.gemValue + 1),
+                      })
+                    }
+                    className="w-7 h-7 rounded bg-[#14263a] border border-[#314e6b] font-bold text-xs text-white cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* XP Value Stepper */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold text-[#ffe18c]">XP Reward</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateItemOverride(selectedItemId, {
+                        xpValue: Math.max(0, effectiveItem.xpValue - 1),
+                      })
+                    }
+                    className="w-7 h-7 rounded bg-[#14263a] border border-[#314e6b] font-bold text-xs text-white cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    aria-label="XP Value"
+                    min={0}
+                    max={200}
+                    value={effectiveItem.xpValue}
+                    onChange={(e) =>
+                      updateItemOverride(selectedItemId, {
+                        xpValue: Math.max(0, Math.min(200, Number(e.target.value) || 0)),
+                      })
+                    }
+                    className="w-full min-w-0 text-center py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-[#ffe18c]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateItemOverride(selectedItemId, {
+                        xpValue: Math.min(200, effectiveItem.xpValue + 1),
+                      })
+                    }
+                    className="w-7 h-7 rounded bg-[#14263a] border border-[#314e6b] font-bold text-xs text-white cursor-pointer"
+                  >
+                    +
                   </button>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* SUBTAB 4: LIVE WORLD MECHANICS & DISPLAY SCALE */}
-      {subTab === 'mechanics' && (
-        <div className="grid grid-cols-2 gap-2.5 overflow-y-auto pr-1 flex-1">
-          <label className="flex flex-col gap-1 bg-[#09131d] border border-[#263c52] rounded p-2">
-            <div className="flex justify-between">
-              <span className="font-bold text-[#ffe18c]">World View Scale</span>
-              <span className="font-mono-num text-[#8cf7ee]">{draft.mechanics.viewScale.toFixed(2)}×</span>
+            {/* Mobile-Friendly Drop Entries List */}
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[#ffe18c]">
+                  Drop Table ({(effectiveItem.drops ?? []).length} entries)
+                </span>
+                {draft.itemOverrides[selectedItemId] && (
+                  <button
+                    type="button"
+                    onClick={() => resetItemToDefault(selectedItemId)}
+                    className="text-[10px] font-bold text-[#ff9b8a] hover:text-white cursor-pointer"
+                  >
+                    Reset Item Default
+                  </button>
+                )}
+              </div>
+
+              {(effectiveItem.drops ?? []).length === 0 ? (
+                <p className="text-xs text-[#7897b5] py-1">
+                  No drops configured. Tap a Farmability preset above or add a drop below.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {(effectiveItem.drops ?? []).map((drop, idx) => {
+                    const dropDef = CATALOG[drop.itemId];
+                    const pct = Math.round(drop.chance * 100);
+                    return (
+                      <div
+                        key={`${drop.itemId}-${idx}`}
+                        className="bg-[#0e1c2b] border border-[#28425e] rounded p-2 flex flex-col gap-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <img
+                              src={getItemIconUrl(drop.itemId)}
+                              alt={dropDef?.name ?? ''}
+                              className="w-6 h-6 pixelated shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                            <select
+                              aria-label={`Drop Item ${idx + 1}`}
+                              value={drop.itemId}
+                              onChange={(e) =>
+                                updateDropRow(idx, { itemId: Number(e.target.value) })
+                              }
+                              className="flex-1 min-w-0 px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white truncate"
+                            >
+                              {editableItems.map((it) => (
+                                <option key={it.id} value={it.id}>
+                                  #{it.id} {it.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            aria-label={`Remove drop ${dropDef?.name ?? idx}`}
+                            onClick={() => removeDropRow(idx)}
+                            className="p-1.5 rounded bg-[#3b1b1f] hover:bg-[#54242a] text-[#ffb0b0] cursor-pointer shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Drop Rate Slider + Quick Rate Pills + Min/Max Stepper */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex-1 flex flex-col gap-1">
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="text-[#9cb5cc]">Drop Rate:</span>
+                              <span className="font-mono-num font-bold text-[#82e068]">
+                                {pct}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              aria-label={`Drop Rate Percent ${idx + 1}`}
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={pct}
+                              onChange={(e) =>
+                                updateDropRow(idx, {
+                                  chance: Math.max(0, Math.min(100, Number(e.target.value))) / 100,
+                                })
+                              }
+                              className="w-full accent-[#82e068]"
+                            />
+                            <div className="flex items-center gap-1">
+                              {[20, 40, 65, 80, 95, 100].map((presetPct) => (
+                                <button
+                                  key={presetPct}
+                                  type="button"
+                                  onClick={() =>
+                                    updateDropRow(idx, { chance: presetPct / 100 })
+                                  }
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-mono-num font-bold cursor-pointer ${
+                                    pct === presetPct
+                                      ? 'bg-[#214463] border border-[#82e068] text-white'
+                                      : 'bg-[#060d14] border border-[#22384f] text-[#8aa4bd]'
+                                  }`}
+                                >
+                                  {presetPct}%
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Min / Max Qty Controls */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <label className="flex flex-col text-[10px] text-[#9cb5cc]">
+                              <span>Min Qty</span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={50}
+                                value={drop.minQty}
+                                onChange={(e) =>
+                                  updateDropRow(idx, {
+                                    minQty: Math.max(1, Number(e.target.value) || 1),
+                                  })
+                                }
+                                className="w-14 px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-center text-white"
+                              />
+                            </label>
+                            <label className="flex flex-col text-[10px] text-[#9cb5cc]">
+                              <span>Max Qty</span>
+                              <input
+                                type="number"
+                                min={drop.minQty}
+                                max={50}
+                                value={drop.maxQty}
+                                onChange={(e) =>
+                                  updateDropRow(idx, {
+                                    maxQty: Math.max(drop.minQty, Number(e.target.value) || 1),
+                                  })
+                                }
+                                className="w-14 px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-center text-white"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Add Drop Entry Bar */}
+              <div className="flex items-center gap-1.5 pt-2 border-t border-[#1e334a]">
+                <select
+                  aria-label="New Drop Item"
+                  value={newDropItemId}
+                  onChange={(e) => setNewDropItemId(Number(e.target.value))}
+                  className="flex-1 min-w-0 px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs text-white truncate"
+                >
+                  {editableItems.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      #{it.id} {it.name} ({it.category})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={addDropRow}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded bg-[#214463] hover:bg-[#2d5b82] border border-[#78c8f5] text-xs font-bold text-white shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Drop</span>
+                </button>
+              </div>
             </div>
-            <input
-              type="range"
-              min={1}
-              max={2.25}
-              step={0.05}
-              value={draft.mechanics.viewScale}
-              onChange={(e) => updateMechanic('viewScale', Number(e.target.value))}
-            />
-          </label>
+          </div>
+        )}
 
-          <label className="flex flex-col gap-1 bg-[#09131d] border border-[#263c52] rounded p-2">
-            <div className="flex justify-between">
-              <span className="font-bold text-[#ffe18c]">Interaction Reach (Tiles)</span>
-              <span className="font-mono-num text-[#8cf7ee]">{draft.mechanics.reachTiles.toFixed(2)}</span>
-            </div>
-            <input
-              type="range"
-              min={1.5}
-              max={6}
-              step={0.1}
-              value={draft.mechanics.reachTiles}
-              onChange={(e) => updateMechanic('reachTiles', Number(e.target.value))}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 bg-[#09131d] border border-[#263c52] rounded p-2">
-            <div className="flex justify-between">
-              <span className="font-bold text-[#ffe18c]">Punch Cooldown (ms)</span>
-              <span className="font-mono-num text-[#8cf7ee]">{Math.round(draft.mechanics.punchCooldownMs)}</span>
-            </div>
-            <input
-              type="range"
-              min={70}
-              max={400}
-              step={5}
-              value={draft.mechanics.punchCooldownMs}
-              onChange={(e) => updateMechanic('punchCooldownMs', Number(e.target.value))}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 bg-[#09131d] border border-[#263c52] rounded p-2">
-            <div className="flex justify-between">
-              <span className="font-bold text-[#ffe18c]">Global Gem Chance</span>
-              <span className="font-mono-num text-[#8cf7ee]">
-                {Math.round(draft.mechanics.globalGemDropChance * 100)}%
-              </span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={draft.mechanics.globalGemDropChance}
-              onChange={(e) => updateMechanic('globalGemDropChance', Number(e.target.value))}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 bg-[#09131d] border border-[#263c52] rounded p-2">
-            <div className="flex justify-between">
-              <span className="font-bold text-[#ffe18c]">Move Speed (px/s)</span>
-              <span className="font-mono-num text-[#8cf7ee]">{Math.round(draft.mechanics.moveSpeed)}</span>
-            </div>
-            <input
-              type="range"
-              min={150}
-              max={720}
-              step={10}
-              value={draft.mechanics.moveSpeed}
-              onChange={(e) => updateMechanic('moveSpeed', Number(e.target.value))}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 bg-[#09131d] border border-[#263c52] rounded p-2">
-            <div className="flex justify-between">
-              <span className="font-bold text-[#ffe18c]">Jump Velocity</span>
-              <span className="font-mono-num text-[#8cf7ee]">{Math.round(draft.mechanics.jumpVelocity)}</span>
-            </div>
-            <input
-              type="range"
-              min={-1125}
-              max={-375}
-              step={15}
-              value={draft.mechanics.jumpVelocity}
-              onChange={(e) => updateMechanic('jumpVelocity', Number(e.target.value))}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 bg-[#09131d] border border-[#263c52] rounded p-2">
-            <div className="flex justify-between">
-              <span className="font-bold text-[#ffe18c]">Gravity</span>
-              <span className="font-mono-num text-[#8cf7ee]">{Math.round(draft.mechanics.gravity)}</span>
-            </div>
-            <input
-              type="range"
-              min={750}
-              max={3600}
-              step={30}
-              value={draft.mechanics.gravity}
-              onChange={(e) => updateMechanic('gravity', Number(e.target.value))}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1 bg-[#09131d] border border-[#263c52] rounded p-2">
-            <div className="flex justify-between">
-              <span className="font-bold text-[#ffe18c]">Tree Growth Speed</span>
-              <span className="font-mono-num text-[#8cf7ee]">{draft.mechanics.growthMultiplier.toFixed(1)}×</span>
-            </div>
-            <input
-              type="range"
-              min={0.5}
-              max={5}
-              step={0.1}
-              value={draft.mechanics.growthMultiplier}
-              onChange={(e) => updateMechanic('growthMultiplier', Number(e.target.value))}
-            />
-          </label>
-        </div>
-      )}
-
-      {/* SUBTAB 5: ADMIN QUICK DEVELOPMENT TOOLS */}
-      {subTab === 'tools' && (
-        <div className="flex flex-col gap-2.5 overflow-y-auto pr-1 flex-1">
-          <div className="bg-[#09131d] border border-[#263c52] rounded p-2.5 flex flex-col gap-2">
-            <span className="font-bold text-[#8cf7ee]">Grant Item to Backpack</span>
-            <div className="flex gap-1.5 flex-wrap">
+        {/* ===================================================================
+            TAB 3: GEM STORE BUNDLE EDITOR (MOBILE STREAMLINED)
+           =================================================================== */}
+        {section === 'store' && activeListing && (
+          <div className="flex flex-col gap-2.5">
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 flex items-center justify-between gap-2">
               <select
-                aria-label="Grant Item Select"
-                value={grantItemId}
-                onChange={(e) => setGrantItemId(Number(e.target.value))}
-                className="flex-1 min-w-[140px] px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
+                aria-label="Select Store Bundle"
+                value={selectedStoreIdx}
+                onChange={(e) => setSelectedStoreIdx(Number(e.target.value))}
+                className="flex-1 min-w-0 px-2.5 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white truncate"
               >
-                {ALL_DROP_CANDIDATES.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
+                {storeListings.map((l, idx) => (
+                  <option key={l.id} value={idx}>
+                    [{l.section.toUpperCase()}] {l.name} — {l.gemPrice} Gems
                   </option>
                 ))}
               </select>
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={grantQty}
-                onChange={(e) => setGrantQty(Math.max(1, Math.min(200, Number(e.target.value))))}
-                className="w-16 px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs font-mono-num text-white"
-              />
               <button
                 type="button"
-                onClick={() =>
-                  onAdminAction({ action: 'grant_item', itemId: grantItemId, qty: grantQty })
-                }
-                className="px-3 py-1.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] text-[#081709] font-bold cursor-pointer"
+                onClick={addStoreListing}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-[#1d3b26] border border-[#82e068] text-xs font-bold text-[#a8f794] shrink-0 cursor-pointer"
               >
-                Grant
+                <Plus className="w-3.5 h-3.5" />
+                <span>New</span>
               </button>
+              {storeListings.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => deleteStoreListing(selectedStoreIdx)}
+                  className="p-1.5 rounded bg-[#3b1b1f] border border-[#7a343d] text-[#ffb0b0] shrink-0 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 flex flex-col gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1 text-[11px] text-[#9cb5cc]">
+                  <span>Bundle Name</span>
+                  <input
+                    type="text"
+                    value={activeListing.name}
+                    onChange={(e) =>
+                      updateStoreListing(selectedStoreIdx, { name: e.target.value })
+                    }
+                    className="px-2.5 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white"
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex flex-col gap-1 text-[11px] text-[#9cb5cc]">
+                    <span>Section</span>
+                    <select
+                      value={activeListing.section}
+                      onChange={(e) =>
+                        updateStoreListing(selectedStoreIdx, {
+                          section: e.target.value as StoreSection,
+                        })
+                      }
+                      className="px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white"
+                    >
+                      <option value="locks">Locks</option>
+                      <option value="tools">Tools</option>
+                      <option value="blocks">Blocks</option>
+                      <option value="seeds">Seeds</option>
+                      <option value="wearables">Wearables</option>
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-[11px] text-[#8cf7ee]">
+                    <span>Price (Gems)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100000}
+                      value={activeListing.gemPrice}
+                      onChange={(e) =>
+                        updateStoreListing(selectedStoreIdx, {
+                          gemPrice: Math.max(1, Number(e.target.value) || 1),
+                        })
+                      }
+                      className="px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-[#8cf7ee]"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <label className="flex flex-col gap-1 text-[11px] text-[#9cb5cc]">
+                <span>Description</span>
+                <input
+                  type="text"
+                  value={activeListing.description}
+                  onChange={(e) =>
+                    updateStoreListing(selectedStoreIdx, { description: e.target.value })
+                  }
+                  className="px-2.5 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs text-white"
+                />
+              </label>
+
+              {/* Granted Items */}
+              <div className="flex flex-col gap-1.5 pt-1 border-t border-[#1e334a]">
+                <span className="text-[11px] font-bold text-[#ffe18c]">Granted Items</span>
+                {activeListing.grants.map((g, gIdx) => (
+                  <div
+                    key={`${g.itemId}-${gIdx}`}
+                    className="flex items-center justify-between gap-2 bg-[#0e1c2b] border border-[#28425e] rounded px-2 py-1.5"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <img
+                        src={getItemIconUrl(g.itemId)}
+                        alt=""
+                        className="w-5 h-5 pixelated shrink-0"
+                        referrerPolicy="no-referrer"
+                      />
+                      <span className="text-xs font-bold text-white truncate">
+                        {CATALOG[g.itemId]?.name ?? `#${g.itemId}`}
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={250}
+                      value={g.qty}
+                      onChange={(e) => {
+                        const nextGrants = [...activeListing.grants];
+                        nextGrants[gIdx] = {
+                          ...nextGrants[gIdx],
+                          qty: Math.max(1, Number(e.target.value) || 1),
+                        };
+                        updateStoreListing(selectedStoreIdx, { grants: nextGrants });
+                      }}
+                      className="w-16 px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-center text-white"
+                    />
+                    {activeListing.grants.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextGrants = activeListing.grants.filter((_, i) => i !== gIdx);
+                          updateStoreListing(selectedStoreIdx, { grants: nextGrants });
+                        }}
+                        className="p-1 rounded bg-[#3b1b1f] text-[#ffb0b0] cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                <div className="flex items-center gap-1.5 pt-1">
+                  <select
+                    value={newGrantItemId}
+                    onChange={(e) => setNewGrantItemId(Number(e.target.value))}
+                    className="flex-1 min-w-0 px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs text-white truncate"
+                  >
+                    {editableItems.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        #{it.id} {it.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={newGrantQty}
+                    onChange={(e) => setNewGrantQty(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-14 px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num text-center text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateStoreListing(selectedStoreIdx, {
+                        grants: [
+                          ...activeListing.grants,
+                          { itemId: newGrantItemId, qty: newGrantQty },
+                        ],
+                      });
+                    }}
+                    className="px-2.5 py-1.5 rounded bg-[#214463] border border-[#78c8f5] text-xs font-bold text-white shrink-0 cursor-pointer"
+                  >
+                    +Item
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
+        )}
 
-          <div className="bg-[#09131d] border border-[#263c52] rounded p-2.5 flex flex-col gap-2">
-            <span className="font-bold text-[#8cf7ee]">Grant Gems</span>
-            <div className="flex gap-1.5">
-              <input
-                type="number"
-                min={1}
-                max={100000}
-                value={grantGemsAmt}
-                onChange={(e) => setGrantGemsAmt(Math.max(1, Number(e.target.value)))}
-                className="flex-1 px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs font-mono-num text-white"
-              />
-              <button
-                type="button"
-                onClick={() => onAdminAction({ action: 'grant_gems', gems: grantGemsAmt })}
-                className="px-3 py-1.5 rounded bg-[#38e8d8] text-[#062024] font-bold cursor-pointer"
-              >
-                + Gems
-              </button>
+        {/* ===================================================================
+            TAB 4: WORLD & ADMIN TOOLS (UNIFIED QUICK ACTIONS + MECHANICS)
+           =================================================================== */}
+        {section === 'tools' && (
+          <div className="flex flex-col gap-2.5">
+            {/* Quick Item & Gem Spawner */}
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 flex flex-col gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#ffe18c]">
+                <Wrench className="w-3.5 h-3.5" />
+                <span>Instant Admin Spawner</span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-1.5">
+                <select
+                  aria-label="Spawn Item"
+                  value={selectedItemId}
+                  onChange={(e) => setSelectedItemId(Number(e.target.value))}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white truncate"
+                >
+                  {editableItems.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      #{it.id} {it.name} ({it.category})
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    aria-label="Grant Quantity"
+                    min={1}
+                    max={200}
+                    value={grantQty}
+                    onChange={(e) =>
+                      setGrantQty(Math.max(1, Math.min(200, Number(e.target.value) || 1)))
+                    }
+                    className="w-16 px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-center text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAdminAction({
+                        action: 'grant_item',
+                        itemId: selectedItemId,
+                        qty: grantQty,
+                      });
+                      showFeedback(
+                        `Granted ${grantQty} × ${CATALOG[selectedItemId]?.name ?? 'item'}`
+                      );
+                    }}
+                    className="px-3 py-1.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] text-[#081709] text-xs font-bold cursor-pointer shrink-0"
+                  >
+                    Grant Item
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAdminAction({ action: 'grant_gems', gems: grantGemsAmt })
+                  }
+                  className="flex items-center justify-center gap-1 py-2 rounded bg-[#153447] hover:bg-[#1e4963] border border-[#38e8d8] text-xs font-mono-num font-bold text-[#8cf7ee] cursor-pointer"
+                >
+                  <Coins className="w-3.5 h-3.5" />
+                  <span>+{grantGemsAmt} Gems</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!inWorld}
+                  onClick={() => onAdminAction({ action: 'grow_all_trees' })}
+                  className="flex items-center justify-center gap-1 py-2 rounded bg-[#1d3b26] disabled:opacity-40 border border-[#82e068] text-xs font-bold text-[#a8f794] cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Grow Trees</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft(cloneGameConfig(DEFAULT_GAME_CONFIG));
+                    onAdminAction({ action: 'reset_config' });
+                    showFeedback('Reset all mechanics & item rates to defaults');
+                  }}
+                  className="flex items-center justify-center gap-1 py-2 rounded bg-[#3b1b1f] hover:bg-[#52242a] border border-[#7a343d] text-xs font-bold text-[#ffd4d4] cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset All</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Compact World & Physics Sliders */}
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <label className="flex flex-col gap-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-[#9cb5cc]">Camera Zoom</span>
+                  <span className="font-mono-num font-bold text-[#ffe18c]">
+                    {draft.mechanics.viewScale.toFixed(2)}×
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={2.4}
+                  step={0.05}
+                  value={draft.mechanics.viewScale}
+                  onChange={(e) => setMech('viewScale', Number(e.target.value))}
+                  className="accent-[#f2b738]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-[#9cb5cc]">Build/Punch Reach</span>
+                  <span className="font-mono-num font-bold text-[#ffe18c]">
+                    {draft.mechanics.reachTiles.toFixed(1)} tiles
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={2}
+                  max={8}
+                  step={0.5}
+                  value={draft.mechanics.reachTiles}
+                  onChange={(e) => setMech('reachTiles', Number(e.target.value))}
+                  className="accent-[#f2b738]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-[#9cb5cc]">Punch Speed (Cooldown)</span>
+                  <span className="font-mono-num font-bold text-[#8cf7ee]">
+                    {draft.mechanics.punchCooldownMs} ms
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={80}
+                  max={500}
+                  step={10}
+                  value={draft.mechanics.punchCooldownMs}
+                  onChange={(e) => setMech('punchCooldownMs', Number(e.target.value))}
+                  className="accent-[#38e8d8]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-[#9cb5cc]">Run Speed</span>
+                  <span className="font-mono-num font-bold text-[#8cf7ee]">
+                    {draft.mechanics.moveSpeed} px/s
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={150}
+                  max={520}
+                  step={10}
+                  value={draft.mechanics.moveSpeed}
+                  onChange={(e) => setMech('moveSpeed', Number(e.target.value))}
+                  className="accent-[#38e8d8]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-[#9cb5cc]">Tree Growth Speed</span>
+                  <span className="font-mono-num font-bold text-[#82e068]">
+                    {draft.mechanics.growthMultiplier.toFixed(1)}×
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.2}
+                  max={5}
+                  step={0.2}
+                  value={draft.mechanics.growthMultiplier}
+                  onChange={(e) => setMech('growthMultiplier', Number(e.target.value))}
+                  className="accent-[#82e068]"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-[#9cb5cc]">Global Gem Drop Chance</span>
+                  <span className="font-mono-num font-bold text-[#8cf7ee]">
+                    {Math.round(draft.mechanics.globalGemDropChance * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={draft.mechanics.globalGemDropChance}
+                  onChange={(e) => setMech('globalGemDropChance', Number(e.target.value))}
+                  className="accent-[#38e8d8]"
+                />
+              </label>
             </div>
           </div>
+        )}
+      </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              disabled={!inWorld}
-              onClick={() => onAdminAction({ action: 'grow_all_trees' })}
-              className="py-2 px-3 rounded bg-[#214463] hover:bg-[#2d5b82] disabled:bg-[#142230] disabled:text-[#637e96] border border-[#78c8f5] font-bold text-white cursor-pointer"
-            >
-              Mature All World Trees
-            </button>
-            <button
-              type="button"
-              onClick={() => onAdminAction({ action: 'reset_config' })}
-              className="py-2 px-3 rounded bg-[#3b1b1f] hover:bg-[#52242a] border border-[#7a343d] font-bold text-[#ffd4d4] cursor-pointer"
-            >
-              Reset All Defaults
-            </button>
-          </div>
+      {/* Sticky Bottom Save Bar for 1-Thumb Mobile Reach */}
+      <div className="pt-2 mt-2 border-t border-[#28425e] flex items-center justify-between gap-2 shrink-0">
+        <div className="text-[10px] text-[#9cb5cc] truncate">
+          {modifiedCount > 0
+            ? `${modifiedCount} item override(s) staged`
+            : 'All items using live config'}
         </div>
-      )}
-
-      {/* Save Configuration Footer */}
-      {subTab !== 'tools' && (
-        <div className="flex items-center justify-between gap-2 border-t border-[#2b4561] pt-2 shrink-0">
-          <span className="text-[11px] text-[#9cb5cc] truncate">
-            Live server config syncs immediately to all active worlds &amp; players.
-          </span>
-          <button
-            type="button"
-            onClick={() => onSaveConfig(draft)}
-            className="px-4 py-1.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border-2 border-[#82e068] text-[#081709] font-bold text-xs cursor-pointer shrink-0"
-          >
-            Save &amp; Apply Live
-          </button>
-        </div>
-      )}
+        <button
+          type="button"
+          data-testid="admin-save-config-btn"
+          onClick={() => {
+            onSaveConfig(draft);
+            showFeedback('Saved & broadcast live config to all worlds!');
+          }}
+          className="flex items-center justify-center gap-1.5 px-4 py-2 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border-2 border-[#82e068] text-[#081709] font-pixel text-[10px] cursor-pointer shrink-0 shadow-md"
+        >
+          <Save className="w-3.5 h-3.5" />
+          <span>Save &amp; Apply Live</span>
+        </button>
+      </div>
     </div>
   );
 };

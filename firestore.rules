@@ -58,7 +58,7 @@ service cloud.firestore {
 
     function isValidPrivateAccount(data, userId) {
       return data.keys().hasAll(['uid', 'email', 'gems', 'xp', 'level', 'favoriteWorlds', 'recentWorlds', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'email', 'gems', 'xp', 'level', 'favoriteWorlds', 'recentWorlds', 'inventory', 'equipped', 'stats', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'gems', 'xp', 'level', 'favoriteWorlds', 'recentWorlds', 'inventory', 'equipped', 'stats', 'unclaimedWl', 'activeBuffs', 'createdAt', 'updatedAt'])
         && data.uid is string
         && data.uid.size() >= 1
         && data.uid.size() <= 128
@@ -82,12 +82,14 @@ service cloud.firestore {
         && (!('inventory' in data) || (data.inventory is list && data.inventory.size() <= 200))
         && (!('equipped' in data) || data.equipped is map)
         && (!('stats' in data) || data.stats is map)
+        && (!('unclaimedWl' in data) || (data.unclaimedWl is int && data.unclaimedWl >= 0 && data.unclaimedWl <= 1000000))
+        && (!('activeBuffs' in data) || (data.activeBuffs is list && data.activeBuffs.size() <= 10 && (data.activeBuffs.size() == 0 || data.activeBuffs[0] is map)))
         && data.updatedAt == request.time;
     }
 
     function isValidWorldSnapshot(data, worldId) {
       return data.keys().hasAll(['worldId', 'name', 'revision', 'spawnX', 'spawnY', 'fgRle', 'bgRle', 'publicAccess', 'updatedByUid', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['worldId', 'name', 'ownerUid', 'ownerName', 'revision', 'spawnX', 'spawnY', 'fgRle', 'bgRle', 'publicAccess', 'updatedByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['worldId', 'name', 'ownerUid', 'ownerName', 'revision', 'spawnX', 'spawnY', 'fgRle', 'bgRle', 'fluidTypeRle', 'fluidLevelRle', 'publicAccess', 'updatedByUid', 'createdAt', 'updatedAt'])
         && data.worldId is string
         && data.worldId.size() >= 1
         && data.worldId.size() <= 32
@@ -104,11 +106,13 @@ service cloud.firestore {
         && data.spawnX < 100
         && data.spawnY is int
         && data.spawnY >= 0
-        && data.spawnY < 60
+        && data.spawnY < 150
         && data.fgRle is string
         && data.fgRle.size() <= 120000
         && data.bgRle is string
         && data.bgRle.size() <= 120000
+        && (!('fluidTypeRle' in data) || (data.fluidTypeRle is string && data.fluidTypeRle.size() <= 120000))
+        && (!('fluidLevelRle' in data) || (data.fluidLevelRle is string && data.fluidLevelRle.size() <= 120000))
         && data.publicAccess is bool
         && data.updatedByUid is string
         && data.updatedByUid.size() >= 1
@@ -133,10 +137,10 @@ service cloud.firestore {
         && data.worldName == worldId
         && data.x is number
         && data.x >= 0
-        && data.x <= 3200
+        && data.x <= 4800
         && data.y is number
         && data.y >= 0
-        && data.y <= 1920
+        && data.y <= 7200
         && data.level is int
         && data.level >= 1
         && data.level <= 999
@@ -190,6 +194,8 @@ service cloud.firestore {
           'inventory',
           'equipped',
           'stats',
+          'unclaimedWl',
+          'activeBuffs',
           'updatedAt'
         ]);
       allow delete: if false;
@@ -216,6 +222,8 @@ service cloud.firestore {
           'spawnY',
           'fgRle',
           'bgRle',
+          'fluidTypeRle',
+          'fluidLevelRle',
           'publicAccess',
           'updatedByUid',
           'updatedAt'

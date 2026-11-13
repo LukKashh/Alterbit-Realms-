@@ -4,8 +4,6 @@ import {
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
   TILE_SIZE,
-  WORLD_HEIGHT,
-  WORLD_WIDTH,
 } from './constants.ts';
 import { CATALOG, getItemDef, ITEM_IDS } from './catalog.ts';
 import {
@@ -14,6 +12,7 @@ import {
   getEffectiveItemDef,
   type GameConfig,
 } from './config.ts';
+import { ensureFluidArrays, type FluidDelta } from './fluids.ts';
 import { createPlayerBody, stepPlayerPhysics, type PlayerBody } from './physics.ts';
 import {
   getCrackOverlay,
@@ -22,17 +21,28 @@ import {
   type EquippedWearables,
   type PlayerPose,
 } from './pixelArt.ts';
-import { canBreakTile, canPlaceTile, getCoveringAreaLock, getPlantGrowthState, tileIndex } from './rules.ts';
+import {
+  canBreakTile,
+  canPlaceTile,
+  getCoveringAreaLock,
+  getPlantGrowthState,
+  inBoundsWorld,
+  tileIndexIn,
+  worldHeight,
+  worldWidth,
+} from './rules.ts';
 import {
   generateWorld,
   type AreaLockRecord,
+  type BfgCollectorRecord,
+  type FurnaceRecord,
   type PlantedTree,
   type VendingMachineRecord,
   type WorldLockRecord,
   type WorldState,
 } from './worldGen.ts';
 import { soundEngine } from './audio.ts';
-import type { RemotePlayerState, WorldDrop } from './network.ts';
+import type { ActiveBuff, FishingCastState, RemotePlayerState, WorldDrop } from './network.ts';
 
 interface Particle {
   active: boolean;
@@ -63,6 +73,9 @@ export interface TileInspectInfo {
   worldLock?: WorldLockRecord | null;
   areaLock?: AreaLockRecord | null;
   vendingMachine?: VendingMachineRecord | null;
+  furnace?: FurnaceRecord | null;
+  bfgCollector?: BfgCollectorRecord | null;
+  isExchangeTerminal?: boolean;
   signText?: string | null;
 }
 
@@ -77,11 +90,15 @@ export interface EngineCallbacks {
     punching: boolean;
     placing?: boolean;
   }) => void;
-  onPunchTile?: (tx: number, ty: number) => void;
+  onPunchTile?: (tx: number, ty: number, toolItemId?: number) => void;
   onPlaceTile?: (tx: number, ty: number, itemId: number) => void;
   onPickupDrop?: (dropId: string) => void;
   onInspectTile?: (info: TileInspectInfo) => void;
   onCoordsChange?: (tx: number, ty: number) => void;
+  onCastFishing?: (tx: number, ty: number, rodItemId: number) => void;
+  onReelFishing?: () => void;
+  onUseConsumable?: (itemId: number) => void;
+  onHazardHit?: (hazard: 'acid' | 'spikes') => void;
 }
 
 const MAX_PARTICLES = 128;
@@ -108,6 +125,8 @@ export class BlockgroveEngine {
   private drops = new Map<string, WorldDrop>();
   private cracks = new Map<string, TileCrackVisual>();
   private pickupAttempted = new Set<string>();
+  private activeBuffs: ActiveBuff[] = [];
+  private activeCasts = new Map<string, FishingCastState>();
 
   private camX = 0;
   private camY = 0;
@@ -164,8 +183,8 @@ export class BlockgroveEngine {
 
     this.world = generateWorld('START');
     this.worldLayerCanvas = document.createElement('canvas');
-    this.worldLayerCanvas.width = WORLD_WIDTH * TILE_SIZE;
-    this.worldLayerCanvas.height = WORLD_HEIGHT * TILE_SIZE;
+    this.worldLayerCanvas.width = worldWidth(this.world) * TILE_SIZE;
+    this.worldLayerCanvas.height = worldHeight(this.world) * TILE_SIZE;
     const wlCtx = this.worldLayerCanvas.getContext('2d');
     if (!wlCtx) throw new Error('Offscreen 2D canvas unavailable');
     wlCtx.imageSmoothingEnabled = false;
@@ -386,8 +405,47 @@ export class BlockgroveEngine {
     this.viewScale = Math.max(1, Math.min(2.5, cfg.mechanics.viewScale || DEFAULT_VIEW_SCALE));
   }
 
+  public setActiveBuffs(buffs: ActiveBuff[]) {
+    this.activeBuffs = buffs;
+  }
+
+  private getActiveBuffBonusPct(buffType: 'move_speed' | 'break_speed' | 'luck'): number {
+    const now = Date.now();
+    let total = 0;
+    for (const b of this.activeBuffs) {
+      if (b.buffType === buffType && b.expiresAt > now) {
+        total += b.bonusPct;
+      }
+    }
+    return total;
+  }
+
+  public setFishingCast(cast: FishingCastState) {
+    this.activeCasts.set(cast.playerId, cast);
+  }
+
+  public markFishingBite(playerId: string) {
+    const c = this.activeCasts.get(playerId);
+    if (c) c.biting = true;
+  }
+
+  public removeFishingCast(playerId: string) {
+    this.activeCasts.delete(playerId);
+  }
+
+  public applyFluidDeltas(deltas: FluidDelta[]) {
+    const { fluidType, fluidLevel } = ensureFluidArrays(this.world);
+    for (const d of deltas) {
+      if (!inBoundsWorld(this.world, d.tx, d.ty)) continue;
+      const idx = tileIndexIn(this.world, d.tx, d.ty);
+      fluidType[idx] = d.fluidType;
+      fluidLevel[idx] = d.fluidLevel;
+    }
+  }
+
   private paintLayerTile(tx: number, ty: number) {
-    const idx = ty * WORLD_WIDTH + tx;
+    const w = worldWidth(this.world);
+    const idx = ty * w + tx;
     const px = tx * TILE_SIZE;
     const py = ty * TILE_SIZE;
     this.worldLayerCtx.clearRect(px, py, TILE_SIZE, TILE_SIZE);
@@ -408,8 +466,10 @@ export class BlockgroveEngine {
   }
 
   private rebuildWorldLayer() {
-    for (let ty = 0; ty < WORLD_HEIGHT; ty++) {
-      for (let tx = 0; tx < WORLD_WIDTH; tx++) {
+    const w = worldWidth(this.world);
+    const h = worldHeight(this.world);
+    for (let ty = 0; ty < h; ty++) {
+      for (let tx = 0; tx < w; tx++) {
         this.paintLayerTile(tx, ty);
       }
     }
@@ -424,6 +484,18 @@ export class BlockgroveEngine {
     this.world.areaLocks = this.world.areaLocks ?? {};
     this.world.vendingMachines = this.world.vendingMachines ?? {};
     this.world.signs = this.world.signs ?? {};
+    this.world.furnaces = this.world.furnaces ?? {};
+    this.world.bfgCollectors = this.world.bfgCollectors ?? {};
+    ensureFluidArrays(this.world);
+
+    const wPx = worldWidth(this.world) * TILE_SIZE;
+    const hPx = worldHeight(this.world) * TILE_SIZE;
+    if (this.worldLayerCanvas.width !== wPx || this.worldLayerCanvas.height !== hPx) {
+      this.worldLayerCanvas.width = wPx;
+      this.worldLayerCanvas.height = hPx;
+      this.worldLayerCtx.imageSmoothingEnabled = false;
+    }
+
     this.rebuildWorldLayer();
     this.body = createPlayerBody(world.spawnX, world.spawnY);
     this.remotePlayers.clear();
@@ -438,6 +510,7 @@ export class BlockgroveEngine {
     }
     this.cracks.clear();
     this.pickupAttempted.clear();
+    this.activeCasts.clear();
     this.snapCameraToPlayer();
   }
 
@@ -448,6 +521,7 @@ export class BlockgroveEngine {
 
   public removeRemotePlayer(playerId: string) {
     this.remotePlayers.delete(playerId);
+    this.activeCasts.delete(playerId);
   }
 
   public updateRemotePlayer(p: RemotePlayerState) {
@@ -471,10 +545,11 @@ export class BlockgroveEngine {
 
   public applyTileDamaged(tx: number, ty: number, hits: number, maxHits: number) {
     this.cracks.set(`${tx},${ty}`, { hits, maxHits, expiresAt: performance.now() + 4000 });
-    const fgId = this.world.fg[tileIndex(tx, ty)];
+    const idx = tileIndexIn(this.world, tx, ty);
+    const fgId = this.world.fg[idx];
     const def =
       getEffectiveItemDef(fgId, this.gameConfig) ??
-      getEffectiveItemDef(this.world.bg[tileIndex(tx, ty)], this.gameConfig);
+      getEffectiveItemDef(this.world.bg[idx], this.gameConfig);
     this.spawnParticles(
       tx * TILE_SIZE + TILE_SIZE * 0.5,
       ty * TILE_SIZE + TILE_SIZE * 0.5,
@@ -492,13 +567,22 @@ export class BlockgroveEngine {
     worldLock?: WorldLockRecord | null,
     areaLock?: AreaLockRecord | null,
     vendingMachine?: VendingMachineRecord | null,
-    signText?: string | null
+    signText?: string | null,
+    fluidType?: number,
+    fluidLevel?: number,
+    furnace?: FurnaceRecord | null,
+    bfgCollector?: BfgCollectorRecord | null
   ) {
-    const idx = tileIndex(tx, ty);
+    const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
     const prevFg = this.world.fg[idx];
     this.world.fg[idx] = fg;
     this.world.bg[idx] = bg;
+
+    ensureFluidArrays(this.world);
+    if (fluidType !== undefined) this.world.fluidType![idx] = fluidType;
+    if (fluidLevel !== undefined) this.world.fluidLevel![idx] = fluidLevel;
+
     if (plant) {
       this.world.plants[key] = plant;
     } else {
@@ -516,6 +600,16 @@ export class BlockgroveEngine {
     if (vendingMachine !== undefined) {
       if (vendingMachine) this.world.vendingMachines[key] = vendingMachine;
       else delete this.world.vendingMachines[key];
+    }
+    this.world.furnaces = this.world.furnaces ?? {};
+    if (furnace !== undefined) {
+      if (furnace) this.world.furnaces[key] = furnace;
+      else delete this.world.furnaces[key];
+    }
+    this.world.bfgCollectors = this.world.bfgCollectors ?? {};
+    if (bfgCollector !== undefined) {
+      if (bfgCollector) this.world.bfgCollectors[key] = bfgCollector;
+      else delete this.world.bfgCollectors[key];
     }
     this.world.signs = this.world.signs ?? {};
     if (signText !== undefined) {
@@ -573,8 +667,8 @@ export class BlockgroveEngine {
     const pcx = Math.floor((this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE);
     const pcy = Math.floor((this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE);
     return {
-      tx: Math.max(0, Math.min(WORLD_WIDTH - 1, pcx + this.body.facing)),
-      ty: Math.max(0, Math.min(WORLD_HEIGHT - 1, pcy)),
+      tx: Math.max(0, Math.min(worldWidth(this.world) - 1, pcx + this.body.facing)),
+      ty: Math.max(0, Math.min(worldHeight(this.world) - 1, pcy)),
     };
   }
 
@@ -591,13 +685,17 @@ export class BlockgroveEngine {
     const pty = Math.floor(pcy);
     const playerCtx = { id: this.localPlayerId, x: this.body.x, y: this.body.y };
     const reach = this.gameConfig.mechanics.reachTiles;
+    const w = worldWidth(this.world);
+    const h = worldHeight(this.world);
+    const selectedDef = getItemDef(this.selectedItemId);
+    const isBreakTool = this.selectedItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe';
 
     let firstRayTile: { tx: number; ty: number } | null = null;
     let prevKey = '';
 
     for (let d = 0.35; d <= reach; d += 0.15) {
-      const tx = Math.max(0, Math.min(WORLD_WIDTH - 1, Math.floor(pcx + dirX * d)));
-      const ty = Math.max(0, Math.min(WORLD_HEIGHT - 1, Math.floor(pcy + dirY * d)));
+      const tx = Math.max(0, Math.min(w - 1, Math.floor(pcx + dirX * d)));
+      const ty = Math.max(0, Math.min(h - 1, Math.floor(pcy + dirY * d)));
       const key = `${tx},${ty}`;
       if (key === prevKey) continue;
       prevKey = key;
@@ -606,31 +704,39 @@ export class BlockgroveEngine {
         firstRayTile = { tx, ty };
       }
 
-      if (this.selectedItemId === ITEM_IDS.FIST) {
+      const idx = tileIndexIn(this.world, tx, ty);
+      if (isBreakTool) {
         if (canBreakTile(this.world, playerCtx, tx, ty, reach).ok) {
           return { tx, ty };
         }
-        const fgId = this.world.fg[tileIndex(tx, ty)];
+        const fgId = this.world.fg[idx];
         if (
           fgId !== ITEM_IDS.AIR &&
           (CATALOG[fgId]?.collision === 'solid' ||
             fgId === ITEM_IDS.VENDING_MACHINE ||
             fgId === ITEM_IDS.WORLD_LOCK ||
-            fgId === ITEM_IDS.SMALL_LOCK)
+            fgId === ITEM_IDS.SMALL_LOCK ||
+            fgId === ITEM_IDS.STONE_FURNACE ||
+            fgId === ITEM_IDS.BFG_COLLECTOR ||
+            fgId === ITEM_IDS.EXCHANGE_TERMINAL)
         ) {
           return { tx, ty };
         }
       } else if (this.selectedItemId === ITEM_IDS.WRENCH) {
-        if (this.world.fg[tileIndex(tx, ty)] !== ITEM_IDS.AIR) {
+        if (this.world.fg[idx] !== ITEM_IDS.AIR) {
+          return { tx, ty };
+        }
+      } else if (selectedDef?.toolKind === 'rod') {
+        if ((this.world.fluidLevel?.[idx] ?? 0) > 0) {
           return { tx, ty };
         }
       } else {
         if (canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok) {
           return { tx, ty };
         }
-        const fgId = this.world.fg[tileIndex(tx, ty)];
+        const fgId = this.world.fg[idx];
         if (
-          CATALOG[this.selectedItemId]?.category !== 'background' &&
+          selectedDef?.category !== 'background' &&
           fgId !== ITEM_IDS.AIR &&
           CATALOG[fgId]?.collision === 'solid'
         ) {
@@ -653,8 +759,8 @@ export class BlockgroveEngine {
   }
 
   public emitInspectAt(tx: number, ty: number) {
-    if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) return;
-    const idx = tileIndex(tx, ty);
+    if (!inBoundsWorld(this.world, tx, ty)) return;
+    const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
     const fgId = this.world.fg[idx];
     const fgDef = getItemDef(fgId);
@@ -687,15 +793,19 @@ export class BlockgroveEngine {
       worldLock: fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
       areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : coveringAreaLock,
       vendingMachine: fgId === ITEM_IDS.VENDING_MACHINE ? (this.world.vendingMachines?.[key] ?? null) : null,
+      furnace: fgId === ITEM_IDS.STONE_FURNACE ? (this.world.furnaces?.[key] ?? null) : null,
+      bfgCollector: fgId === ITEM_IDS.BFG_COLLECTOR ? (this.world.bfgCollectors?.[key] ?? null) : null,
+      isExchangeTerminal: fgId === ITEM_IDS.EXCHANGE_TERMINAL,
       signText: !!CATALOG[fgId]?.key.includes('sign') ? (this.world.signs?.[key] ?? '') : null,
     });
   }
 
   private performTileInteraction(tx: number, ty: number) {
     if (this.punchTimer > 0) return;
-    if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) return;
+    if (!inBoundsWorld(this.world, tx, ty)) return;
     const playerCtx = { id: this.localPlayerId, x: this.body.x, y: this.body.y };
     const reach = this.gameConfig.mechanics.reachTiles;
+    const selectedDef = getItemDef(this.selectedItemId);
 
     if (this.selectedItemId === ITEM_IDS.WRENCH) {
       this.punchTimer = 0.25;
@@ -703,24 +813,60 @@ export class BlockgroveEngine {
       return;
     }
 
-    if (this.selectedItemId === ITEM_IDS.FIST) {
-      this.punchTimer = this.gameConfig.mechanics.punchCooldownMs / 1000;
+    if (selectedDef?.category === 'consumable') {
+      this.punchTimer = 0.4;
+      soundEngine.uiClick();
+      this.callbacks.onUseConsumable?.(this.selectedItemId);
+      return;
+    }
+
+    if (selectedDef?.toolKind === 'rod') {
+      if (this.activeCasts.has(this.localPlayerId)) {
+        this.punchTimer = 0.35;
+        soundEngine.uiClick();
+        this.callbacks.onReelFishing?.();
+      } else {
+        this.punchTimer = 0.45;
+        soundEngine.punch();
+        this.callbacks.onCastFishing?.(tx, ty, this.selectedItemId);
+      }
+      return;
+    }
+
+    if (this.selectedItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe') {
+      const baseCd = this.gameConfig.mechanics.punchCooldownMs / 1000;
+      const toolFactor =
+        selectedDef?.toolKind === 'pickaxe'
+          ? (selectedDef.toolPower ?? 2) >= 4
+            ? 0.72
+            : (selectedDef.toolPower ?? 2) >= 3
+              ? 0.82
+              : 0.90
+          : 1;
+      const buffFactor = this.getActiveBuffBonusPct('break_speed') > 0 ? 0.75 : 1;
+      this.punchTimer = Math.max(0.08, baseCd * toolFactor * buffFactor);
       this.punchAnimTimer = PUNCH_ANIM_DURATION;
       const check = canBreakTile(this.world, playerCtx, tx, ty, reach);
       soundEngine.punch();
       if (check.ok) {
-        this.callbacks.onPunchTile?.(tx, ty);
+        this.callbacks.onPunchTile?.(tx, ty, this.selectedItemId);
       } else {
-        // If punching a stocked Vending Machine or Lock that can't be broken, open its inspector
-        const fgId = this.world.fg[tileIndex(tx, ty)];
-        if (fgId === ITEM_IDS.VENDING_MACHINE || fgId === ITEM_IDS.WORLD_LOCK || fgId === ITEM_IDS.SMALL_LOCK) {
+        const fgId = this.world.fg[tileIndexIn(this.world, tx, ty)];
+        if (
+          fgId === ITEM_IDS.VENDING_MACHINE ||
+          fgId === ITEM_IDS.WORLD_LOCK ||
+          fgId === ITEM_IDS.SMALL_LOCK ||
+          fgId === ITEM_IDS.STONE_FURNACE ||
+          fgId === ITEM_IDS.BFG_COLLECTOR ||
+          fgId === ITEM_IDS.EXCHANGE_TERMINAL
+        ) {
           this.emitInspectAt(tx, ty);
         }
       }
       return;
     }
 
-    // Placing block / background / seed / lock / interactive
+    // Placing block / background / seed / lock / fluid / machine
     this.punchTimer = PLACE_COOLDOWN;
     const check = canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach);
     if (check.ok) {
@@ -752,10 +898,12 @@ export class BlockgroveEngine {
   private snapCameraToPlayer() {
     const viewW = (this.canvas.width || 960) / this.viewScale;
     const viewH = (this.canvas.height || 540) / this.viewScale;
+    const wPx = worldWidth(this.world) * TILE_SIZE;
+    const hPx = worldHeight(this.world) * TILE_SIZE;
     const targetX = this.body.x + PLAYER_WIDTH * 0.5 - viewW * 0.5;
     const targetY = this.body.y + PLAYER_HEIGHT * 0.5 - viewH * 0.54;
-    this.camX = Math.max(0, Math.min(WORLD_WIDTH * TILE_SIZE - viewW, targetX));
-    this.camY = Math.max(0, Math.min(WORLD_HEIGHT * TILE_SIZE - viewH, targetY));
+    this.camX = Math.max(0, Math.min(Math.max(0, wPx - viewW), targetX));
+    this.camY = Math.max(0, Math.min(Math.max(0, hPx - viewH), targetY));
   }
 
   private loop = (nowMs: number) => {
@@ -796,12 +944,14 @@ export class BlockgroveEngine {
 
     const viewW = this.canvas.width / this.viewScale;
     const viewH = this.canvas.height / this.viewScale;
-    const maxCamX = Math.max(0, WORLD_WIDTH * TILE_SIZE - viewW);
-    const maxCamY = Math.max(0, WORLD_HEIGHT * TILE_SIZE - viewH);
+    const wPx = worldWidth(this.world) * TILE_SIZE;
+    const hPx = worldHeight(this.world) * TILE_SIZE;
+    const maxCamX = Math.max(0, wPx - viewW);
+    const maxCamY = Math.max(0, hPx - viewH);
 
     if (this.mode === 'title') {
       this.titlePanTime += dt;
-      const panCenter = (WORLD_WIDTH * TILE_SIZE - viewW) * (0.5 + 0.35 * Math.sin(this.titlePanTime * 0.14));
+      const panCenter = (wPx - viewW) * (0.5 + 0.35 * Math.sin(this.titlePanTime * 0.14));
       this.camX = Math.max(0, Math.min(maxCamX, panCenter));
       this.camY = Math.max(0, Math.min(maxCamY, this.world.spawnY * TILE_SIZE - viewH * 0.62));
       return;
@@ -836,6 +986,15 @@ export class BlockgroveEngine {
       this.keysHeld.has('ArrowUp') ||
       this.touchState.jumpHeld;
 
+    const speedBonus = this.getActiveBuffBonusPct('move_speed');
+    const effMechanics =
+      speedBonus > 0
+        ? {
+            ...this.gameConfig.mechanics,
+            moveSpeed: Math.round(this.gameConfig.mechanics.moveSpeed * (1 + speedBonus / 100)),
+          }
+        : this.gameConfig.mechanics;
+
     const result = stepPlayerPhysics(
       this.body,
       this.world,
@@ -847,11 +1006,15 @@ export class BlockgroveEngine {
         jumpJustPressed: this.jumpJustPressed,
       },
       dt,
-      this.gameConfig.mechanics
+      effMechanics
     );
     this.jumpJustPressed = false;
 
-    if (result.jumped) {
+    if (result.bounced) {
+      this.scaleX = 0.78;
+      this.scaleY = 1.28;
+      soundEngine.jump();
+    } else if (result.jumped) {
       this.scaleX = 0.84;
       this.scaleY = 1.18;
       soundEngine.jump();
@@ -859,6 +1022,21 @@ export class BlockgroveEngine {
       this.scaleX = 1.2;
       this.scaleY = 0.82;
       soundEngine.land();
+    }
+
+    if (result.hazardHit) {
+      this.spawnParticles(
+        this.body.x + PLAYER_WIDTH * 0.5,
+        this.body.y + PLAYER_HEIGHT * 0.5,
+        14,
+        result.hazardHit === 'acid' ? '#62db3c' : '#ff8a6b'
+      );
+      this.body.x = this.world.spawnX * TILE_SIZE + (TILE_SIZE - PLAYER_WIDTH) * 0.5;
+      this.body.y = (this.world.spawnY + 1) * TILE_SIZE - PLAYER_HEIGHT;
+      this.body.vx = 0;
+      this.body.vy = 0;
+      this.shakeTrauma = 0.45;
+      this.callbacks.onHazardHit?.(result.hazardHit);
     }
 
     const targetCamX = Math.max(0, Math.min(maxCamX, this.body.x + PLAYER_WIDTH * 0.5 - viewW * 0.5));
@@ -930,29 +1108,34 @@ export class BlockgroveEngine {
     const cx = Math.floor(this.camX + shakeX);
     const cy = Math.floor(this.camY + shakeY);
 
-    // 1. Sky gradient backdrop (unscaled full viewport)
-    ctx.fillStyle = this.skyGradient ?? '#7ec8f2';
-    ctx.fillRect(0, 0, w, h);
+    // 1. Sky or Deep Cavern backdrop (unscaled full viewport)
+    if (this.world.worldKind === 'mine_shaft') {
+      ctx.fillStyle = '#121824';
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      ctx.fillStyle = this.skyGradient ?? '#7ec8f2';
+      ctx.fillRect(0, 0, w, h);
 
-    // 2. Parallax pixel clouds & distant mountain silhouettes
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-    for (let i = 0; i < 8; i++) {
-      const cloudX = ((i * 260 - cx * 0.18 + nowMs * 0.008) % (w + 300)) - 140;
-      const cloudY = 128 + (i % 3) * 48 - cy * 0.05;
-      ctx.fillRect(Math.floor(cloudX), Math.floor(cloudY), 92, 18);
-      ctx.fillRect(Math.floor(cloudX + 18), Math.floor(cloudY - 12), 54, 14);
-    }
+      // 2. Parallax pixel clouds & distant mountain silhouettes
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+      for (let i = 0; i < 8; i++) {
+        const cloudX = ((i * 260 - cx * 0.18 + nowMs * 0.008) % (w + 300)) - 140;
+        const cloudY = 128 + (i % 3) * 48 - cy * 0.05;
+        ctx.fillRect(Math.floor(cloudX), Math.floor(cloudY), 92, 18);
+        ctx.fillRect(Math.floor(cloudX + 18), Math.floor(cloudY - 12), 54, 14);
+      }
 
-    ctx.fillStyle = 'rgba(72, 130, 168, 0.28)';
-    for (let i = 0; i < 12; i++) {
-      const mx = i * 240 - Math.floor(cx * 0.25);
-      const my = Math.floor(24 * TILE_SIZE - cy * 0.35 - 70);
-      ctx.beginPath();
-      ctx.moveTo(mx - 60, h);
-      ctx.lineTo(mx + 80, my);
-      ctx.lineTo(mx + 220, h);
-      ctx.closePath();
-      ctx.fill();
+      ctx.fillStyle = 'rgba(72, 130, 168, 0.28)';
+      for (let i = 0; i < 12; i++) {
+        const mx = i * 240 - Math.floor(cx * 0.25);
+        const my = Math.floor(24 * TILE_SIZE - cy * 0.35 - 70);
+        ctx.beginPath();
+        ctx.moveTo(mx - 60, h);
+        ctx.lineTo(mx + 80, my);
+        ctx.lineTo(mx + 220, h);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
 
     // Upscaled crisp nearest-neighbor world pass
@@ -971,13 +1154,69 @@ export class BlockgroveEngine {
       ctx.drawImage(this.worldLayerCanvas, sxTile, syTile, srcW, srcH, -subX, -subY, srcW, srcH);
     }
 
-    // 4. Dynamic planted trees, vending machine stock previews & damage cracks
+    // 3b. Dynamic Water & Acid fluid cells in viewport
+    const ww = worldWidth(this.world);
+    const wh = worldHeight(this.world);
+    const tx0 = Math.max(0, Math.floor(cx / TILE_SIZE));
+    const tx1 = Math.min(ww - 1, Math.ceil((cx + viewW) / TILE_SIZE));
+    const ty0 = Math.max(0, Math.floor(cy / TILE_SIZE));
+    const ty1 = Math.min(wh - 1, Math.ceil((cy + viewH) / TILE_SIZE));
+    if (this.world.fluidType && this.world.fluidLevel) {
+      for (let ty = ty0; ty <= ty1; ty++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          const idx = ty * ww + tx;
+          const fLvl = this.world.fluidLevel[idx];
+          const fTyp = this.world.fluidType[idx];
+          if (fLvl > 0 && fTyp > 0) {
+            const fillH = Math.round((Math.min(4, fLvl) / 4) * TILE_SIZE);
+            const fx = tx * TILE_SIZE - cx;
+            const fy = ty * TILE_SIZE - cy + (TILE_SIZE - fillH);
+            ctx.fillStyle = fTyp === 2 ? 'rgba(98, 219, 60, 0.72)' : 'rgba(41, 148, 217, 0.68)';
+            ctx.fillRect(fx, fy, TILE_SIZE, fillH);
+            const waveOffset = Math.round(Math.sin(nowMs * 0.006 + tx * 0.9) * 2);
+            ctx.fillStyle = fTyp === 2 ? 'rgba(196, 255, 118, 0.85)' : 'rgba(148, 224, 255, 0.82)';
+            ctx.fillRect(fx, fy + waveOffset, TILE_SIZE, 4);
+          }
+        }
+      }
+    }
+
+    // 4. Dynamic planted trees, machine status cues, vending machine stock & damage cracks
     for (const key in this.world.plants) {
       const plant = this.world.plants[key];
       const sx = plant.x * TILE_SIZE - cx;
       const sy = plant.y * TILE_SIZE - cy;
       if (sx >= -TILE_SIZE && sx <= viewW && sy >= -TILE_SIZE && sy <= viewH) {
         this.drawPlantedTree(ctx, plant, sx, sy, nowMs);
+      }
+    }
+
+    if (this.world.furnaces) {
+      for (const f of Object.values(this.world.furnaces)) {
+        const sx = f.x * TILE_SIZE - cx;
+        const sy = f.y * TILE_SIZE - cy;
+        if (sx >= -TILE_SIZE && sx <= viewW && sy >= -TILE_SIZE && sy <= viewH) {
+          if (f.recipeId || f.readyOutputItemId > 0) {
+            const pulse = 0.55 + 0.35 * Math.sin(nowMs * 0.01);
+            ctx.fillStyle = f.readyOutputItemId > 0
+              ? `rgba(130, 224, 104, ${pulse})`
+              : `rgba(255, 138, 48, ${pulse})`;
+            ctx.fillRect(sx + 16, sy + 24, 16, 12);
+          }
+        }
+      }
+    }
+
+    if (this.world.bfgCollectors) {
+      for (const bfg of Object.values(this.world.bfgCollectors)) {
+        if (!bfg.active) continue;
+        const sx = bfg.x * TILE_SIZE - cx;
+        const sy = bfg.y * TILE_SIZE - cy;
+        if (sx >= -TILE_SIZE && sx <= viewW && sy >= -TILE_SIZE && sy <= viewH) {
+          const pulse = 0.5 + 0.35 * Math.sin(nowMs * 0.008);
+          ctx.fillStyle = `rgba(56, 232, 216, ${pulse})`;
+          ctx.fillRect(sx + 18, sy + 12, 12, 12);
+        }
       }
     }
 
@@ -1101,17 +1340,58 @@ export class BlockgroveEngine {
         }
       }
 
+      // Fishing lines + bobbers + ! bite alerts
+      for (const cast of this.activeCasts.values()) {
+        let rodX = 0;
+        let rodY = 0;
+        if (cast.playerId === this.localPlayerId) {
+          rodX = this.body.x + PLAYER_WIDTH * 0.5 + this.body.facing * 14 - cx;
+          rodY = this.body.y + 34 - cy;
+        } else {
+          const rp = this.remotePlayers.get(cast.playerId);
+          if (!rp) continue;
+          rodX = rp.renderX + PLAYER_WIDTH * 0.5 + rp.facing * 14 - cx;
+          rodY = rp.renderY + 34 - cy;
+        }
+        const bobX = cast.bobberTx * TILE_SIZE + TILE_SIZE * 0.5 - cx;
+        const bobY =
+          cast.bobberTy * TILE_SIZE +
+          TILE_SIZE * 0.45 +
+          Math.sin(nowMs * (cast.biting ? 0.035 : 0.008)) * (cast.biting ? 5 : 2) -
+          cy;
+        ctx.strokeStyle = '#e8eff7';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(rodX, rodY);
+        ctx.lineTo(bobX, bobY);
+        ctx.stroke();
+
+        ctx.fillStyle = '#151b26';
+        ctx.fillRect(Math.round(bobX - 6), Math.round(bobY - 6), 12, 12);
+        ctx.fillStyle = cast.biting ? '#ff4a36' : '#e0503e';
+        ctx.fillRect(Math.round(bobX - 4), Math.round(bobY - 4), 8, 5);
+        ctx.fillStyle = '#f7f4eb';
+        ctx.fillRect(Math.round(bobX - 4), Math.round(bobY + 1), 8, 3);
+
+        if (cast.biting) {
+          ctx.fillStyle = '#ffe18c';
+          ctx.font = 'bold 16px monospace';
+          ctx.fillText('!', Math.round(bobX - 4), Math.round(bobY - 12));
+        }
+      }
+
       // Tile targeting reticle
       const { tx, ty } = this.punchStick.active
         ? this.getTargetTileFromJoystick()
         : this.getTargetTileFromCursor();
-      if (tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT) {
+      if (inBoundsWorld(this.world, tx, ty)) {
         const playerCtx = { id: this.localPlayerId, x: this.body.x, y: this.body.y };
         const reach = this.gameConfig.mechanics.reachTiles;
+        const sDef = getItemDef(this.selectedItemId);
         const canAct =
-          this.selectedItemId === ITEM_IDS.FIST
+          this.selectedItemId === ITEM_IDS.FIST || sDef?.toolKind === 'pickaxe'
             ? canBreakTile(this.world, playerCtx, tx, ty, reach).ok
-            : this.selectedItemId === ITEM_IDS.WRENCH
+            : this.selectedItemId === ITEM_IDS.WRENCH || sDef?.category === 'consumable' || sDef?.toolKind === 'rod'
               ? true
               : canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok;
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Globe, Lock, LogOut, ShoppingBag, Shield, Star, User } from 'lucide-react';
+import { ArrowLeftRight, Globe, Lock, LogOut, ShoppingBag, Shield, Star, User } from 'lucide-react';
 import {
   ACHIEVEMENTS,
   GEM_STORE_LISTINGS,
@@ -9,6 +9,7 @@ import {
 } from '../game/catalog.ts';
 import type { GameConfig } from '../game/config.ts';
 import type {
+  ExchangeSnapshot,
   FriendEntry,
   InventorySlot,
   UserRole,
@@ -17,8 +18,10 @@ import type {
 import { getItemIconUrl, type EquippedWearables } from '../game/pixelArt.ts';
 import { xpForNextLevel } from '../game/rules.ts';
 import { AdminPanel } from './AdminPanel.tsx';
+import { ExchangeModal } from './ExchangeModal.tsx';
 
 interface WorldHubProps {
+  playerId: string;
   playerName: string;
   email: string;
   role: UserRole;
@@ -34,6 +37,8 @@ interface WorldHubProps {
   recentWorlds: string[];
   worlds: WorldSummary[];
   gameConfig: GameConfig;
+  unclaimedWl: number;
+  exchange: ExchangeSnapshot;
   toastMessage: string | null;
   onRefreshWorlds: () => void;
   onEnterWorld: (worldName: string) => void;
@@ -47,12 +52,21 @@ interface WorldHubProps {
     qty?: number;
     gems?: number;
   }) => void;
+  onExchangeAction: (opts: {
+    action: 'list' | 'post' | 'buy' | 'cancel' | 'claim_wl';
+    itemId?: number;
+    bundleSize?: number;
+    bundles?: number;
+    priceWl?: number;
+    listingId?: string;
+  }) => void;
   onSignOut: () => void;
 }
 
-type HubTab = 'worlds' | 'profile' | 'store' | 'admin';
+type HubTab = 'worlds' | 'exchange' | 'profile' | 'store' | 'admin';
 
 export const WorldHub: React.FC<WorldHubProps> = ({
+  playerId,
   playerName,
   email,
   role,
@@ -68,6 +82,8 @@ export const WorldHub: React.FC<WorldHubProps> = ({
   recentWorlds,
   worlds,
   gameConfig,
+  unclaimedWl,
+  exchange,
   toastMessage,
   onRefreshWorlds,
   onEnterWorld,
@@ -76,6 +92,7 @@ export const WorldHub: React.FC<WorldHubProps> = ({
   onClaimAchievement,
   onSaveGameConfig,
   onAdminAction,
+  onExchangeAction,
   onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<HubTab>('worlds');
@@ -133,64 +150,82 @@ export const WorldHub: React.FC<WorldHubProps> = ({
         </header>
 
         {/* Main Navigation Tabs */}
-        <nav className="flex items-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-2 bg-[#0c1824] border-b border-[#243c54] overflow-x-auto whitespace-nowrap scrollbar-none">
+        <nav className="grid grid-cols-5 sm:flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 py-1.5 sm:py-2 bg-[#0c1824] border-b border-[#243c54] shrink-0">
           <button
             type="button"
             onClick={() => {
               setActiveTab('worlds');
               onRefreshWorlds();
             }}
-            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
+            className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded text-[11px] sm:text-xs font-bold cursor-pointer ${
               activeTab === 'worlds'
                 ? 'bg-[#214463] border border-[#78c8f5] text-white'
                 : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
             }`}
           >
-            <Globe className="w-3.5 h-3.5" />
-            <span>World Hub</span>
+            <Globe className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Worlds</span>
+          </button>
+          <button
+            type="button"
+            data-testid="hub-exchange-tab"
+            onClick={() => {
+              setActiveTab('exchange');
+              onExchangeAction({ action: 'list' });
+            }}
+            className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded text-[11px] sm:text-xs font-bold cursor-pointer ${
+              activeTab === 'exchange'
+                ? 'bg-[#2d2612] border border-[#f2b738] text-[#ffe18c]'
+                : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
+            }`}
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
+              Exchange{unclaimedWl > 0 ? ` (${unclaimedWl})` : ''}
+            </span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
+            className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded text-[11px] sm:text-xs font-bold cursor-pointer ${
               activeTab === 'profile'
                 ? 'bg-[#214463] border border-[#f2b738] text-[#ffe18c]'
                 : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
             }`}
           >
-            <User className="w-3.5 h-3.5" />
-            <span>Profile</span>
+            <User className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Profile</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('store')}
-            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
+            className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded text-[11px] sm:text-xs font-bold cursor-pointer ${
               activeTab === 'store'
                 ? 'bg-[#214463] border border-[#38e8d8] text-[#8cf7ee]'
                 : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
             }`}
           >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span>Gem Store</span>
+            <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Store</span>
           </button>
           {role === 'admin' && (
             <button
               type="button"
               onClick={() => setActiveTab('admin')}
-              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
+              className={`flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded text-[11px] sm:text-xs font-bold cursor-pointer ${
                 activeTab === 'admin'
                   ? 'bg-[#362b12] border border-[#f2b738] text-[#ffe18c]'
                   : 'bg-[#09131d] border border-[#263c52] text-[#f2b738] hover:bg-[#192838]'
               }`}
             >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Admin Panel</span>
+              <Shield className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Admin</span>
             </button>
           )}
         </nav>
 
         {/* Active Tab Body */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-2.5 sm:p-4 flex flex-col min-h-0">
           {/* WORLD HUB TAB */}
           {activeTab === 'worlds' && (
             <div className="flex flex-col gap-4 h-full">
@@ -304,6 +339,22 @@ export const WorldHub: React.FC<WorldHubProps> = ({
             </div>
           )}
 
+          {/* GLOBAL EXCHANGE TAB */}
+          {activeTab === 'exchange' && (
+            <ExchangeModal
+              playerId={playerId}
+              gems={gems}
+              inventory={inventory}
+              unclaimedWl={unclaimedWl}
+              exchange={exchange}
+              onRefresh={() => onExchangeAction({ action: 'list' })}
+              onPostListing={(opts) => onExchangeAction({ action: 'post', ...opts })}
+              onBuyListing={(listingId) => onExchangeAction({ action: 'buy', listingId })}
+              onCancelListing={(listingId) => onExchangeAction({ action: 'cancel', listingId })}
+              onClaimWl={() => onExchangeAction({ action: 'claim_wl' })}
+            />
+          )}
+
           {/* PROFILE TAB */}
           {activeTab === 'profile' && (
             <div className="flex flex-col gap-3">
@@ -360,6 +411,10 @@ export const WorldHub: React.FC<WorldHubProps> = ({
                     ['Blocks Placed', stats.blocksPlaced],
                     ['Trees Harvested', stats.treesHarvested],
                     ['Seeds Spliced', stats.seedsSpliced],
+                    ['Ores Mined', stats.oresMined ?? 0],
+                    ['Fish Caught', stats.fishCaught ?? 0],
+                    ['Items Smelted', stats.itemsSmelted ?? 0],
+                    ['Exchange Trades', stats.exchangeTrades ?? 0],
                     ['Store Purchases', stats.storePurchases],
                     ['Vending Trades', stats.vendingTrades],
                     ['Locks Placed', stats.locksPlaced],
@@ -482,8 +537,8 @@ export const WorldHub: React.FC<WorldHubProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-4 gap-2">
-                {(['locks', 'blocks', 'seeds', 'wearables'] as const).map((cat) => (
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 sm:gap-2">
+                {(['locks', 'tools', 'blocks', 'seeds', 'wearables'] as const).map((cat) => (
                   <button
                     key={cat}
                     type="button"

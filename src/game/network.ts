@@ -1,19 +1,68 @@
 import type {
   AreaLockRecord,
+  BfgCollectorRecord,
+  FurnaceRecord,
   PlantedTree,
   VendingMachineRecord,
   WorldLockRecord,
   WorldState,
 } from './worldGen.ts';
 import type { EquippedWearables } from './pixelArt.ts';
-import type { PlayerStatKey } from './catalog.ts';
+import type { BuffType, PlayerStatKey } from './catalog.ts';
 import type { GameConfig } from './config.ts';
+import type { FluidDelta, LiquidPoolInfo } from './fluids.ts';
 
 export type UserRole = 'player' | 'admin';
 
 export interface InventorySlot {
   itemId: number;
   qty: number;
+  durability?: number;
+  maxDurability?: number;
+}
+
+export interface ActiveBuff {
+  buffType: BuffType;
+  label: string;
+  bonusPct: number;
+  expiresAt: number;
+}
+
+export interface FishingCastState {
+  playerId: string;
+  playerName: string;
+  bobberTx: number;
+  bobberTy: number;
+  fluidType: 1 | 2;
+  depthTier: LiquidPoolInfo['depthTier'];
+  biting: boolean;
+  startedAt: number;
+}
+
+export interface ExchangeListing {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  itemId: number;
+  bundleSize: number;
+  bundlesAvailable: number;
+  priceWl: number;
+  createdAt: number;
+}
+
+export interface ExchangePriceStat {
+  itemId: number;
+  avgUnitWl: number;
+  lastTradeWl: number;
+  volumeSold: number;
+  updatedAt: number;
+}
+
+export interface ExchangeSnapshot {
+  listings: ExchangeListing[];
+  priceStats: Record<number, ExchangePriceStat>;
+  totalWlBurned: number;
+  totalGemsCleared: number;
 }
 
 export interface WorldDrop {
@@ -56,6 +105,7 @@ export interface WorldSummary {
   playerCount: number;
   ownerName: string | null;
   publicAccess: boolean;
+  worldKind?: 'standard' | 'mine_shaft';
 }
 
 export interface FriendEntry {
@@ -87,6 +137,8 @@ export interface AuthUserProfile {
   incomingRequests: FriendRequestEntry[];
   favoriteWorlds: string[];
   recentWorlds: string[];
+  activeBuffs: ActiveBuff[];
+  unclaimedWl: number;
 }
 
 export type ClientMessage =
@@ -104,7 +156,7 @@ export type ClientMessage =
       punching: boolean;
       placing?: boolean;
     }
-  | { type: 'punch_tile'; tx: number; ty: number }
+  | { type: 'punch_tile'; tx: number; ty: number; toolItemId?: number }
   | { type: 'place_tile'; tx: number; ty: number; itemId: number }
   | { type: 'pickup_drop'; dropId: string }
   | { type: 'splice_seeds'; seedA: number; seedB: number }
@@ -152,6 +204,34 @@ export type ClientMessage =
       itemId?: number;
       qty?: number;
       gems?: number;
+    }
+  | { type: 'use_consumable'; itemId: number }
+  | { type: 'exit_mine_shaft' }
+  | {
+      type: 'configure_furnace';
+      tx: number;
+      ty: number;
+      action: 'craft' | 'collect' | 'repair';
+      recipeId?: string;
+      toolItemId?: number;
+    }
+  | {
+      type: 'configure_bfg';
+      tx: number;
+      ty: number;
+      action: 'toggle' | 'withdraw';
+    }
+  | { type: 'cast_fishing'; tx: number; ty: number; rodItemId: number }
+  | { type: 'reel_fishing' }
+  | {
+      type: 'exchange_action';
+      action: 'list' | 'post' | 'buy' | 'cancel' | 'claim_wl';
+      itemId?: number;
+      bundleSize?: number;
+      bundles?: number;
+      priceWl?: number;
+      listingId?: string;
+      txId?: string;
     };
 
 export type ServerMessage =
@@ -172,7 +252,10 @@ export type ServerMessage =
       incomingRequests: FriendRequestEntry[];
       favoriteWorlds: string[];
       recentWorlds: string[];
+      activeBuffs: ActiveBuff[];
+      unclaimedWl: number;
       gameConfig: GameConfig;
+      exchange: ExchangeSnapshot;
     }
   | { type: 'auth_error'; message: string }
   | { type: 'config_updated'; gameConfig: GameConfig; notice?: string }
@@ -201,13 +284,18 @@ export type ServerMessage =
       ty: number;
       fg: number;
       bg: number;
+      fluidType?: number;
+      fluidLevel?: number;
       plant: PlantedTree | null;
       worldLock?: WorldLockRecord | null;
       areaLock?: AreaLockRecord | null;
       vendingMachine?: VendingMachineRecord | null;
+      furnace?: FurnaceRecord | null;
+      bfgCollector?: BfgCollectorRecord | null;
       signText?: string | null;
       revision: number;
     }
+  | { type: 'fluid_delta'; deltas: FluidDelta[] }
   | { type: 'drop_spawned'; drop: WorldDrop }
   | { type: 'drop_removed'; dropId: string }
   | {
@@ -225,10 +313,17 @@ export type ServerMessage =
       incomingRequests: FriendRequestEntry[];
       favoriteWorlds: string[];
       recentWorlds: string[];
+      activeBuffs: ActiveBuff[];
+      unclaimedWl: number;
       notice?: string;
     }
   | { type: 'chat_message'; message: ChatMessage }
-  | { type: 'worlds_list'; worlds: WorldSummary[] };
+  | { type: 'worlds_list'; worlds: WorldSummary[] }
+  | { type: 'fishing_started'; cast: FishingCastState }
+  | { type: 'fishing_bite'; playerId: string; bobberTx: number; bobberTy: number; depthTier: LiquidPoolInfo['depthTier'] }
+  | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier'] }
+  | { type: 'exchange_updated'; exchange: ExchangeSnapshot }
+  | { type: 'mine_shaft_expired'; worldName: string; message: string };
 
 export class GameSocketClient {
   private ws: WebSocket | null = null;

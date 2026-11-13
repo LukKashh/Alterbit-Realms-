@@ -88,6 +88,14 @@
           "type": "object",
           "description": "Player lifetime statistics."
         },
+        "unclaimedWl": {
+          "type": "integer",
+          "description": "World Locks earned on Global Exchange waiting in Claim Vault."
+        },
+        "activeBuffs": {
+          "type": "array",
+          "description": "Active timed culinary buff records."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -153,12 +161,22 @@
         },
         "fgRle": {
           "type": "string",
-          "description": "Run-length encoded foreground tile grid (6000 tiles).",
+          "description": "Run-length encoded foreground tile grid.",
           "maxLength": 120000
         },
         "bgRle": {
           "type": "string",
-          "description": "Run-length encoded background tile grid (6000 tiles).",
+          "description": "Run-length encoded background tile grid.",
+          "maxLength": 120000
+        },
+        "fluidTypeRle": {
+          "type": "string",
+          "description": "Run-length encoded fluid type grid (0=air, 1=water, 2=acid).",
+          "maxLength": 120000
+        },
+        "fluidLevelRle": {
+          "type": "string",
+          "description": "Run-length encoded fluid depth grid (0..4).",
           "maxLength": 120000
         },
         "publicAccess": {

@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BlockgroveEngine, type TileInspectInfo } from './game/engine.ts';
 import {
   GameSocketClient,
+  type ActiveBuff,
   type AuthUserProfile,
   type ChatMessage,
+  type ExchangeSnapshot,
+  type FishingCastState,
   type FriendEntry,
   type FriendRequestEntry,
   type InventorySlot,
@@ -36,6 +39,17 @@ const DEFAULT_STATS: Record<PlayerStatKey, number> = {
   vendingTrades: 0,
   locksPlaced: 0,
   friendsAdded: 0,
+  oresMined: 0,
+  fishCaught: 0,
+  itemsSmelted: 0,
+  exchangeTrades: 0,
+};
+
+const DEFAULT_EXCHANGE: ExchangeSnapshot = {
+  listings: [],
+  priceStats: {},
+  totalWlBurned: 0,
+  totalGemsCleared: 0,
 };
 
 const EMPTY_HOTBAR = [
@@ -52,6 +66,7 @@ export default function App() {
   const engineRef = useRef<BlockgroveEngine | null>(null);
   const socketRef = useRef<GameSocketClient | null>(null);
   const modeRef = useRef<AppState>('auth');
+  const playerIdRef = useRef<string>('');
 
   const [appState, setAppState] = useState<AppState>('auth');
   const [loadingText, setLoadingText] = useState<{ title: string; subtitle?: string }>({
@@ -66,6 +81,8 @@ export default function App() {
   const [role, setRole] = useState<UserRole>('player');
   const [worldName, setWorldName] = useState<string>('START');
   const [worldOwner, setWorldOwner] = useState<string | null>(null);
+  const [worldKind, setWorldKind] = useState<'standard' | 'mine_shaft'>('standard');
+  const [mineExpiresAt, setMineExpiresAt] = useState<number | null>(null);
   const [playerCount, setPlayerCount] = useState<number>(1);
   const [coords, setCoords] = useState<{ tx: number; ty: number }>({ tx: 50, ty: 23 });
   const [gems, setGems] = useState<number>(0);
@@ -82,6 +99,11 @@ export default function App() {
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestEntry[]>([]);
   const [favoriteWorlds, setFavoriteWorlds] = useState<string[]>(['START']);
   const [recentWorlds, setRecentWorlds] = useState<string[]>(['START']);
+  const [activeBuffs, setActiveBuffs] = useState<ActiveBuff[]>([]);
+  const [unclaimedWl, setUnclaimedWl] = useState<number>(0);
+  const [exchangeSnapshot, setExchangeSnapshot] = useState<ExchangeSnapshot>(DEFAULT_EXCHANGE);
+  const [fishingCast, setFishingCast] = useState<FishingCastState | null>(null);
+  const [fishingBiting, setFishingBiting] = useState<boolean>(false);
   const [hotbarItemIds, setHotbarItemIds] = useState<number[]>(EMPTY_HOTBAR);
   const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.FIST);
   const [gameConfig, setGameConfig] = useState<GameConfig>(() => cloneGameConfig(DEFAULT_GAME_CONFIG));
@@ -120,11 +142,20 @@ export default function App() {
         }
       }
 
-      // Auto-populate empty slots 3..6 with newly acquired placeable items
+      // Auto-populate empty slots 3..6 with newly acquired placeables, tools, or consumables
       for (const slot of inv) {
         if (slot.qty <= 0 || slot.itemId === ITEM_IDS.FIST || slot.itemId === ITEM_IDS.WRENCH) continue;
         const def = getItemDef(slot.itemId);
-        if (!def || def.category === 'wearable' || !def.placeable) continue;
+        if (
+          !def ||
+          def.category === 'wearable' ||
+          (!def.placeable &&
+            def.toolKind !== 'pickaxe' &&
+            def.toolKind !== 'rod' &&
+            def.category !== 'consumable')
+        ) {
+          continue;
+        }
         if (next.includes(slot.itemId)) continue;
         const emptyIdx = next.findIndex((id, idx) => idx >= 2 && id === ITEM_IDS.AIR);
         if (emptyIdx !== -1) {
@@ -137,6 +168,7 @@ export default function App() {
 
   const applyUserProfile = useCallback(
     (user: AuthUserProfile) => {
+      playerIdRef.current = user.playerId;
       setPlayerId(user.playerId);
       setPlayerName(user.playerName);
       setEmail(user.email);
@@ -147,13 +179,17 @@ export default function App() {
       setInventory(user.inventory);
       syncHotbarWithInventory(user.inventory);
       setEquipped(user.equipped);
-      setStats(user.stats);
+      setStats({ ...DEFAULT_STATS, ...user.stats });
       setClaimedAchievements(user.claimedAchievements);
       setFriends(user.friends);
       setIncomingRequests(user.incomingRequests);
       setFavoriteWorlds(user.favoriteWorlds);
       setRecentWorlds(user.recentWorlds);
+      const buffs = user.activeBuffs ?? [];
+      setActiveBuffs(buffs);
+      setUnclaimedWl(user.unclaimedWl ?? 0);
       engineRef.current?.setLocalIdentity(user.playerId, user.playerName, '#3f8fd9', user.equipped);
+      engineRef.current?.setActiveBuffs(buffs);
     },
     [syncHotbarWithInventory]
   );
@@ -181,6 +217,18 @@ export default function App() {
     }
   }, []);
 
+  const fetchExchangeSnapshot = useCallback(async () => {
+    try {
+      const res = await fetch('/api/exchange');
+      if (res.ok) {
+        const data = (await res.json()) as { exchange: ExchangeSnapshot };
+        if (data.exchange) setExchangeSnapshot(data.exchange);
+      }
+    } catch {
+      // ignore transient network glitch
+    }
+  }, []);
+
   // Mount isolated Canvas2D engine + WebSocket client once
   useEffect(() => {
     const mount = canvasMountRef.current;
@@ -191,11 +239,21 @@ export default function App() {
 
     const engine = new BlockgroveEngine(mount, {
       onMoveSync: (state) => socket.send({ type: 'move', ...state }),
-      onPunchTile: (tx, ty) => socket.send({ type: 'punch_tile', tx, ty }),
+      onPunchTile: (tx, ty, toolItemId) => socket.send({ type: 'punch_tile', tx, ty, toolItemId }),
       onPlaceTile: (tx, ty, itemId) => socket.send({ type: 'place_tile', tx, ty, itemId }),
       onPickupDrop: (dropId) => socket.send({ type: 'pickup_drop', dropId }),
       onInspectTile: (info) => setInspectInfo(info),
       onCoordsChange: (tx, ty) => setCoords({ tx, ty }),
+      onCastFishing: (tx, ty, rodItemId) =>
+        socket.send({ type: 'cast_fishing', tx, ty, rodItemId }),
+      onReelFishing: () => socket.send({ type: 'reel_fishing' }),
+      onUseConsumable: (itemId) => socket.send({ type: 'use_consumable', itemId }),
+      onHazardHit: (hazard) =>
+        showToast(
+          hazard === 'acid'
+            ? 'Burned by Acid pool! Returned to Entrance Portal.'
+            : 'Hit Spikes! Returned to Entrance Portal.'
+        ),
     });
     engineRef.current = engine;
     engine.setMode('title');
@@ -220,9 +278,12 @@ export default function App() {
             incomingRequests: msg.incomingRequests,
             favoriteWorlds: msg.favoriteWorlds,
             recentWorlds: msg.recentWorlds,
+            activeBuffs: msg.activeBuffs,
+            unclaimedWl: msg.unclaimedWl,
           });
           setGameConfig(msg.gameConfig);
           engine.applyGameConfig(msg.gameConfig);
+          if (msg.exchange) setExchangeSnapshot(msg.exchange);
           break;
         case 'auth_error':
           try {
@@ -243,6 +304,10 @@ export default function App() {
           setInspectInfo(null);
           setWorldName(msg.world.name);
           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
+          setWorldKind(msg.world.worldKind ?? 'standard');
+          setMineExpiresAt(msg.world.expiresAt ?? null);
+          setFishingCast(null);
+          setFishingBiting(false);
           setPlayerCount(msg.players.length);
           setChatMessages(msg.chatHistory);
           engine.loadWorld(msg.world, msg.players, msg.drops);
@@ -283,7 +348,11 @@ export default function App() {
             msg.worldLock,
             msg.areaLock,
             msg.vendingMachine,
-            msg.signText
+            msg.signText,
+            msg.fluidType,
+            msg.fluidLevel,
+            msg.furnace,
+            msg.bfgCollector
           );
           if (msg.worldLock !== undefined) {
             setWorldOwner(msg.worldLock?.ownerName ?? null);
@@ -294,6 +363,9 @@ export default function App() {
             }
             return cur;
           });
+          break;
+        case 'fluid_delta':
+          engine.applyFluidDeltas(msg.deltas);
           break;
         case 'drop_spawned':
           engine.addDrop(msg.drop);
@@ -310,13 +382,16 @@ export default function App() {
           setInventory(msg.inventory);
           syncHotbarWithInventory(msg.inventory);
           setEquipped(msg.equipped);
-          setStats(msg.stats);
+          setStats({ ...DEFAULT_STATS, ...msg.stats });
           setClaimedAchievements(msg.claimedAchievements);
           setFriends(msg.friends);
           setIncomingRequests(msg.incomingRequests);
           setFavoriteWorlds(msg.favoriteWorlds);
           setRecentWorlds(msg.recentWorlds);
+          setActiveBuffs(msg.activeBuffs ?? []);
+          setUnclaimedWl(msg.unclaimedWl ?? 0);
           engine.setLocalEquipped(msg.equipped);
+          engine.setActiveBuffs(msg.activeBuffs ?? []);
           if (msg.notice) showToast(msg.notice);
           break;
         case 'chat_message':
@@ -324,6 +399,36 @@ export default function App() {
           break;
         case 'worlds_list':
           setWorlds(msg.worlds);
+          break;
+        case 'fishing_started':
+          engine.setFishingCast(msg.cast);
+          if (msg.cast.playerId === playerIdRef.current) {
+            setFishingCast(msg.cast);
+            setFishingBiting(msg.cast.biting);
+          }
+          break;
+        case 'fishing_bite':
+          engine.markFishingBite(msg.playerId);
+          if (msg.playerId === playerIdRef.current) {
+            setFishingBiting(true);
+            showToast('! Fish biting! Tap Reel Catch!');
+          }
+          break;
+        case 'fishing_ended':
+          engine.removeFishingCast(msg.playerId);
+          if (msg.playerId === playerIdRef.current) {
+            setFishingCast(null);
+            setFishingBiting(false);
+            if (msg.caughtName) {
+              showToast(`Caught ${msg.caughtName}!`);
+            }
+          }
+          break;
+        case 'exchange_updated':
+          setExchangeSnapshot(msg.exchange);
+          break;
+        case 'mine_shaft_expired':
+          showToast(msg.message);
           break;
       }
     });
@@ -352,7 +457,7 @@ export default function App() {
           setGameConfig(data.gameConfig);
           engine.applyGameConfig(data.gameConfig);
           socket.connectWithToken(savedToken!);
-          await fetchWorldsList();
+          await Promise.all([fetchWorldsList(), fetchExchangeSnapshot()]);
           const params = new URLSearchParams(window.location.search);
           if (params.get('autostart') === '1') {
             setLoadingText({ title: 'Entering START...', subtitle: 'Syncing 100×60 persistent world' });
@@ -395,12 +500,12 @@ export default function App() {
       setGameConfig(cfg);
       engineRef.current?.applyGameConfig(cfg);
       socketRef.current?.connectWithToken(token);
-      await fetchWorldsList();
+      await Promise.all([fetchWorldsList(), fetchExchangeSnapshot()]);
       window.setTimeout(() => {
         setAppState((cur) => (cur === 'loading' ? 'hub' : cur));
       }, 280);
     },
-    [applyUserProfile, fetchWorldsList]
+    [applyUserProfile, fetchExchangeSnapshot, fetchWorldsList]
   );
 
   const handleLogin = useCallback(
@@ -554,6 +659,7 @@ export default function App() {
 
       {appState === 'hub' && (
         <WorldHub
+          playerId={playerId}
           playerName={playerName}
           email={email}
           role={role}
@@ -569,6 +675,8 @@ export default function App() {
           recentWorlds={recentWorlds}
           worlds={worlds}
           gameConfig={gameConfig}
+          unclaimedWl={unclaimedWl}
+          exchange={exchangeSnapshot}
           toastMessage={toastMessage}
           onRefreshWorlds={() => {
             void fetchWorldsList();
@@ -586,6 +694,13 @@ export default function App() {
             socketRef.current?.send({ type: 'update_game_config', config: cfg })
           }
           onAdminAction={(opts) => socketRef.current?.send({ type: 'admin_action', ...opts })}
+          onExchangeAction={(opts) =>
+            socketRef.current?.send({
+              type: 'exchange_action',
+              ...opts,
+              txId: opts.action === 'buy' || opts.action === 'post' ? makeTxId() : undefined,
+            })
+          }
           onSignOut={handleSignOut}
         />
       )}
@@ -680,6 +795,31 @@ export default function App() {
           onDismissInspect={() => setInspectInfo(null)}
           toastMessage={toastMessage}
           connected={connected}
+          worldKind={worldKind}
+          mineExpiresAt={mineExpiresAt}
+          activeBuffs={activeBuffs}
+          unclaimedWl={unclaimedWl}
+          exchange={exchangeSnapshot}
+          fishingActive={Boolean(fishingCast)}
+          fishingBiting={fishingBiting}
+          onExitMineShaft={() => socketRef.current?.send({ type: 'exit_mine_shaft' })}
+          onUseConsumable={(itemId) =>
+            socketRef.current?.send({ type: 'use_consumable', itemId })
+          }
+          onReelFishing={() => socketRef.current?.send({ type: 'reel_fishing' })}
+          onConfigureFurnace={(tx, ty, opts) =>
+            socketRef.current?.send({ type: 'configure_furnace', tx, ty, ...opts })
+          }
+          onConfigureBfg={(tx, ty, opts) =>
+            socketRef.current?.send({ type: 'configure_bfg', tx, ty, ...opts })
+          }
+          onExchangeAction={(opts) =>
+            socketRef.current?.send({
+              type: 'exchange_action',
+              ...opts,
+              txId: opts.action === 'buy' || opts.action === 'post' ? makeTxId() : undefined,
+            })
+          }
         />
       )}
     </main>
