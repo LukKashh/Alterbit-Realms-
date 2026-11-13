@@ -1347,9 +1347,9 @@ export function getPlayerSprite(
     if (normPose === 'walk1' || normPose === 'walk3') bobY = -1;
     if (normPose === 'jump') bobY = -1;
     if (normPose === 'fall') bobY = 1;
-    if (normPose === 'punch1' || normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine1' || normPose === 'mine2' || normPose === 'mine3') {
+    if (normPose === 'punch1' || normPose === 'mine1' || normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3' || normPose === 'mine1' || normPose === 'mine2' || normPose === 'mine3') {
       leanX = 1;
-      squint = normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3';
+      squint = normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3' || normPose === 'mine2' || normPose === 'mine3';
     }
     if (normPose === 'place') leanX = 1;
 
@@ -1373,11 +1373,11 @@ export function getPlayerSprite(
       drawTemplateArmAngled(ctx, tx + 2, ty + 2, -5, -4, true);
     } else if (normPose === 'fall') {
       drawTemplateArmAngled(ctx, tx + 1, ty + 2, -6, 1, true);
-    } else if (normPose === 'punch0') {
+    } else if (normPose === 'punch0' || normPose === 'mine0') {
       drawTemplateArmAngled(ctx, tx + 2, ty + 2, 2, 6, true);
-    } else if (normPose === 'punch1') {
+    } else if (normPose === 'punch1' || normPose === 'mine1') {
       drawTemplateArmAngled(ctx, tx + 4, ty + 2, 4, 2, true);
-    } else if (normPose === 'punch2' || normPose === 'punch3') {
+    } else if (normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3') {
       drawTemplateArmAngled(ctx, tx + 1, ty + 2, -3, 5, true);
     } else if (normPose === 'place') {
       drawTemplateArmAngled(ctx, tx + 1, ty + 2, -2, 6, true);
@@ -1404,10 +1404,10 @@ export function getPlayerSprite(
       // Braced spread landing legs
       drawTemplateLegStride(ctx, OX + 6, 28, OX + 4, 40, true);
       drawTemplateLegStride(ctx, OX + 10, 28, OX + 13, 40, false);
-    } else if (normPose === 'punch0' || normPose === 'punch1') {
+    } else if (normPose === 'punch0' || normPose === 'mine0' || normPose === 'punch1' || normPose === 'mine1') {
       drawTemplateLegStride(ctx, OX + 6, 28, OX + 4, 40, true);
       drawTemplateLegStride(ctx, OX + 11, 28, OX + 12, 40, false);
-    } else if (normPose === 'punch2' || normPose === 'punch3') {
+    } else if (normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3') {
       // Wide grounded punching stance matching bottom row of template
       drawTemplateLegStride(ctx, OX + 7, 28, OX + 4, 40, true);
       drawTemplateLegStride(ctx, OX + 11, 28, OX + 14, 40, false);
@@ -1435,9 +1435,9 @@ export function getPlayerSprite(
       drawTemplateArmAngled(ctx, tx + 4, ty + 2, 5, -4, false);
     } else if (normPose === 'fall') {
       drawTemplateArmAngled(ctx, tx + 4, ty + 2, 6, 1, false);
-    } else if (normPose === 'punch0') {
+    } else if (normPose === 'punch0' || normPose === 'mine0') {
       drawTemplateArmAngled(ctx, tx + 3, ty + 2, -1, 6, false);
-    } else if (normPose === 'punch1') {
+    } else if (normPose === 'punch1' || normPose === 'mine1') {
       // Windup arm cocked back near chest
       drawTemplateArmAngled(ctx, tx + 2, ty + 2, -3, 2, false);
       p2(ctx, tx + 2, ty + 4, P.skinLit, 3, 2);
