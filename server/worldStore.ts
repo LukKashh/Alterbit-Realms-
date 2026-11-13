@@ -841,6 +841,11 @@ export class AuthoritativeWorldStore {
       if (state.fg[oldIndex] === ITEM_IDS.SMALL_LOCK) state.fg[oldIndex] = ITEM_IDS.AIR;
     }
     state.areaLocks = {};
+    for (const machine of Object.values(state.vendingMachines)) {
+      if (machine.priceItemId === ITEM_IDS.WORLD_LOCK || machine.priceItemId === ITEM_IDS.SMALL_LOCK) {
+        machine.priceItemId = ITEM_IDS.GP_RED_BRICKS;
+      }
+    }
 
     if (state.worldLock) {
       const oldIndex = tileIndexIn(state, state.worldLock.x, state.worldLock.y);
@@ -1857,6 +1862,9 @@ export class AuthoritativeWorldStore {
     }
     if (!priceDef || !priceDef.tradeable) {
       return { ok: false, message: 'Invalid payment item.' };
+    }
+    if (priceItemId === ITEM_IDS.WORLD_LOCK || priceItemId === ITEM_IDS.SMALL_LOCK) {
+      return { ok: false, message: 'Legacy lock items can no longer be used as vending prices.' };
     }
     if (vm.stockQty > 0 && (vm.stockItemId !== itemId || vm.priceItemId !== priceItemId)) {
       return { ok: false, message: 'Withdraw existing listing before changing item type.' };
