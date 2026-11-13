@@ -103,6 +103,9 @@ export const ITEM_IDS = {
   MICRO_SHARE_LOCK: 150,
   SMALL_SHARE_LOCK: 151,
   COVER_SHARE_LOCK: 152,
+  WORLD_CORE: 153,
+  LANDLORD_NPC: 154,
+  WORLD_BLAST: 155,
   VENDING_MACHINE: 103,
 
   // Fluids & Parkour (110..119)
@@ -1066,6 +1069,30 @@ export const CATALOG: Record<number, ItemDefinition> = {
     breakable: true, hardness: 6, placeable: true, tradeable: false,
     gemValue: 0, xpValue: 20, storePrice: 3500,
     colorPrimary: '#b68aff', colorSecondary: '#56347f', colorAccent: '#ead7ff',
+  },
+  [ITEM_IDS.WORLD_CORE]: {
+    id: ITEM_IDS.WORLD_CORE, key: 'world_core', name: 'WorldCore',
+    description: 'The permanent ownership anchor of a private realm. Only its owner can open the Manager Panel.',
+    category: 'interactive', rarity: 'epic', stackLimit: 1, collision: 'solid',
+    breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0,
+    colorPrimary: '#f4c45f', colorSecondary: '#805324', colorAccent: '#fff1a8',
+  },
+  [ITEM_IDS.LANDLORD_NPC]: {
+    id: ITEM_IDS.LANDLORD_NPC, key: 'landlord_npc', name: 'Landlord',
+    description: 'Nexus realm steward. Manage your existing realms or conjure a fresh one.',
+    category: 'interactive', rarity: 'epic', stackLimit: 1, collision: 'none',
+    breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0,
+    colorPrimary: '#8fc8e8', colorSecondary: '#315b83', colorAccent: '#f5e4b2',
+  },
+  [ITEM_IDS.WORLD_BLAST]: {
+    id: ITEM_IDS.WORLD_BLAST, key: 'world_blast', name: 'World Blast',
+    description: 'A one-use Terra Blast catalyst consumed when creating a specially themed realm.',
+    category: 'consumable', rarity: 'epic', stackLimit: 10, collision: 'none',
+    breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0,
+    colorPrimary: '#d58aff', colorSecondary: '#623d88', colorAccent: '#f4d8ff',
   },
   [ITEM_IDS.VENDING_MACHINE]: {
     id: ITEM_IDS.VENDING_MACHINE,
