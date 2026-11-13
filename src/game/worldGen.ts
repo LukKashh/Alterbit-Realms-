@@ -79,6 +79,16 @@ export function createRng(seed: number): () => number {
   };
 }
 
+export type WorldFamily = 'desert_blast' | 'arctic_tundra' | 'cave_blast' | 'temperate';
+
+export function classifyWorldFamily(worldName: string): WorldFamily {
+  const name = worldName.trim().toUpperCase();
+  if (name.includes('DESERT') || name.includes('DUNES') || name.includes('ARID')) return 'desert_blast';
+  if (name.includes('ARCTIC') || name.includes('TUNDRA') || name.includes('FROST') || name.includes('ICE')) return 'arctic_tundra';
+  if (name.includes('CAVE') || name.includes('CAVERN') || name.includes('UNDERGROUND')) return 'cave_blast';
+  return 'temperate';
+}
+
 export function generateWorld(worldName: string): WorldState {
   const normalized = worldName.trim().toUpperCase() || 'START';
   const seed = hashWorldSeed(normalized);
@@ -89,6 +99,7 @@ export function generateWorld(worldName: string): WorldState {
 
   const spawnX = Math.floor(WORLD_WIDTH / 2); // 50
   const baseSurfaceY = 24;
+  const worldFamily = classifyWorldFamily(normalized);
 
   // Compute smooth rolling surface heights with a flat terrace around spawn
   const surfaceHeights = new Array<number>(WORLD_WIDTH);
@@ -106,7 +117,7 @@ export function generateWorld(worldName: string): WorldState {
     }
   }
 
-  // Fill terrain layers with pure GrowPixel blocks
+  // Fill terrain using the selected world's natural block family
   for (let x = 0; x < WORLD_WIDTH; x++) {
     const sy = surfaceHeights[x];
     for (let y = 0; y < WORLD_HEIGHT; y++) {
@@ -122,6 +133,39 @@ export function generateWorld(worldName: string): WorldState {
       if (y < sy) {
         fg[idx] = ITEM_IDS.AIR;
         bg[idx] = ITEM_IDS.BG_SKY;
+      } else if (worldFamily === 'desert_blast') {
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
+        if (y === sy) fg[idx] = rand() < 0.18 ? ITEM_IDS.DESERT_GRAVEL : ITEM_IDS.DESERT_SAND;
+        else if (y < sy + 7) fg[idx] = ITEM_IDS.DESERT_SAND;
+        else if (y < 46) {
+          const r = rand();
+          fg[idx] = r < 0.14 ? ITEM_IDS.RED_SANDSTONE : r < 0.28 ? ITEM_IDS.DESERT_GRAVEL : r < 0.48 ? ITEM_IDS.DESERT_HARDPAN : ITEM_IDS.DESERT_SAND;
+        } else {
+          const r = rand();
+          fg[idx] = r < 0.10 ? ITEM_IDS.SALT_CRUST : r < 0.38 ? ITEM_IDS.RED_SANDSTONE : ITEM_IDS.DESERT_HARDPAN;
+        }
+      } else if (worldFamily === 'arctic_tundra') {
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
+        if (y === sy) fg[idx] = rand() < 0.16 ? ITEM_IDS.FROST_ROCK : ITEM_IDS.FROST_SNOW;
+        else if (y < sy + 5) fg[idx] = rand() < 0.22 ? ITEM_IDS.FROZEN_DIRT : ITEM_IDS.PACKED_SNOW;
+        else if (y < 46) {
+          const r = rand();
+          fg[idx] = r < 0.18 ? ITEM_IDS.GLACIER_ICE : r < 0.42 ? ITEM_IDS.FROST_ROCK : ITEM_IDS.PERMAFROST;
+        } else {
+          const r = rand();
+          fg[idx] = r < 0.12 ? ITEM_IDS.BLUE_ICE : r < 0.45 ? ITEM_IDS.GLACIER_ICE : ITEM_IDS.PERMAFROST;
+        }
+      } else if (worldFamily === 'cave_blast') {
+        bg[idx] = ITEM_IDS.CAVE_BACKGROUND_WALL;
+        if (y === sy) fg[idx] = ITEM_IDS.CAVE_GRAVEL;
+        else if (y < sy + 7) fg[idx] = rand() < 0.25 ? ITEM_IDS.UNDERGROUND_CLAY : ITEM_IDS.CAVE_LIMESTONE;
+        else if (y < 46) {
+          const r = rand();
+          fg[idx] = r < 0.12 ? ITEM_IDS.CRYSTAL_ORE : r < 0.30 ? ITEM_IDS.GRANITE : r < 0.62 ? ITEM_IDS.CAVE_SHALE : ITEM_IDS.CAVE_LIMESTONE;
+        } else {
+          const r = rand();
+          fg[idx] = r < 0.08 ? ITEM_IDS.CRYSTAL_ORE : r < 0.42 ? ITEM_IDS.GRANITE : r < 0.72 ? ITEM_IDS.CAVE_SHALE : ITEM_IDS.CAVE_LIMESTONE;
+        }
       } else if (y === sy) {
         fg[idx] = ITEM_IDS.GP_GRASS;
         bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
@@ -130,35 +174,40 @@ export function generateWorld(worldName: string): WorldState {
         bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       } else if (y < 46) {
         const r = rand();
-        if (r < 0.035) {
-          fg[idx] = ITEM_IDS.GP_ROCK;
-        } else if (r < 0.16 && y < sy + 14) {
-          fg[idx] = ITEM_IDS.GP_DIRT;
-        } else if (r < 0.05 && y > sy + 10) {
-          fg[idx] = ITEM_IDS.AIR;
-        } else {
-          fg[idx] = ITEM_IDS.GP_ROCK;
-        }
+        if (r < 0.035) fg[idx] = ITEM_IDS.GP_ROCK;
+        else if (r < 0.16 && y < sy + 14) fg[idx] = ITEM_IDS.GP_DIRT;
+        else if (r < 0.05 && y > sy + 10) fg[idx] = ITEM_IDS.AIR;
+        else fg[idx] = ITEM_IDS.GP_ROCK;
         bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       } else {
         const r = rand();
-        if (r < 0.15) {
-          fg[idx] = ITEM_IDS.GP_LAVA;
-        } else if (r < 0.25) {
-          fg[idx] = ITEM_IDS.GP_ROCK;
-        } else {
-          fg[idx] = ITEM_IDS.GP_LAVA;
-        }
+        fg[idx] = r < 0.15 ? ITEM_IDS.GP_LAVA : ITEM_IDS.GP_ROCK;
         bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       }
     }
   }
 
-  // Add natural wood and bush clusters on surface away from spawn terrace
+  // Add biome-appropriate surface vegetation and formations away from spawn terrace
   for (let x = 6; x < WORLD_WIDTH - 6; x++) {
     if (Math.abs(x - spawnX) <= 6) continue;
-    if (rand() < 0.095) {
-      const sy = surfaceHeights[x];
+    const roll = rand();
+    const sy = surfaceHeights[x];
+    if (worldFamily === 'desert_blast') {
+      if (roll < 0.10) {
+        fg[(sy - 1) * WORLD_WIDTH + x] = ITEM_IDS.CACTUS;
+        if (rand() < 0.45 && x + 1 < WORLD_WIDTH) fg[(sy - 1) * WORLD_WIDTH + x + 1] = ITEM_IDS.DRY_ROOT;
+        x += 2;
+      } else if (roll < 0.16) {
+        fg[(sy - 1) * WORLD_WIDTH + x] = ITEM_IDS.DUNE_GRASS;
+      }
+    } else if (worldFamily === 'arctic_tundra') {
+      if (roll < 0.09) {
+        fg[(sy - 1) * WORLD_WIDTH + x] = ITEM_IDS.ICICLE;
+      }
+    } else if (worldFamily === 'cave_blast') {
+      if (roll < 0.075) fg[(sy - 1) * WORLD_WIDTH + x] = ITEM_IDS.STALAGMITE;
+      else if (roll < 0.15 && sy > 2) fg[(sy - 2) * WORLD_WIDTH + x] = ITEM_IDS.STALACTITE;
+    } else if (roll < 0.095) {
       const trunkH = 3 + Math.floor(rand() * 2);
       for (let h = 1; h <= trunkH; h++) {
         const ty = sy - h;
