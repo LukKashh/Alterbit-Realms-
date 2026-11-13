@@ -54,6 +54,6 @@ test('tree harvest overrides are clamped and kept internally consistent', () => 
     seedChance: 1,
   });
   assert.deepEqual(override.bonusHarvestDrops, [
-    { itemId: 1, chance: 0.4, minQty: 2, maxQty: 5 },
+    { itemId: 600, chance: 0.4, minQty: 2, maxQty: 5 },
   ]);
 });
