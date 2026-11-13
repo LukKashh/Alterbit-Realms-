@@ -121,6 +121,8 @@ export class DungeonStore {
     if (account.processedTxIds.includes(requestId)) {
       return { ok: true, message: 'This Gate Key purchase was already processed.' };
     }
+    const currentKeyCount = account.inventory.find((slot) => slot.itemId === itemId)?.qty ?? 0;
+    if (currentKeyCount >= 20) return { ok: false, message: 'You cannot carry more than 20 of this Gate Key.' };
     const locks = account.inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
     if (payment === 'gems' && account.gems < key.gemPrice) {
       return { ok: false, message: 'Requires ' + key.gemPrice + ' Gems.' };
