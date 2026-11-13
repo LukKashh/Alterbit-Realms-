@@ -1,4 +1,5 @@
 import { GATE_KEYS } from './expansion.ts';
+import { ITEM_IDS } from './catalog.ts';
 
 export const DUNGEON_WIDTH = 17;
 export const DUNGEON_HEIGHT = 11;
@@ -103,11 +104,11 @@ export function getDungeonOreReward(tier: number): { itemId: number; qty: number
   // The source blueprint defines each Gate Key's ore pool but leaves exact reward quantities open.
   // These bounded defaults are intentionally conservative until the economy is tuned.
   const orePools: Record<number, number[]> = {
-    1: [201, 202, 202, 210],
-    2: [210, 203, 204],
-    3: [203, 204, 204],
-    4: [204, 204, 204],
-    5: [204, 204, 204],
+    1: [ITEM_IDS.COPPER_FRAGMENT, ITEM_IDS.IRON_FRAGMENT],
+    2: [ITEM_IDS.IRON_FRAGMENT, ITEM_IDS.CRYSTAL_FRAGMENT, ITEM_IDS.OBSIDIAN_FRAGMENT],
+    3: [ITEM_IDS.CRYSTAL_FRAGMENT, ITEM_IDS.OBSIDIAN_FRAGMENT],
+    4: [ITEM_IDS.OBSIDIAN_FRAGMENT],
+    5: [ITEM_IDS.OBSIDIAN_FRAGMENT],
   };
   const pool = orePools[tier] ?? orePools[1];
   const itemId = pool[Math.floor(Math.random() * pool.length)];
