@@ -21,7 +21,7 @@ import {
 } from '../src/game/dungeon.ts';
 import type { PlayerAccount, AuthoritativeWorldStore } from './worldStore.ts';
 
-const GATE_KEY_ITEM_IDS = [810, 811, 812, 813, 814] as const;
+const GATE_KEY_ITEM_IDS = [ITEM_IDS.GATE_KEY_I, ITEM_IDS.GATE_KEY_II, ITEM_IDS.GATE_KEY_III, ITEM_IDS.GATE_KEY_IV, ITEM_IDS.GATE_KEY_V] as const;
 const MAX_RUN_AGE_MS = 2 * 60 * 60 * 1000;
 const DISCONNECT_GRACE_MS = 120_000;
 
@@ -53,6 +53,7 @@ export interface DungeonActionResult {
 
 export class DungeonStore {
   private readonly runs = new Map<string, DungeonRun>();
+  private readonly accountRefs = new Map<string, PlayerAccount>();
   private readonly filePath = path.resolve(process.cwd(), 'data', 'dungeons.json');
 
   constructor(private readonly playerStore: AuthoritativeWorldStore) {
@@ -88,9 +89,14 @@ export class DungeonStore {
     return GATE_KEY_ITEM_IDS[tier - 1];
   }
 
+  getAccountRef(playerId: string): PlayerAccount | undefined {
+    return this.accountRefs.get(playerId);
+  }
+
   buyGateKey(account: PlayerAccount, tier: number): DungeonActionResult {
     const key = GATE_KEYS.find((entry) => entry.tier === tier);
     const itemId = this.keyItemId(tier);
+    this.accountRefs.set(account.id, account);
     if (!key || !itemId) return { ok: false, message: 'Unknown Gate Key tier.' };
     if (account.level < key.minLevel) return { ok: false, message: 'Explorer level ' + key.minLevel + ' is required.' };
     const locks = account.inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
@@ -113,6 +119,7 @@ export class DungeonStore {
   createRun(account: PlayerAccount, tier: number, now = Date.now()): DungeonActionResult {
     const key = GATE_KEYS.find((entry) => entry.tier === tier);
     const keyItemId = this.keyItemId(tier);
+    this.accountRefs.set(account.id, account);
     if (!key || !keyItemId) return { ok: false, message: 'Unknown Gate Key tier.' };
     if (account.level < key.minLevel) return { ok: false, message: 'Explorer level ' + key.minLevel + ' is required.' };
     const keySlot = account.inventory.find((slot) => slot.itemId === keyItemId && slot.qty > 0);
@@ -142,6 +149,7 @@ export class DungeonStore {
   }
 
   joinRun(account: PlayerAccount, rawCode: string, now = Date.now()): DungeonActionResult {
+    this.accountRefs.set(account.id, account);
     const code = String(rawCode ?? '').trim().toUpperCase();
     if (!/^[A-Z0-9]{6}$/.test(code)) return { ok: false, message: 'Enter a valid six-character party code.' };
     const run = [...this.runs.values()].find((entry) => entry.code === code);
@@ -163,6 +171,7 @@ export class DungeonStore {
   }
 
   resume(account: PlayerAccount, now = Date.now()): DungeonActionResult {
+    this.accountRefs.set(account.id, account);
     const run = [...this.runs.values()].find((entry) => entry.players[account.id] && (entry.phase === 'active' || entry.phase === 'cleared'));
     if (!run) return { ok: false, message: 'No active dungeon expedition to resume.' };
     const player = run.players[account.id];
@@ -202,7 +211,6 @@ export class DungeonStore {
     };
     const isBossRoom = roomIndex === roomCount - 1;
     const count = isBossRoom ? 1 : 2 + Math.min(3, tier);
-    const stats = getDungeonEnemyStats(tier, isBossRoom);
     const enemies: DungeonEnemyState[] = [];
     const used = new Set<string>();
     for (let i = 0; i < count; i++) {
@@ -240,11 +248,14 @@ export class DungeonStore {
     if (!player.connected) player.connected = true;
     player.lastSeenAt = now;
     if (action === 'leave') {
-      player.connected = false;
+      delete run.players[account.id];
+      this.accountRefs.delete(account.id);
       run.message = account.name + ' left the expedition.';
       run.updatedAt = now;
+      const ids = Object.keys(run.players);
+      if (ids.length === 0) this.runs.delete(run.runId);
       this.persist();
-      return { ok: true, snapshot: this.snapshot(run), affectedPlayerIds: Object.keys(run.players) };
+      return { ok: true, snapshot: ids.length ? this.snapshot(run) : undefined, affectedPlayerIds: ids };
     }
     if (run.phase === 'cleared' && action !== 'next_room') {
       return { ok: true, snapshot: this.snapshot(run) };
