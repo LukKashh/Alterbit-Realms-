@@ -2289,7 +2289,7 @@ export class AuthoritativeWorldStore {
           cast.fishItemId = ITEM_IDS.FISH_MINNOW;
         }
       }
-      cast.fishResistance = getFishPullResistance(cast.fishItemId, this.gameConfig.fishing);
+      cast.fishResistance = getFishPullResistance(cast.fishItemId ?? ITEM_IDS.FISH_MINNOW, this.gameConfig.fishing);
     }
 
     const fishItemId = cast.fishItemId ?? ITEM_IDS.FISH_MINNOW;
