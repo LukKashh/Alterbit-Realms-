@@ -221,7 +221,7 @@ export default function App() {
 
   // Freeze the sandbox character while the independent top-down dungeon instance is active.
   useEffect(() => {
-    if (dungeonSnapshot && (dungeonSnapshot.phase === 'active' || dungeonSnapshot.phase === 'cleared')) {
+    if (dungeonSnapshot) {
       engineRef.current?.setMode('paused');
     } else if (appState === 'playing') {
       engineRef.current?.setMode('playing');
@@ -668,13 +668,17 @@ export default function App() {
   );
 
   const handleReturnToHub = useCallback(() => {
+    if (dungeonSnapshot) socketRef.current?.send({ type: 'dungeon_action', action: 'leave' });
+    setDungeonSnapshot(null);
     socketRef.current?.leaveWorld();
     void fetchWorldsList();
     setInspectInfo(null);
     setAppState('hub');
-  }, [fetchWorldsList]);
+  }, [fetchWorldsList, dungeonSnapshot]);
 
   const handleSignOut = useCallback(async () => {
+    if (dungeonSnapshot) socketRef.current?.send({ type: 'dungeon_action', action: 'leave' });
+    setDungeonSnapshot(null);
     let token: string | null = null;
     try {
       token = localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -694,7 +698,7 @@ export default function App() {
     engineRef.current?.setSelectedItem(ITEM_IDS.FIST);
     setRole('player');
     setAppState('auth');
-  }, []);
+  }, [dungeonSnapshot]);
 
   const handleSelectItem = useCallback((itemId: number) => {
     setSelectedItemId(itemId);
