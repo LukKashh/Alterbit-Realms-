@@ -25,6 +25,7 @@ import {
   canBreakTile,
   canPlaceTile,
   getCoveringAreaLock,
+  getCoveringShareLock,
   getPlantGrowthState,
   inBoundsWorld,
   tileIndexIn,
@@ -34,6 +35,7 @@ import {
 import {
   generateWorld,
   type AreaLockRecord,
+  type ShareLockRecord,
   type BfgCollectorRecord,
   type FurnaceRecord,
   type PlantedTree,
@@ -78,6 +80,7 @@ export interface TileInspectInfo {
   lockInfo?: string;
   worldLock?: WorldLockRecord | null;
   areaLock?: AreaLockRecord | null;
+  shareLock?: ShareLockRecord | null;
   vendingMachine?: VendingMachineRecord | null;
   furnace?: FurnaceRecord | null;
   bfgCollector?: BfgCollectorRecord | null;
@@ -680,6 +683,7 @@ export class BlockgroveEngine {
     plant: PlantedTree | null,
     worldLock?: WorldLockRecord | null,
     areaLock?: AreaLockRecord | null,
+    shareLock?: ShareLockRecord | null,
     vendingMachine?: VendingMachineRecord | null,
     signText?: string | null,
     fluidType?: number,
@@ -709,6 +713,11 @@ export class BlockgroveEngine {
     if (areaLock !== undefined) {
       if (areaLock) this.world.areaLocks[key] = areaLock;
       else delete this.world.areaLocks[key];
+    }
+    this.world.shareLocks = this.world.shareLocks ?? {};
+    if (shareLock !== undefined) {
+      if (shareLock) this.world.shareLocks[key] = shareLock;
+      else delete this.world.shareLocks[key];
     }
     this.world.vendingMachines = this.world.vendingMachines ?? {};
     if (vendingMachine !== undefined) {
@@ -928,12 +937,16 @@ export class BlockgroveEngine {
     }
 
     const coveringAreaLock = getCoveringAreaLock(this.world, tx, ty);
+    const coveringShareLock = getCoveringShareLock(this.world, tx, ty);
     const directAreaLock = this.world.areaLocks?.[key] ?? coveringAreaLock ?? null;
-    const lockInfo = directAreaLock
-      ? `Area Lock by ${directAreaLock.ownerName}`
-      : this.world.worldLock
-        ? `World Lock by ${this.world.worldLock.ownerName}`
-        : 'Unlocked Area';
+    const shareLock = this.world.shareLocks?.[key] ?? coveringShareLock;
+    const lockInfo = shareLock
+      ? `${shareLock.width}×${shareLock.height} Share Lock by ${shareLock.ownerName}`
+      : directAreaLock
+        ? `Legacy area protection by ${directAreaLock.ownerName}`
+        : this.world.worldLock
+          ? `Owned by ${this.world.worldLock.ownerName}`
+          : 'Unlocked Area';
 
     if (!quiet) soundEngine.uiClick();
     this.callbacks.onInspectTile?.({
@@ -946,6 +959,7 @@ export class BlockgroveEngine {
       lockInfo,
       worldLock: fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
       areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : coveringAreaLock,
+      shareLock: this.world.shareLocks?.[key] ?? null,
       vendingMachine: fgId === ITEM_IDS.VENDING_MACHINE ? (this.world.vendingMachines?.[key] ?? null) : null,
       furnace: fgId === ITEM_IDS.STONE_FURNACE ? (this.world.furnaces?.[key] ?? null) : null,
       bfgCollector: fgId === ITEM_IDS.BFG_COLLECTOR ? (this.world.bfgCollectors?.[key] ?? null) : null,
