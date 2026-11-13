@@ -112,6 +112,8 @@ export default function App() {
   const [fishingCast, setFishingCast] = useState<FishingCastState | null>(null);
   const [fishingBiting, setFishingBiting] = useState<boolean>(false);
   const [fishingProgress, setFishingProgress] = useState<number>(0);
+  const [fishingLineTension, setFishingLineTension] = useState<number>(0.15);
+  const [fishingFightPattern, setFishingFightPattern] = useState<'darting' | 'surging' | 'deep_run' | 'erratic'>('darting');
   const [hotbarItemIds, setHotbarItemIds] = useState<number[]>(EMPTY_HOTBAR);
   const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.FIST);
   const [gameConfig, setGameConfig] = useState<GameConfig>(() => cloneGameConfig(DEFAULT_GAME_CONFIG));
@@ -456,6 +458,8 @@ export default function App() {
           break;
         case 'fishing_started':
           setFishingProgress(0);
+          setFishingLineTension(0.15);
+          setFishingFightPattern('darting');
           engine.setFishingCast(msg.cast);
           if (msg.cast.playerId === playerIdRef.current) {
             setFishingCast(msg.cast);
@@ -463,7 +467,13 @@ export default function App() {
           }
           break;
         case 'fishing_progress':
-          if (msg.playerId === playerIdRef.current) setFishingProgress(msg.progress);
+          engine.updateFishingProgress(msg.playerId, msg.progress, msg.lineTension, msg.bobberOffset, msg.fightPattern);
+          if (msg.playerId === playerIdRef.current) {
+            setFishingProgress(msg.progress);
+            setFishingLineTension(msg.lineTension);
+            setFishingFightPattern(msg.fightPattern);
+            setFishingCast((current) => current ? { ...current, lineTension: msg.lineTension, bobberOffset: msg.bobberOffset, fightPattern: msg.fightPattern, pullProgress: msg.progress } : current);
+          }
           break;
         case 'fishing_bite':
           engine.markFishingBite(msg.playerId);
@@ -478,6 +488,8 @@ export default function App() {
             setFishingCast(null);
             setFishingBiting(false);
             setFishingProgress(0);
+            setFishingLineTension(0.15);
+            setFishingFightPattern('darting');
             if (msg.caughtName) {
               showToast(`Caught ${msg.caughtName}!`);
             }
@@ -901,6 +913,8 @@ export default function App() {
           fishingActive={Boolean(fishingCast)}
           fishingBiting={fishingBiting}
           fishingProgress={fishingProgress}
+          fishingLineTension={fishingLineTension}
+          fishingFightPattern={fishingFightPattern}
           fishingDepthLevel={fishingCast?.depthLevel ?? null}
           onExitMineShaft={() => socketRef.current?.send({ type: 'exit_mine_shaft' })}
           onUseConsumable={(itemId) =>
