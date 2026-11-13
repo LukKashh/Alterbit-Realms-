@@ -343,16 +343,25 @@ export class DungeonStore {
       const directionX = dx / magnitude;
       const directionY = dy / magnitude;
       const speed = DEFAULT_DUNGEON_BALANCE.playerMoveStep;
+      const canOccupy = (x: number, y: number) => {
+        const tile = run.map[Math.floor(y)]?.[Math.floor(x)] ?? '#';
+        return isDungeonPositionWalkable(run.map, x, y) && (tile !== '>' || run.phase === 'cleared') &&
+          !Object.values(run.players).some((other) => other.id !== player.id && other.hp > 0 && Math.hypot(other.x - x, other.y - y) < 0.48) &&
+          !run.enemies.some((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - x, enemy.y - y) < 0.5);
+      };
       const nx = Math.max(1.22, Math.min(DUNGEON_WIDTH - 1.22, player.x + directionX * speed));
       const ny = Math.max(1.22, Math.min(DUNGEON_HEIGHT - 1.22, player.y + directionY * speed));
-      const destinationTile = run.map[Math.floor(ny)]?.[Math.floor(nx)] ?? '#';
-      if (!isDungeonPositionWalkable(run.map, nx, ny) || (destinationTile === '>' && run.phase !== 'cleared') ||
-          Object.values(run.players).some((other) => other.id !== player.id && other.hp > 0 && Math.hypot(other.x - nx, other.y - ny) < 0.48) ||
-          run.enemies.some((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - nx, enemy.y - ny) < 0.5)) {
-        return { ok: false, message: 'Blocked.' };
+      if (canOccupy(nx, ny)) {
+        player.x = nx;
+        player.y = ny;
+      } else {
+        // Resolve blocked diagonal movement per axis so players can slide along walls.
+        const slideX = canOccupy(nx, player.y);
+        const slideY = canOccupy(player.x, ny);
+        if (!slideX && !slideY) return { ok: false, message: 'Blocked.' };
+        if (slideX) player.x = nx;
+        if (slideY) player.y = ny;
       }
-      player.x = nx;
-      player.y = ny;
       player.facingX = directionX;
       player.facingY = directionY;
     } else if (action === 'attack') {
