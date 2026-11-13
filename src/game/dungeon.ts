@@ -135,7 +135,7 @@ export function getDungeonEnemyStats(tier: number, boss: boolean) {
   return {
     hp: boss ? DEFAULT_DUNGEON_BALANCE.bossBaseHealth + tier * DEFAULT_DUNGEON_BALANCE.bossHealthPerTier : hp,
     damage: boss ? DEFAULT_DUNGEON_BALANCE.bossBaseDamage + tier * DEFAULT_DUNGEON_BALANCE.bossDamagePerTier : DEFAULT_DUNGEON_BALANCE.enemyBaseDamage + tier * DEFAULT_DUNGEON_BALANCE.enemyDamagePerTier,
-    name: boss ? 'Gate Guardian ' + tier : ([
+    name: ([
       'Cavern Slime', 'Sentinel Golem', 'Emerald Stalker', 'Divinium Warden', 'Omegazyte Overlord'
     ][Math.max(0, tier - 1)] ?? 'Cave Dweller'),
   };
