@@ -222,6 +222,7 @@ async function startServer() {
       plant: live.state.plants[key] ?? null,
       worldLock: live.state.worldLock,
       areaLock: live.state.areaLocks?.[key] ?? null,
+      shareLock: live.state.shareLocks?.[key] ?? null,
       vendingMachine: live.state.vendingMachines?.[key] ?? null,
       furnace: live.state.furnaces?.[key] ?? null,
       bfgCollector: live.state.bfgCollectors?.[key] ?? null,
@@ -671,6 +672,8 @@ async function startServer() {
           publicAccess: msg.publicAccess,
           addEditorName: msg.addEditorName,
           removeEditorId: msg.removeEditorId,
+          permissionTargetId: msg.permissionTargetId,
+          permissions: msg.permissions,
         });
         if (!res.ok) {
           sendTo(ws, { type: 'world_error', message: res.message });
