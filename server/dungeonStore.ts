@@ -320,12 +320,21 @@ export class DungeonStore {
       this.persist();
       return { ok: true, snapshot: ids.length ? this.snapshot(run) : undefined, affectedPlayerIds: ids };
     }
-    if (run.phase === 'cleared' && action !== 'next_room' && action !== 'extract') {
-      return { ok: true, snapshot: this.snapshot(run) };
-    }
     if (run.phase !== 'active' && run.phase !== 'cleared') return { ok: false, message: 'This dungeon has ended.' };
     if (player.hp <= 0) return { ok: false, message: 'You are down and cannot act.' };
-    if (now - player.lastActionAt < (action === 'move' ? DEFAULT_DUNGEON_BALANCE.playerMoveCooldownMs : DEFAULT_DUNGEON_BALANCE.playerAttackCooldownMs)) return { ok: false, message: 'Wait for your action cooldown.' };
+
+    // Movement must remain enabled after a room is cleared so players can physically
+    // reach the exit portal. Only combat is disabled while the room is cleared.
+    if (run.phase === 'cleared' && action !== 'move' && action !== 'next_room' && action !== 'extract') {
+      return { ok: true, snapshot: this.snapshot(run) };
+    }
+
+    const actionCooldown = action === 'move'
+      ? DEFAULT_DUNGEON_BALANCE.playerMoveCooldownMs
+      : DEFAULT_DUNGEON_BALANCE.playerAttackCooldownMs;
+    if (now - player.lastActionAt < actionCooldown) {
+      return { ok: false, message: 'Wait for your action cooldown.' };
+    }
     player.lastActionAt = now;
 
     if (action === 'move') {
