@@ -133,6 +133,8 @@ interface GameHudProps {
   fishingActive: boolean;
   fishingBiting: boolean;
   fishingProgress: number;
+  fishingLineTension: number;
+  fishingFightPattern: 'darting' | 'surging' | 'deep_run' | 'erratic';
   fishingDepthLevel?: number | null;
   onExitMineShaft: () => void;
   onUseConsumable: (itemId: number) => void;
@@ -353,6 +355,8 @@ export const GameHud: React.FC<GameHudProps> = ({
   fishingActive,
   fishingBiting,
   fishingProgress,
+  fishingLineTension,
+  fishingFightPattern,
   fishingDepthLevel,
   onExitMineShaft,
   onUseConsumable,
@@ -666,6 +670,7 @@ export const GameHud: React.FC<GameHudProps> = ({
           >
             {fishingBiting ? `! BITE ! Depth ${fishingDepthLevel ?? '?'} / 6 · Reel ${Math.round(fishingProgress)}%` : `Fishing · Depth ${fishingDepthLevel ?? '?'} / 6 · Tap to Reel`}
             {fishingBiting && <span className="block h-1.5 w-full mt-1 rounded bg-[#09131d] overflow-hidden"><span className="block h-full bg-[#4ec46a] transition-[width]" style={{ width: `${Math.max(0, Math.min(100, fishingProgress))}%` }} /></span>}
+            {fishingBiting && <span className="mt-1 flex items-center justify-between gap-2 text-[9px] font-mono-num"><span className="uppercase tracking-wide">{fishingFightPattern.replace('_', ' ')} fight</span><span className={fishingLineTension > 0.82 ? 'text-[#ff6255]' : fishingLineTension < 0.38 ? 'text-[#77e7ff]' : 'text-[#ffe18c]'}>LINE TENSION {Math.round(fishingLineTension * 100)}%</span></span>}
           </button>
         )}
 

@@ -703,7 +703,15 @@ async function startServer() {
           return;
         }
         if (!res.finished) {
-          broadcastWorld(live.state.name, { type: 'fishing_progress', playerId: account.id, progress: res.progress });
+          const activeCast = live.activeCasts.get(account.id);
+          broadcastWorld(live.state.name, {
+            type: 'fishing_progress',
+            playerId: account.id,
+            progress: res.progress,
+            lineTension: activeCast?.lineTension ?? 0.5,
+            bobberOffset: activeCast?.bobberOffset ?? 0,
+            fightPattern: activeCast?.fightPattern ?? 'darting',
+          });
           return;
         }
         broadcastWorld(live.state.name, {
@@ -744,6 +752,16 @@ async function startServer() {
         bobberTx: fb.cast.bobberTx,
         bobberTy: fb.cast.bobberTy,
         depthTier: fb.cast.depthTier,
+      });
+    }
+    for (const fs of tick.fishingStates) {
+      broadcastWorld(fs.worldName, {
+        type: 'fishing_progress',
+        playerId: fs.cast.playerId,
+        progress: Math.round(fs.cast.pullProgress),
+        lineTension: fs.cast.lineTension,
+        bobberOffset: fs.cast.bobberOffset,
+        fightPattern: fs.cast.fightPattern ?? 'darting',
       });
     }
     for (const ft of tick.fishingTimeouts) {
