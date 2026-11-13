@@ -123,7 +123,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
           <section className="w-full max-w-3xl max-h-[96vh] overflow-y-auto rounded-xl border-2 border-[#6b5a43] bg-[#111c29] shadow-2xl text-[#e8edf4]">
             <header className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-[#0a121d] border-b border-[#4c4639]">
               <div>
-                <div className="font-pixel text-xs sm:text-sm text-[#f5d18a]">STATION · DUNGEON GATE</div>
+                <div className="flex items-center gap-2"><img src="/assets/dungeon/station-commander.svg" alt="Station Commander" className="w-9 h-9 object-contain" style={{ imageRendering: 'pixelated' }} /><div><div className="font-pixel text-xs sm:text-sm text-[#f5d18a]">STATION COMMANDER</div><div className="text-[9px] text-[#91a4b8]">Adventure Gate Operations</div></div></div>
                 <div className="text-[10px] text-[#91a4b8] mt-1">Co-operative top-down expeditions · up to 4 explorers</div>
               </div>
               <button type="button" onClick={close} className="px-3 py-1.5 rounded border border-[#42566b] text-xs font-bold hover:bg-[#1b2c3e]">Close</button>
@@ -147,15 +147,28 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                         const isExit = tile === '>';
                         const isEntry = tile === '<';
                         const background = isWall ? '#35414b' : isExit ? '#80612a' : '#182a28';
-                        return <div key={x + ':' + y} className="flex items-center justify-center rounded-[2px] text-[clamp(7px,1.8vw,14px)] font-bold" style={{ background, color: isExit ? '#ffe8a9' : '#82938b' }}>{isExit ? '⇢' : isEntry ? '◂' : ''}</div>;
+                        return <div key={x + ':' + y} className="flex items-center justify-center rounded-[2px] text-[clamp(7px,1.8vw,14px)] font-bold" style={{ background, color: isExit ? '#ffe8a9' : '#82938b' }}>{isExit ? <img src="/assets/dungeon/extraction-portal.svg" alt="Extraction portal" className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} /> : isEntry ? '◂' : ''}</div>;
                       }))}
                     </div>
                     <div className="absolute inset-0 pointer-events-none">
-                      {snapshot.enemies.filter((enemy) => enemy.hp > 0).map((enemy) => (
-                        <div key={enemy.id} title={enemy.name} className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center rounded-full border border-[#e8a16c] bg-[#6b292b] text-[clamp(8px,2vw,15px)] text-[#ffd3a0] font-black shadow" style={{ left: (enemy.x / snapshot.width * 100) + '%', top: (enemy.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 0.8) + '%', aspectRatio: '1' }}>{enemy.boss ? '♛' : '☠'}</div>
-                      ))}
+                      {snapshot.enemies.filter((enemy) => enemy.hp > 0).map((enemy) => {
+                        const enemySprite = enemy.boss ? '/assets/dungeon/gate-guardian.svg'
+                          : enemy.kind === 'drone' ? '/assets/dungeon/station-drone.svg'
+                          : snapshot.tier === 1 ? '/assets/dungeon/cavern-slime.svg'
+                          : snapshot.tier === 2 ? '/assets/dungeon/sentinel-golem.svg'
+                          : snapshot.tier === 3 ? '/assets/dungeon/emerald-stalker.svg'
+                          : snapshot.tier === 4 ? '/assets/dungeon/divinium-warden.svg'
+                          : '/assets/dungeon/omegazyte-overlord.svg';
+                        return (
+                          <div key={enemy.id} title={enemy.name} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: (enemy.x / snapshot.width * 100) + '%', top: (enemy.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 1.15) + '%', aspectRatio: '1' }}>
+                            <img src={enemySprite} alt={enemy.name} draggable={false} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />
+                          </div>
+                        );
+                      })}
                       {snapshot.players.filter((member) => member.hp > 0).map((member) => (
-                        <div key={member.id} title={member.name} className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center rounded-full border border-[#a6e6ff] bg-[#1d6372] text-[clamp(8px,2vw,14px)] text-white font-black shadow" style={{ left: (member.x / snapshot.width * 100) + '%', top: (member.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 0.8) + '%', aspectRatio: '1' }}>{member.id === playerId ? '●' : '◆'}</div>
+                        <div key={member.id} title={member.name} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: (member.x / snapshot.width * 100) + '%', top: (member.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 1.05) + '%', aspectRatio: '1' }}>
+                          <img src="/assets/dungeon/player.svg" alt={member.name} draggable={false} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />
+                        </div>
                       ))}
                     </div>
                   </div>
