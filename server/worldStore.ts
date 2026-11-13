@@ -1308,9 +1308,6 @@ export class AuthoritativeWorldStore {
         account.stats.oresMined = (account.stats.oresMined ?? 0) + 1;
       }
 
-      if (prevFg === ITEM_IDS.WORLD_LOCK) {
-        live.state.worldLock = null;
-      }
       if (getShareLockSpec(prevFg) && live.state.shareLocks) {
         delete live.state.shareLocks[key];
       }
@@ -1765,7 +1762,7 @@ export class AuthoritativeWorldStore {
     // Stocking machine
     const itemId = Number(opts.stockItemId ?? 0);
     const qty = Math.max(1, Math.floor(Number(opts.stockQty ?? 1)));
-    const priceItemId = Number(opts.priceItemId ?? ITEM_IDS.SMALL_LOCK);
+    const priceItemId = Number(opts.priceItemId ?? ITEM_IDS.GP_RED_BRICKS);
     const priceQty = Math.max(1, Math.floor(Number(opts.priceQty ?? 1)));
 
     const itemDef = getItemDef(itemId);
