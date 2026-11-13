@@ -318,7 +318,7 @@ export class DungeonStore {
       this.persist();
       return { ok: true, snapshot: ids.length ? this.snapshot(run) : undefined, affectedPlayerIds: ids };
     }
-    if (run.phase === 'cleared' && action !== 'next_room') {
+    if (run.phase === 'cleared' && action !== 'next_room' && action !== 'extract') {
       return { ok: true, snapshot: this.snapshot(run) };
     }
     if (run.phase !== 'active' && run.phase !== 'cleared') return { ok: false, message: 'This dungeon has ended.' };
