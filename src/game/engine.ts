@@ -2079,6 +2079,166 @@ function getDungeonSpriteCanvas(
   return canvas;
 }
 
+
+/** Third-person 3/4 top-down dungeon renderer. Keeps the complete room readable
+ * while showing the local adventurer, party members, enemies and portal in-world. */
+export function renderDungeonThirdPerson(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  snapshot: DungeonSnapshot | null,
+  playerId: string,
+  opts: DungeonRenderOptions = {}
+) {
+  const tier = Math.max(1, Math.min(5, snapshot?.tier ?? opts.previewTier ?? 1));
+  const pal = DUNGEON_TIER_PALETTES[tier - 1];
+  const map = snapshot?.map ?? Array.from({ length: 11 }, (_, y) =>
+    Array.from({ length: 17 }, (_, x) => x === 0 || y === 0 || x === 16 || y === 10 ? '#' : '.').join('')
+  );
+  const mapH = map.length;
+  const mapW = map[0]?.length ?? 17;
+  const tileW = Math.max(12, Math.min((width - 36) / mapW, (height - 112) / (mapH * 0.78 + 1.2)));
+  const tileH = tileW * 0.72;
+  const wallH = tileH * 0.58;
+  const boardW = mapW * tileW;
+  const boardH = mapH * tileH + wallH;
+  const ox = Math.round((width - boardW) * 0.5);
+  const oy = Math.round((height - boardH) * 0.5 + 18);
+  const now = opts.nowMs ?? performance.now();
+  const phase = snapshot?.phase ?? 'active';
+  const player = snapshot?.players.find((p) => p.id === playerId);
+  const focusX = player?.x ?? 8.5;
+  const focusY = player?.y ?? 5.5;
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = pal.fogHex;
+  ctx.fillRect(0, 0, width, height);
+
+  // Subtle cavern ambience.
+  const glow = ctx.createRadialGradient(width * 0.5, height * 0.48, 8, width * 0.5, height * 0.48, Math.max(width, height) * 0.72);
+  glow.addColorStop(0, pal.floorBot);
+  glow.addColorStop(1, pal.fogHex);
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, width, height);
+
+  const wallTex = getDungeonTexture('wall', tier);
+  const pillarTex = getDungeonTexture('pillar', tier);
+  const entryTex = getDungeonTexture('entry', tier);
+  const exitTex = getDungeonTexture(phase === 'cleared' ? 'exit_open' : 'exit_locked', tier);
+
+  // Draw floor first, then raised masonry blocks with crisp pixel edges.
+  for (let y = 0; y < mapH; y++) {
+    for (let x = 0; x < mapW; x++) {
+      const sx = ox + x * tileW;
+      const sy = oy + y * tileH;
+      const tile = map[y]?.[x] ?? '#';
+      ctx.fillStyle = (x + y) % 2 === 0 ? pal.floorTop : pal.floorBot;
+      ctx.fillRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
+      ctx.strokeStyle = 'rgba(7, 13, 22, 0.48)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
+
+      if (tile === '#') {
+        ctx.fillStyle = pal.wallDark;
+        ctx.fillRect(sx, sy + tileH - 1, tileW, wallH);
+        ctx.fillStyle = pal.wallBase;
+        ctx.fillRect(sx, sy - wallH, tileW, wallH);
+        ctx.fillStyle = pal.wallLight;
+        ctx.fillRect(sx, sy - wallH, tileW, 3);
+        ctx.fillStyle = pal.wallDark;
+        ctx.fillRect(sx + tileW - 3, sy - wallH, 3, wallH + tileH);
+        const tex = (x === 0 && y === 5) ? entryTex : (x === mapW - 1 && y === 5) ? exitTex : pillarTex;
+        ctx.drawImage(tex, Math.round(sx + 2), Math.round(sy - wallH + 2), Math.max(1, tileW - 4), Math.max(1, wallH - 2));
+      } else if (tile === '<' || tile === '>') {
+        const tex = tile === '<' ? entryTex : exitTex;
+        const pulse = 0.88 + Math.sin(now * 0.004) * 0.08;
+        ctx.globalAlpha = pulse;
+        ctx.drawImage(tex, Math.round(sx + tileW * 0.12), Math.round(sy - tileH * 0.52), tileW * 0.76, tileH * 1.25);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  type Actor = { x: number; y: number; kind: 'player' | 'enemy' | 'portal'; name?: string; hpRatio?: number; boss?: boolean; local?: boolean; facingX?: number; tex?: HTMLCanvasElement };
+  const actors: Actor[] = [];
+  actors.push({ x: mapW - 1.5, y: 5.5, kind: 'portal', name: phase === 'cleared' ? 'EXIT' : 'LOCKED', tex: getDungeonSpriteCanvas(phase === 'cleared' ? 'portal_open' : 'portal_locked', tier) });
+  if (snapshot) {
+    for (const enemy of snapshot.enemies) {
+      if (enemy.hp <= 0) continue;
+      actors.push({ x: enemy.x, y: enemy.y, kind: 'enemy', name: enemy.name, hpRatio: enemy.hp / Math.max(1, enemy.maxHp), boss: enemy.boss, tex: getDungeonSpriteCanvas(enemy.boss ? 'boss' : enemy.kind === 'drone' ? 'drone' : 'dweller', tier) });
+    }
+    for (const member of snapshot.players) {
+      if (member.hp <= 0) continue;
+      actors.push({ x: member.x, y: member.y, kind: 'player', name: member.name, hpRatio: member.hp / Math.max(1, member.maxHp), local: member.id === playerId, facingX: member.facingX });
+    }
+  } else {
+    actors.push({ x: 8.5, y: 5.5, kind: 'enemy', name: getDungeonEnemyStats(tier, true).name, boss: true, hpRatio: 1, tex: getDungeonSpriteCanvas('boss', tier) });
+  }
+
+  actors.sort((a, b) => a.y - b.y || a.x - b.x);
+  for (const actor of actors) {
+    const cx = ox + actor.x * tileW;
+    const cy = oy + actor.y * tileH;
+    const shadowW = tileW * (actor.kind === 'player' ? 0.62 : 0.7);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 2, shadowW * 0.5, tileH * 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    let sprite: HTMLCanvasElement;
+    let drawW: number;
+    let drawH: number;
+    if (actor.kind === 'player') {
+      sprite = getPlayerSprite('idle0', (actor.facingX ?? 1) < 0 ? -1 : 1, actor.local ? '#3fa876' : '#6aa8d8');
+      drawH = tileH * 2.35;
+      drawW = drawH * (sprite.width / Math.max(1, sprite.height));
+    } else {
+      sprite = actor.tex!;
+      drawH = tileH * (actor.kind === 'portal' ? 1.55 : actor.boss ? 1.8 : 1.35);
+      drawW = drawH * (sprite.width / Math.max(1, sprite.height));
+    }
+    const bob = actor.kind === 'enemy' && !actor.boss ? Math.sin(now * 0.004 + actor.x) * 1.5 : 0;
+    ctx.drawImage(sprite, Math.round(cx - drawW * 0.5), Math.round(cy - drawH + tileH * 0.2 + bob), Math.round(drawW), Math.round(drawH));
+
+    if (actor.name && actor.kind !== 'portal') {
+      const labelY = cy - drawH - 7;
+      ctx.font = 'bold 10px "Silkscreen", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#09131d';
+      ctx.fillText(actor.name + (actor.local ? ' (YOU)' : ''), cx + 1, labelY + 1);
+      ctx.fillStyle = actor.boss ? '#ffe18c' : '#f4f1ea';
+      ctx.fillText(actor.name + (actor.local ? ' (YOU)' : ''), cx, labelY);
+      if (typeof actor.hpRatio === 'number') {
+        const bw = actor.boss ? tileW * 1.45 : tileW * 0.95;
+        ctx.fillStyle = '#09131d';
+        ctx.fillRect(cx - bw / 2, labelY - 7, bw, 4);
+        ctx.fillStyle = actor.kind === 'player' ? '#4ec46a' : '#e6482e';
+        ctx.fillRect(cx - bw / 2, labelY - 7, bw * Math.max(0, Math.min(1, actor.hpRatio)), 4);
+      }
+    }
+  }
+
+  // Room heading and compact minimap-like player marker help retain spatial awareness.
+  ctx.fillStyle = 'rgba(7, 13, 22, 0.78)';
+  ctx.fillRect(12, 12, 160, 32);
+  ctx.strokeStyle = pal.trim;
+  ctx.strokeRect(12, 12, 160, 32);
+  ctx.font = 'bold 11px "Silkscreen", monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = pal.accent;
+  ctx.fillText('ROOM ' + (snapshot ? snapshot.roomIndex + 1 : 1) + ' / ' + (snapshot?.roomCount ?? 5), 22, 28);
+
+  if ((opts.hitFlash ?? 0) > 0.01) {
+    ctx.fillStyle = 'rgba(230, 72, 46, ' + ((opts.hitFlash ?? 0) * 0.22) + ')';
+    ctx.fillRect(0, 0, width, height);
+  }
+  ctx.restore();
+}
+
 export function renderDungeonRaycaster(
   ctx: CanvasRenderingContext2D,
   width: number,
