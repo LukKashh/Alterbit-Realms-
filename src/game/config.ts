@@ -32,6 +32,8 @@ export interface ItemConfigOverride {
   gemValue?: number;
   xpValue?: number;
   drops?: DropEntry[];
+  treeHarvestYield?: { minBlocks: number; maxBlocks: number; seedChance: number };
+  bonusHarvestDrops?: DropEntry[];
 }
 
 export interface GameConfig {
@@ -94,16 +96,30 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
       if (ov.hardness !== undefined) cleanOv.hardness = Math.round(clamp(ov.hardness, 3, 1, 20));
       if (ov.gemValue !== undefined) cleanOv.gemValue = Math.round(clamp(ov.gemValue, 0, 0, 100));
       if (ov.xpValue !== undefined) cleanOv.xpValue = Math.round(clamp(ov.xpValue, 1, 0, 200));
-      if (Array.isArray(ov.drops)) {
-        cleanOv.drops = ov.drops
-          .filter((d) => d && CATALOG[d.itemId])
+      const sanitizeDropEntries = (entries: unknown): DropEntry[] => {
+        if (!Array.isArray(entries)) return [];
+        return entries
+          .filter((d) => d && typeof d === 'object' && CATALOG[Number(d.itemId)])
           .map((d) => ({
             itemId: Number(d.itemId),
             chance: clamp(d.chance, 0.5, 0, 1),
             minQty: Math.round(clamp(d.minQty, 1, 1, 50)),
-            maxQty: Math.round(clamp(d.maxQty, Math.max(1, d.minQty ?? 1), 1, 50)),
+            maxQty: Math.round(clamp(d.maxQty, Math.max(1, Number(d.minQty) || 1), 1, 50)),
           }))
           .map((d) => ({ ...d, maxQty: Math.max(d.minQty, d.maxQty) }));
+      };
+      if (Array.isArray(ov.drops)) cleanOv.drops = sanitizeDropEntries(ov.drops);
+      if (ov.treeHarvestYield && typeof ov.treeHarvestYield === 'object') {
+        const minBlocks = Math.round(clamp(ov.treeHarvestYield.minBlocks, 2, 1, 50));
+        const maxBlocks = Math.round(clamp(ov.treeHarvestYield.maxBlocks, minBlocks, minBlocks, 50));
+        cleanOv.treeHarvestYield = {
+          minBlocks,
+          maxBlocks: Math.max(minBlocks, maxBlocks),
+          seedChance: clamp(ov.treeHarvestYield.seedChance, 0.65, 0, 1),
+        };
+      }
+      if (Array.isArray(ov.bonusHarvestDrops)) {
+        cleanOv.bonusHarvestDrops = sanitizeDropEntries(ov.bonusHarvestDrops);
       }
       itemOverrides[id] = cleanOv;
     }
@@ -163,6 +179,8 @@ export function getEffectiveItemDef(
     gemValue: ov.gemValue ?? base.gemValue,
     xpValue: ov.xpValue ?? base.xpValue,
     drops: ov.drops ?? base.drops,
+    treeHarvestYield: ov.treeHarvestYield ?? base.treeHarvestYield,
+    bonusHarvestDrops: ov.bonusHarvestDrops ?? base.bonusHarvestDrops,
   };
 }
 
