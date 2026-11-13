@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ITEM_IDS, getItemDef } from '../src/game/catalog.ts';
-import {ORE_PROGRESSION,SCROLL_CATEGORIES,SYSTEM_WORLD_NAMES,GATE_KEYS,FISHING_RESERVOIRS,FISHING_RODS,canRodFishAtDepth,getFishingDepthLevel,getFishDepthWeight,isSystemWorld} from '../src/game/expansion.ts';
+import {ORE_PROGRESSION,SCROLL_CATEGORIES,SYSTEM_WORLD_NAMES,GATE_KEYS,FISHING_RESERVOIRS,FISHING_RODS,canRodFishAtDepth,getFishingDepthLevel,getFishDepthWeight,getRodUpgradeGemCost,getFishingPullStrength,getFishPullResistance,isSystemWorld} from '../src/game/expansion.ts';
+import { DEFAULT_GAME_CONFIG, sanitizeGameConfig } from '../src/game/config.ts';
 
 test('all twelve metallurgy tiers and mineable limits are represented',()=>{
  assert.equal(ORE_PROGRESSION.length,12);
@@ -51,4 +52,23 @@ test('existing fish species have overlapping depth bands and distinct preferred 
  assert.deepEqual(trout,{minDepthLevel:5,maxDepthLevel:6,preferredDepthLevel:6});
  assert.ok(getFishDepthWeight(minnow!,2)>0 && getFishDepthWeight(carp!,2)>0);
  assert.equal(getFishDepthWeight(trout!,4),0);
+});
+
+
+test('fishing upgrade defaults are configurable and sanitize safely',()=>{
+ const fishing=DEFAULT_GAME_CONFIG.fishing;
+ assert.deepEqual(fishing.upgradeGemCostsByRodType[0],[0,100,250]);
+ assert.deepEqual(fishing.pullingMultiplierByUpgrade,[1,1.35,1.75]);
+ assert.equal(getRodUpgradeGemCost(6,3,fishing),2750);
+ assert.equal(getFishingPullStrength(4,3,fishing),7);
+ assert.equal(getFishPullResistance(ITEM_IDS.FISH_GLACIER_TROUT,fishing),1.4);
+ const sanitized=sanitizeGameConfig({fishing:{
+  upgradeGemCostsByRodType:[[0,-500,999999999]],
+  pullingMultiplierByUpgrade:[99,1.5,8],
+  fishResistanceByItemId:{[ITEM_IDS.FISH_GLACIER_TROUT]:99},
+ }}).fishing;
+ assert.deepEqual(sanitized.upgradeGemCostsByRodType[0],[0,0,1000000]);
+ assert.deepEqual(sanitized.pullingMultiplierByUpgrade,[1,1.5,5]);
+ assert.equal(sanitized.fishResistanceByItemId[ITEM_IDS.FISH_GLACIER_TROUT],5);
+ assert.equal(sanitized.fishResistanceByItemId[ITEM_IDS.FISH_MINNOW],0.7);
 });
