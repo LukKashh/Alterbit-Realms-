@@ -4,7 +4,7 @@ import { ITEM_IDS } from '../game/catalog.ts';
 import type { InventorySlot } from '../game/network.ts';
 import { DEFAULT_DUNGEON_BALANCE, isDungeonPositionWalkable } from '../game/dungeon.ts';
 import type { DungeonAction, DungeonSnapshot } from '../game/dungeon.ts';
-import { BlockgroveEngine, renderDungeonRaycaster } from '../game/engine.ts';
+import { BlockgroveEngine, renderDungeonThirdPerson } from '../game/engine.ts';
 
 interface DungeonOverlayProps {
   engine?: BlockgroveEngine | null;
@@ -29,7 +29,7 @@ const KEY_ITEM_IDS = [
   ITEM_IDS.GATE_KEY_V,
 ];
 
-const TURN_SPEED_RAD_PER_SEC = 2.55;
+
 
 export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
   engine,
@@ -62,8 +62,6 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
   const keyboardRef = useRef(new Set<string>());
   const joystickRef = useRef({ x: 0, y: 0 });
   const stickPointerIdRef = useRef<number | null>(null);
-  const lookPointerIdRef = useRef<number | null>(null);
-  const lookLastXRef = useRef<number>(0);
   const predictedPositionRef = useRef<{ runId: string; roomIndex: number; x: number; y: number } | null>(null);
 
   const worldLocks = inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
@@ -113,7 +111,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
       else if (error > 0.015) { predicted.x += (localPlayer.x - predicted.x) * 0.22; predicted.y += (localPlayer.y - predicted.y) * 0.22; }
     }
   }, [snapshot?.runId, snapshot?.roomIndex, localPlayer?.x, localPlayer?.y, localPlayer?.facingX, localPlayer?.facingY]);
-  // Trigger brief red vignette flash when taking damage in 1st-person
+  // Trigger a brief damage flash when the player takes a hit
   useEffect(() => {
     if (!localPlayer) return;
     if (prevHpRef.current !== null && localPlayer.hp < prevHpRef.current) {
@@ -122,15 +120,15 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     prevHpRef.current = localPlayer.hp;
   }, [localPlayer?.hp]);
 
-  // First-person melee strike along current 3D camera yaw
+  // Melee strike follows the player's last authoritative facing direction
   const triggerStrike = useCallback(() => {
     slashTimerRef.current = 1;
-    const dirX = Math.cos(yawRef.current);
-    const dirY = Math.sin(yawRef.current);
+    const dirX = localPlayer?.facingX ?? Math.cos(yawRef.current);
+    const dirY = localPlayer?.facingY ?? Math.sin(yawRef.current);
     onAction('attack', dirX, dirY);
-  }, [onAction]);
+  }, [onAction, localPlayer?.facingX, localPlayer?.facingY]);
 
-  // 1st-Person 3D Raycaster Render Loop + Smooth Yaw Rotation
+  // Third-person dungeon render loop
   useEffect(() => {
     let rafId = 0;
     let lastMs = performance.now();
@@ -141,24 +139,19 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
 
       if (snapshot && (snapshot.phase === 'active' || snapshot.phase === 'cleared')) {
         const keys = keyboardRef.current;
-        let turnInput = joystickRef.current.x;
-        if (keys.has('arrowleft') || keys.has('a')) turnInput -= 1;
-        if (keys.has('arrowright') || keys.has('d')) turnInput += 1;
-        turnInput = Math.max(-1, Math.min(1, turnInput));
-        if (Math.abs(turnInput) > 0.12) {
-          yawRef.current += turnInput * TURN_SPEED_RAD_PER_SEC * dt;
-        }
-
-        let fwdInput = -joystickRef.current.y;
-        if (keys.has('arrowup') || keys.has('w')) fwdInput += 1;
-        if (keys.has('arrowdown') || keys.has('s')) fwdInput -= 1;
-        fwdInput = Math.max(-1, Math.min(1, fwdInput));
+        let moveX = joystickRef.current.x;
+        let moveY = -joystickRef.current.y;
+        if (keys.has('arrowleft') || keys.has('a')) moveX -= 1;
+        if (keys.has('arrowright') || keys.has('d')) moveX += 1;
+        if (keys.has('arrowup') || keys.has('w')) moveY -= 1;
+        if (keys.has('arrowdown') || keys.has('s')) moveY += 1;
+        const magnitude = Math.hypot(moveX, moveY);
+        if (magnitude > 1) { moveX /= magnitude; moveY /= magnitude; }
         const predicted = predictedPositionRef.current;
-        if (predicted && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex && Math.abs(fwdInput) > 0.14) {
-          const direction = fwdInput > 0 ? 1 : -1;
-          const distance = DEFAULT_DUNGEON_BALANCE.playerMoveStep / (110 / 1000) * dt * Math.min(1, Math.abs(fwdInput));
-          const dx = Math.cos(yawRef.current) * direction * distance;
-          const dy = Math.sin(yawRef.current) * direction * distance;
+        if (predicted && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex && magnitude > 0.14) {
+          const distance = DEFAULT_DUNGEON_BALANCE.playerMoveStep / (110 / 1000) * dt * Math.min(1, magnitude);
+          const dx = moveX * distance;
+          const dy = moveY * distance;
           const canOccupy = (x: number, y: number) => isDungeonPositionWalkable(snapshot.map, x, y) && (snapshot.phase === 'cleared' || snapshot.map[Math.floor(y)]?.[Math.floor(x)] !== '>') &&
             !snapshot.players.some((member) => member.id !== playerId && member.hp > 0 && Math.hypot(member.x - x, member.y - y) < 0.48) &&
             !snapshot.enemies.some((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - x, enemy.y - y) < 0.5);
@@ -169,7 +162,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             if (canOccupy(nextX, predicted.y)) predicted.x = nextX;
             if (canOccupy(predicted.x, nextY)) predicted.y = nextY;
           }
-          bobPhaseRef.current += dt * 11 * Math.abs(fwdInput);
+          bobPhaseRef.current += dt * 11 * magnitude;
         }
       } else {
         // Gentle scenic pan inside preview sanctuary when choosing a Gate Key
@@ -206,9 +199,9 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             ? { ...snapshot, players: snapshot.players.map((member) => member.id === playerId ? { ...member, x: predicted.x, y: predicted.y } : member) }
             : snapshot;
           if (engine) {
-            engine.renderDungeonFrame(ctx, w, h, renderSnapshot, playerId, yawRef.current, opts);
+            renderDungeonThirdPerson(ctx, w, h, renderSnapshot, playerId, opts);
           } else {
-            renderDungeonRaycaster(ctx, w, h, renderSnapshot, playerId, yawRef.current, opts);
+            renderDungeonThirdPerson(ctx, w, h, renderSnapshot, playerId, opts);
           }
         }
       }
@@ -220,7 +213,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [engine, snapshot, playerId, selectedPreviewTier]);
 
-  // 1st-Person Forward/Back Movement Network Sync + Keyboard Controls
+  // Third-person 8-direction movement sync + keyboard controls
   useEffect(() => {
     if (!snapshot || (snapshot.phase !== 'active' && snapshot.phase !== 'cleared')) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -242,17 +235,15 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
 
     const movementTimer = window.setInterval(() => {
       const keys = keyboardRef.current;
-      let fwd = -joystickRef.current.y;
-      if (keys.has('arrowup') || keys.has('w')) fwd += 1;
-      if (keys.has('arrowdown') || keys.has('s')) fwd -= 1;
-      fwd = Math.max(-1, Math.min(1, fwd));
-
-      if (Math.abs(fwd) > 0.14) {
-        const dir = fwd > 0 ? 1 : -1;
-        const dx = Math.cos(yawRef.current) * dir;
-        const dy = Math.sin(yawRef.current) * dir;
-        onAction('move', dx, dy);
-      }
+      let dx = joystickRef.current.x;
+      let dy = -joystickRef.current.y;
+      if (keys.has('arrowleft') || keys.has('a')) dx -= 1;
+      if (keys.has('arrowright') || keys.has('d')) dx += 1;
+      if (keys.has('arrowup') || keys.has('w')) dy -= 1;
+      if (keys.has('arrowdown') || keys.has('s')) dy += 1;
+      const magnitude = Math.hypot(dx, dy);
+      if (magnitude > 1) { dx /= magnitude; dy /= magnitude; }
+      if (magnitude > 0.14) onAction('move', dx, dy);
     }, 110);
 
     window.addEventListener('keydown', onKeyDown);
@@ -298,37 +289,11 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
       data-testid="dungeon-3d-modal"
       className="fixed inset-0 z-[70] bg-[#060c14] overflow-hidden select-none"
     >
-      {/* Full-Viewport First-Person Pseudo-3D Raycaster Canvas */}
+      {/* Third-person room view canvas */}
       <canvas
         ref={canvasRef}
-        data-testid="dungeon-raycaster-canvas"
-        className="absolute inset-0 w-full h-full pixelated touch-none cursor-crosshair"
-        onPointerDown={(event) => {
-          if (!snapshot || (snapshot.phase !== 'active' && snapshot.phase !== 'cleared')) return;
-          lookPointerIdRef.current = event.pointerId;
-          lookLastXRef.current = event.clientX;
-          try {
-            event.currentTarget.setPointerCapture(event.pointerId);
-          } catch {
-            // ignore
-          }
-        }}
-        onPointerMove={(event) => {
-          if (lookPointerIdRef.current !== event.pointerId) return;
-          const deltaX = event.clientX - lookLastXRef.current;
-          lookLastXRef.current = event.clientX;
-          yawRef.current += deltaX * 0.0065;
-        }}
-        onPointerUp={(event) => {
-          if (lookPointerIdRef.current === event.pointerId) {
-            lookPointerIdRef.current = null;
-          }
-        }}
-        onPointerCancel={(event) => {
-          if (lookPointerIdRef.current === event.pointerId) {
-            lookPointerIdRef.current = null;
-          }
-        }}
+        data-testid="dungeon-third-person-canvas"
+        className="absolute inset-0 w-full h-full pixelated touch-none"
       />
 
       {/* Top Bar: Matching Blockgrove Pixel-Art & Silkscreen Font Aesthetic */}
@@ -385,12 +350,12 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             onClick={onClose}
             className="px-3 py-1.5 rounded border border-[#46678a] bg-[#16283c] hover:bg-[#213c57] font-pixel text-[10px] text-[#fff8e8] cursor-pointer"
           >
-            {snapshot ? 'WORLD MENU' : 'BACK'}
+            {snapshot ? 'WORLD MENU' : 'DOWN'}
           </button>
         </div>
       </header>
 
-      {/* ACTIVE 1ST-PERSON 3D DUNGEON HUD */}
+      {/* ACTIVE THIRD-PERSON DUNGEON HUD */}
       {snapshot ? (
         <>
           {/* Top-left compact explorer & enemy HP bars */}
@@ -423,7 +388,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             </div>
           </div>
 
-          {/* Bottom Peripheral 1st-Person Navigation Joystick (Forward/Back + Turn L/R) & Strike */}
+          {/* Bottom Peripheral Third-Person Movement Joystick & Strike */}
           <div className="fixed inset-x-0 bottom-0 z-20 pointer-events-none p-3 sm:p-5 flex items-end justify-between gap-3">
             {(snapshot.phase === 'active' || snapshot.phase === 'cleared') && (
               <div className="pointer-events-auto flex flex-col items-center gap-1.5">
@@ -444,16 +409,16 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                   onPointerCancel={resetJoystick}
                 >
                   <span className="absolute top-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
-                    FWD
+                    UP
                   </span>
                   <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
                     BACK
                   </span>
                   <span className="absolute left-2 top-1/2 -translate-y-1/2 font-pixel text-[10px] text-[#ffe18c]">
-                    ↺
+                    ◀
                   </span>
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 font-pixel text-[10px] text-[#ffe18c]">
-                    ↻
+                    ▶
                   </span>
                   <div
                     className="absolute left-1/2 top-1/2 w-11 h-11 rounded-full border-2 border-[#f2b738] bg-[#214463] shadow-lg"
