@@ -1361,9 +1361,21 @@ export class BlockgroveEngine {
         ctx.fillRect(dx - 2, dy - 2, 28, 28);
         ctx.drawImage(getTileSprite(drop.itemId), dx, dy, 24, 24);
         if (drop.qty > 1) {
-          ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 11px monospace';
-          ctx.fillText(String(drop.qty), dx + 13, dy + 23);
+          const label = drop.qty > 999 ? '999+' : String(drop.qty);
+          ctx.font = 'bold 9px monospace';
+          const badgeW = Math.max(15, Math.ceil(ctx.measureText(label).width) + 8);
+          const badgeX = dx + 24 - badgeW + 5;
+          const badgeY = dy + 17;
+          ctx.fillStyle = '#101923';
+          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 12);
+          ctx.fillStyle = '#e8f2fa';
+          ctx.fillRect(badgeX, badgeY, badgeW, 10);
+          ctx.fillStyle = '#172536';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 5);
+          ctx.textAlign = 'start';
+          ctx.textBaseline = 'alphabetic';
         }
       }
     }
@@ -1541,10 +1553,39 @@ export class BlockgroveEngine {
     ctx.fillStyle = '#151b26'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2), sy + 48 - trunkH, trunkW + 2, trunkH);
     ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2) + 1, sy + 48 - trunkH + 1, trunkW, trunkH - 1);
     ctx.fillStyle = '#a36836'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2) + 1, sy + 48 - trunkH + 2, 2, trunkH - 3);
-    ctx.fillStyle = '#151b26'; ctx.fillRect(canopyX - 2, canopyY - 2, canopyW + 4, canopyH + 4);
-    ctx.fillStyle = shadeLeaf; ctx.fillRect(canopyX, canopyY, canopyW, canopyH);
-    ctx.fillStyle = leafColor; ctx.fillRect(canopyX + 2, canopyY + 1, canopyW - 4, Math.max(3, canopyH - 5));
-    ctx.fillStyle = highlight; ctx.fillRect(canopyX + 4, canopyY + 2, Math.max(3, Math.floor(canopyW * 0.32)), Math.max(2, Math.floor(canopyH * 0.28)));
+    // Seed IDs select a stable species silhouette while each species keeps its own palette.
+    const species = Math.abs(plant.seedId) % 3;
+    const layers = species === 0
+      ? [
+          { inset: 7, y: 0, h: Math.max(3, Math.floor(canopyH * 0.38)) },
+          { inset: 3, y: Math.floor(canopyH * 0.25), h: Math.max(4, Math.floor(canopyH * 0.48)) },
+          { inset: 0, y: Math.floor(canopyH * 0.58), h: Math.max(3, Math.floor(canopyH * 0.42)) },
+        ]
+      : species === 1
+        ? [
+            { inset: Math.floor(canopyW * 0.34), y: 0, h: Math.max(3, Math.floor(canopyH * 0.34)) },
+            { inset: Math.floor(canopyW * 0.2), y: Math.floor(canopyH * 0.25), h: Math.max(4, Math.floor(canopyH * 0.38)) },
+            { inset: Math.floor(canopyW * 0.05), y: Math.floor(canopyH * 0.55), h: Math.max(3, Math.floor(canopyH * 0.45)) },
+          ]
+        : [
+            { inset: Math.floor(canopyW * 0.24), y: 0, h: Math.max(3, Math.floor(canopyH * 0.3)) },
+            { inset: Math.floor(canopyW * 0.1), y: Math.floor(canopyH * 0.22), h: Math.max(4, Math.floor(canopyH * 0.36)) },
+            { inset: 0, y: Math.floor(canopyH * 0.5), h: Math.max(3, Math.floor(canopyH * 0.5)) },
+          ];
+    for (const layer of layers) {
+      const layerW = Math.max(4, canopyW - layer.inset * 2);
+      const layerX = canopyX + layer.inset;
+      const layerY = canopyY + layer.y;
+      ctx.fillStyle = '#151b26';
+      ctx.fillRect(layerX - 2, layerY - 1, layerW + 4, layer.h + 2);
+      ctx.fillStyle = shadeLeaf;
+      ctx.fillRect(layerX, layerY, layerW, layer.h);
+      ctx.fillStyle = leafColor;
+      ctx.fillRect(layerX + 1, layerY + 1, Math.max(2, layerW - 2), Math.max(2, layer.h - 2));
+    }
+    ctx.fillStyle = highlight;
+    ctx.fillRect(canopyX + Math.max(2, Math.floor(canopyW * 0.24)), canopyY + 2,
+      Math.max(3, Math.floor(canopyW * 0.25)), Math.max(2, Math.floor(canopyH * 0.2)));
     if (stage === 'mature') {
       const glint = 0.35 + 0.25 * Math.sin(nowMs * 0.004 + plant.x);
       ctx.fillStyle = `rgba(235,255,188,${glint})`;
