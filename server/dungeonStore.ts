@@ -8,7 +8,6 @@ import {
   createDungeonMap,
   DEFAULT_DUNGEON_BALANCE,
   DUNGEON_HEIGHT,
-  DUNGEON_PARTY_LIMIT,
   DUNGEON_WIDTH,
   getDungeonEnemyStats,
   getDungeonOreReward,
@@ -194,7 +193,7 @@ export class DungeonStore {
     }
     if (Object.keys(run.players).length >= DEFAULT_DUNGEON_BALANCE.cooperativePartyLimit) return { ok: false, message: 'This dungeon party is full.' };
     run.players[account.id] = {
-      id: account.id, name: account.name, x: 1.5, y: 5.5, hp: 100, maxHp: 100,
+      id: account.id, name: account.name, x: 1.5, y: 5.5, hp: DEFAULT_DUNGEON_BALANCE.playerMaxHealth, maxHp: DEFAULT_DUNGEON_BALANCE.playerMaxHealth,
       connected: true, facingX: 1, facingY: 0, lastSeenAt: now, lastActionAt: 0,
     };
     run.message = account.name + ' joined the expedition.';
