@@ -202,7 +202,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             previewTier: selectedPreviewTier,
           };
           const predicted = predictedPositionRef.current;
-          const renderSnapshot = predicted && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex
+          const renderSnapshot = predicted && snapshot && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex
             ? { ...snapshot, players: snapshot.players.map((member) => member.id === playerId ? { ...member, x: predicted.x, y: predicted.y } : member) }
             : snapshot;
           if (engine) {
