@@ -112,7 +112,14 @@ export function createDungeonMap(tier: number, roomIndex: number, seed: number):
       x === 0 || y === 0 || x === DUNGEON_WIDTH - 1 || y === DUNGEON_HEIGHT - 1 ? '#' : '.'
     )
   );
-  const pillars = [[5, 3], [5, 7], [11, 3], [11, 7], [8, 2], [8, 8]];
+  const tierLayouts: Array<Array<[number, number]>> = [
+    [[5, 3], [5, 7], [11, 3], [11, 7], [8, 2], [8, 8], [3, 2], [13, 8]],
+    [[4, 2], [4, 3], [4, 7], [4, 8], [8, 2], [8, 8], [12, 2], [12, 3], [12, 7], [12, 8]],
+    [[3, 3], [3, 7], [6, 2], [6, 8], [10, 2], [10, 8], [13, 3], [13, 7], [8, 1], [8, 9]],
+    [[5, 2], [5, 3], [5, 7], [5, 8], [11, 2], [11, 3], [11, 7], [11, 8], [8, 3], [8, 7]],
+    [[3, 2], [3, 3], [3, 7], [3, 8], [6, 2], [6, 8], [10, 2], [10, 8], [13, 2], [13, 3], [13, 7], [13, 8], [8, 1], [8, 9]],
+  ];
+  const pillars = tierLayouts[Math.max(0, Math.min(tierLayouts.length - 1, tier - 1))];
   for (const [x, y] of pillars) {
     if (random() < 0.72) grid[y][x] = '#';
   }
