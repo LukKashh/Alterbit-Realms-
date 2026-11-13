@@ -1822,6 +1822,7 @@ export interface DungeonRenderOptions {
   hitFlash?: number;
   fovRadians?: number;
   previewTier?: number;
+  isMoving?: boolean;
 }
 
 interface DungeonTierPalette {
@@ -2080,6 +2081,10 @@ function getDungeonSpriteCanvas(
 }
 
 
+let dungeonRoomLayerCanvas: HTMLCanvasElement | null = null;
+let dungeonRoomLayerCtx: CanvasRenderingContext2D | null = null;
+let dungeonRoomLayerKey = '';
+
 /** Third-person 3/4 top-down dungeon renderer. Keeps the complete room readable
  * while showing the local adventurer, party members, enemies and portal in-world. */
 export function renderDungeonThirdPerson(
@@ -2090,11 +2095,10 @@ export function renderDungeonThirdPerson(
   playerId: string,
   opts: DungeonRenderOptions = {}
 ) {
+  if (width <= 0 || height <= 0) return;
   const tier = Math.max(1, Math.min(5, snapshot?.tier ?? opts.previewTier ?? 1));
   const pal = DUNGEON_TIER_PALETTES[tier - 1];
-  const map = snapshot?.map ?? Array.from({ length: 11 }, (_, y) =>
-    Array.from({ length: 17 }, (_, x) => x === 0 || y === 0 || x === 16 || y === 10 ? '#' : '.').join('')
-  );
+  const map = snapshot?.map ?? createDungeonMap(tier, 0, tier * 911);
   const mapH = map.length;
   const mapW = map[0]?.length ?? 17;
   const tileW = Math.max(12, Math.min((width - 36) / mapW, (height - 112) / (mapH * 0.78 + 1.2)));
@@ -2106,78 +2110,160 @@ export function renderDungeonThirdPerson(
   const oy = Math.round((height - boardH) * 0.5 + 18);
   const now = opts.nowMs ?? performance.now();
   const phase = snapshot?.phase ?? 'active';
-  const player = snapshot?.players.find((p) => p.id === playerId);
-  const focusX = player?.x ?? 8.5;
-  const focusY = player?.y ?? 5.5;
 
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = pal.fogHex;
-  ctx.fillRect(0, 0, width, height);
-
-  // Subtle cavern ambience.
-  const glow = ctx.createRadialGradient(width * 0.5, height * 0.48, 8, width * 0.5, height * 0.48, Math.max(width, height) * 0.72);
-  glow.addColorStop(0, pal.floorBot);
-  glow.addColorStop(1, pal.fogHex);
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, width, height);
-
-  const wallTex = getDungeonTexture('wall', tier);
-  const pillarTex = getDungeonTexture('pillar', tier);
   const entryTex = getDungeonTexture('entry', tier);
   const exitTex = getDungeonTexture(phase === 'cleared' ? 'exit_open' : 'exit_locked', tier);
+  const pillarTex = getDungeonTexture('pillar', tier);
 
-  // Draw floor first, then raised masonry blocks with crisp pixel edges.
-  for (let y = 0; y < mapH; y++) {
-    for (let x = 0; x < mapW; x++) {
-      const sx = ox + x * tileW;
-      const sy = oy + y * tileH;
-      const tile = map[y]?.[x] ?? '#';
-      ctx.fillStyle = (x + y) % 2 === 0 ? pal.floorTop : pal.floorBot;
-      ctx.fillRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
-      ctx.strokeStyle = 'rgba(7, 13, 22, 0.48)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
+  // Cache static room floor & 3D masonry walls into an offscreen canvas so 60fps frames do 1 blit
+  const roomKey = `${tier}:${width}x${height}:${phase === 'cleared' ? 1 : 0}:${map.join('|')}`;
+  if (!dungeonRoomLayerCanvas) {
+    dungeonRoomLayerCanvas = document.createElement('canvas');
+    dungeonRoomLayerCtx = dungeonRoomLayerCanvas.getContext('2d');
+  }
+  if (dungeonRoomLayerKey !== roomKey && dungeonRoomLayerCtx) {
+    dungeonRoomLayerKey = roomKey;
+    dungeonRoomLayerCanvas.width = width;
+    dungeonRoomLayerCanvas.height = height;
+    const lctx = dungeonRoomLayerCtx;
+    lctx.imageSmoothingEnabled = false;
+    lctx.fillStyle = pal.fogHex;
+    lctx.fillRect(0, 0, width, height);
 
-      if (tile === '#') {
-        ctx.fillStyle = pal.wallDark;
-        ctx.fillRect(sx, sy + tileH - 1, tileW, wallH);
-        ctx.fillStyle = pal.wallBase;
-        ctx.fillRect(sx, sy - wallH, tileW, wallH);
-        ctx.fillStyle = pal.wallLight;
-        ctx.fillRect(sx, sy - wallH, tileW, 3);
-        ctx.fillStyle = pal.wallDark;
-        ctx.fillRect(sx + tileW - 3, sy - wallH, 3, wallH + tileH);
-        const tex = (x === 0 && y === 5) ? entryTex : (x === mapW - 1 && y === 5) ? exitTex : pillarTex;
-        ctx.drawImage(tex, Math.round(sx + 2), Math.round(sy - wallH + 2), Math.max(1, tileW - 4), Math.max(1, wallH - 2));
-      } else if (tile === '<' || tile === '>') {
-        const tex = tile === '<' ? entryTex : exitTex;
-        const pulse = 0.88 + Math.sin(now * 0.004) * 0.08;
-        ctx.globalAlpha = pulse;
-        ctx.drawImage(tex, Math.round(sx + tileW * 0.12), Math.round(sy - tileH * 0.52), tileW * 0.76, tileH * 1.25);
-        ctx.globalAlpha = 1;
+    const glow = lctx.createRadialGradient(
+      width * 0.5,
+      height * 0.48,
+      8,
+      width * 0.5,
+      height * 0.48,
+      Math.max(width, height) * 0.72
+    );
+    glow.addColorStop(0, pal.floorBot);
+    glow.addColorStop(1, pal.fogHex);
+    lctx.fillStyle = glow;
+    lctx.fillRect(0, 0, width, height);
+
+    for (let y = 0; y < mapH; y++) {
+      for (let x = 0; x < mapW; x++) {
+        const sx = ox + x * tileW;
+        const sy = oy + y * tileH;
+        const tile = map[y]?.[x] ?? '#';
+        lctx.fillStyle = (x + y) % 2 === 0 ? pal.floorTop : pal.floorBot;
+        lctx.fillRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
+        lctx.strokeStyle = 'rgba(7, 13, 22, 0.48)';
+        lctx.lineWidth = 1;
+        lctx.strokeRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
+
+        if (tile === '#') {
+          lctx.fillStyle = pal.wallDark;
+          lctx.fillRect(sx, sy + tileH - 1, tileW, wallH);
+          lctx.fillStyle = pal.wallBase;
+          lctx.fillRect(sx, sy - wallH, tileW, wallH);
+          lctx.fillStyle = pal.wallLight;
+          lctx.fillRect(sx, sy - wallH, tileW, 3);
+          lctx.fillStyle = pal.wallDark;
+          lctx.fillRect(sx + tileW - 3, sy - wallH, 3, wallH + tileH);
+          const tex =
+            x === 0 && y === 5 ? entryTex : x === mapW - 1 && y === 5 ? exitTex : pillarTex;
+          lctx.drawImage(
+            tex,
+            Math.round(sx + 2),
+            Math.round(sy - wallH + 2),
+            Math.max(1, tileW - 4),
+            Math.max(1, wallH - 2)
+          );
+        }
       }
     }
   }
 
-  type Actor = { x: number; y: number; kind: 'player' | 'enemy' | 'portal'; name?: string; hpRatio?: number; boss?: boolean; local?: boolean; facingX?: number; tex?: HTMLCanvasElement };
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(dungeonRoomLayerCanvas, 0, 0);
+
+  // Pulsing entry & exit gate floor arches
+  const pulse = 0.88 + Math.sin(now * 0.004) * 0.08;
+  ctx.globalAlpha = pulse;
+  ctx.drawImage(
+    entryTex,
+    Math.round(ox + 1 * tileW + tileW * 0.12),
+    Math.round(oy + 5 * tileH - tileH * 0.52),
+    tileW * 0.76,
+    tileH * 1.25
+  );
+  ctx.drawImage(
+    exitTex,
+    Math.round(ox + (mapW - 2) * tileW + tileW * 0.12),
+    Math.round(oy + 5 * tileH - tileH * 0.52),
+    tileW * 0.76,
+    tileH * 1.25
+  );
+  ctx.globalAlpha = 1;
+
+  type Actor = {
+    x: number;
+    y: number;
+    kind: 'player' | 'enemy' | 'portal';
+    name?: string;
+    hpRatio?: number;
+    boss?: boolean;
+    local?: boolean;
+    facingX?: number;
+    facingY?: number;
+    tex?: HTMLCanvasElement;
+  };
   const actors: Actor[] = [];
-  actors.push({ x: mapW - 1.5, y: 5.5, kind: 'portal', name: phase === 'cleared' ? 'EXIT' : 'LOCKED', tex: getDungeonSpriteCanvas(phase === 'cleared' ? 'portal_open' : 'portal_locked', tier) });
+  actors.push({
+    x: mapW - 1.5,
+    y: 5.5,
+    kind: 'portal',
+    name: phase === 'cleared' ? 'EXIT' : 'LOCKED',
+    tex: getDungeonSpriteCanvas(phase === 'cleared' ? 'portal_open' : 'portal_locked', tier),
+  });
   if (snapshot) {
     for (const enemy of snapshot.enemies) {
       if (enemy.hp <= 0) continue;
-      actors.push({ x: enemy.x, y: enemy.y, kind: 'enemy', name: enemy.name, hpRatio: enemy.hp / Math.max(1, enemy.maxHp), boss: enemy.boss, tex: getDungeonSpriteCanvas(enemy.boss ? 'boss' : enemy.kind === 'drone' ? 'drone' : 'dweller', tier) });
+      actors.push({
+        x: enemy.x,
+        y: enemy.y,
+        kind: 'enemy',
+        name: enemy.name,
+        hpRatio: enemy.hp / Math.max(1, enemy.maxHp),
+        boss: enemy.boss,
+        tex: getDungeonSpriteCanvas(
+          enemy.boss ? 'boss' : enemy.kind === 'drone' ? 'drone' : 'dweller',
+          tier
+        ),
+      });
     }
     for (const member of snapshot.players) {
       if (member.hp <= 0) continue;
-      actors.push({ x: member.x, y: member.y, kind: 'player', name: member.name, hpRatio: member.hp / Math.max(1, member.maxHp), local: member.id === playerId, facingX: member.facingX });
+      actors.push({
+        x: member.x,
+        y: member.y,
+        kind: 'player',
+        name: member.name,
+        hpRatio: member.hp / Math.max(1, member.maxHp),
+        local: member.id === playerId,
+        facingX: member.facingX,
+        facingY: member.facingY,
+      });
     }
   } else {
-    actors.push({ x: 8.5, y: 5.5, kind: 'enemy', name: getDungeonEnemyStats(tier, true).name, boss: true, hpRatio: 1, tex: getDungeonSpriteCanvas('boss', tier) });
+    actors.push({
+      x: 8.5,
+      y: 5.5,
+      kind: 'enemy',
+      name: getDungeonEnemyStats(tier, true).name,
+      boss: true,
+      hpRatio: 1,
+      tex: getDungeonSpriteCanvas('boss', tier),
+    });
   }
 
   actors.sort((a, b) => a.y - b.y || a.x - b.x);
+  const slashProgress = Math.max(0, Math.min(1, opts.slashTimer ?? 0));
+
   for (const actor of actors) {
     const cx = ox + actor.x * tileW;
     const cy = oy + actor.y * tileH;
@@ -2191,7 +2277,21 @@ export function renderDungeonThirdPerson(
     let drawW: number;
     let drawH: number;
     if (actor.kind === 'player') {
-      sprite = getPlayerSprite('idle0', (actor.facingX ?? 1) < 0 ? -1 : 1, actor.local ? '#3fa876' : '#6aa8d8');
+      let pose: PlayerPose = 'idle0';
+      if (actor.local && slashProgress > 0.05) {
+        const frame = Math.min(3, Math.max(0, Math.floor((1 - slashProgress) * 4)));
+        pose = (`mine${frame}` as PlayerPose) || 'mine2';
+      } else if (actor.local && opts.isMoving) {
+        const step = Math.floor(opts.bobPhase ?? 0) % 4;
+        pose = (`walk${step}` as PlayerPose) || 'walk0';
+      } else {
+        pose = (`idle${Math.floor(now / 320) % 4}` as PlayerPose) || 'idle0';
+      }
+      sprite = getPlayerSprite(
+        pose,
+        (actor.facingX ?? 1) < 0 ? -1 : 1,
+        actor.local ? '#3fa876' : '#6aa8d8'
+      );
       drawH = tileH * 2.35;
       drawW = drawH * (sprite.width / Math.max(1, sprite.height));
     } else {
@@ -2199,8 +2299,31 @@ export function renderDungeonThirdPerson(
       drawH = tileH * (actor.kind === 'portal' ? 1.55 : actor.boss ? 1.8 : 1.35);
       drawW = drawH * (sprite.width / Math.max(1, sprite.height));
     }
-    const bob = actor.kind === 'enemy' && !actor.boss ? Math.sin(now * 0.004 + actor.x) * 1.5 : 0;
-    ctx.drawImage(sprite, Math.round(cx - drawW * 0.5), Math.round(cy - drawH + tileH * 0.2 + bob), Math.round(drawW), Math.round(drawH));
+    const bob =
+      actor.kind === 'enemy' && !actor.boss ? Math.sin(now * 0.004 + actor.x) * 1.5 : 0;
+    ctx.drawImage(
+      sprite,
+      Math.round(cx - drawW * 0.5),
+      Math.round(cy - drawH + tileH * 0.2 + bob),
+      Math.round(drawW),
+      Math.round(drawH)
+    );
+
+    // Draw crisp directional melee slash wave around the local player when striking
+    if (actor.kind === 'player' && actor.local && slashProgress > 0.05) {
+      const aimAngle = Math.atan2((actor.facingY ?? 0) * 0.72, actor.facingX ?? 1);
+      ctx.strokeStyle = pal.accent;
+      ctx.lineWidth = Math.max(3, tileW * 0.14);
+      ctx.beginPath();
+      ctx.arc(
+        cx,
+        cy - tileH * 0.45,
+        tileW * (0.95 + (1 - slashProgress) * 0.35),
+        aimAngle - 0.85,
+        aimAngle + 0.85
+      );
+      ctx.stroke();
+    }
 
     if (actor.name && actor.kind !== 'portal') {
       const labelY = cy - drawH - 7;
@@ -2221,7 +2344,6 @@ export function renderDungeonThirdPerson(
     }
   }
 
-  // Room heading and compact minimap-like player marker help retain spatial awareness.
   ctx.fillStyle = 'rgba(7, 13, 22, 0.78)';
   ctx.fillRect(12, 12, 160, 32);
   ctx.strokeStyle = pal.trim;
@@ -2230,10 +2352,14 @@ export function renderDungeonThirdPerson(
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = pal.accent;
-  ctx.fillText('ROOM ' + (snapshot ? snapshot.roomIndex + 1 : 1) + ' / ' + (snapshot?.roomCount ?? 5), 22, 28);
+  ctx.fillText(
+    'ROOM ' + (snapshot ? snapshot.roomIndex + 1 : 1) + ' / ' + (snapshot?.roomCount ?? 5),
+    22,
+    28
+  );
 
   if ((opts.hitFlash ?? 0) > 0.01) {
-    ctx.fillStyle = 'rgba(230, 72, 46, ' + ((opts.hitFlash ?? 0) * 0.22) + ')';
+    ctx.fillStyle = 'rgba(230, 72, 46, ' + (opts.hitFlash ?? 0) * 0.22 + ')';
     ctx.fillRect(0, 0, width, height);
   }
   ctx.restore();

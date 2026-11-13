@@ -29,7 +29,9 @@ const KEY_ITEM_IDS = [
   ITEM_IDS.GATE_KEY_V,
 ];
 
-
+const MOVE_SYNC_INTERVAL_MS = 70;
+const MOVE_SPEED_TILES_PER_SEC =
+  DEFAULT_DUNGEON_BALANCE.playerMoveStep / 0.085;
 
 export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
   engine,
@@ -49,20 +51,43 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
   const [partyMode, setPartyMode] = useState<'solo' | 'cooperative'>('solo');
   const [selectedPreviewTier, setSelectedPreviewTier] = useState<number>(1);
   const [deckCollapsed, setDeckCollapsed] = useState<boolean>(false);
-  const [joystickKnob, setJoystickKnob] = useState({ x: 0, y: 0 });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const yawRef = useRef<number>(0);
+  const knobElRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep latest props in refs so 60fps loop & input listeners never tear down on network updates
+  const snapshotRef = useRef<DungeonSnapshot | null>(snapshot);
+  snapshotRef.current = snapshot;
+  const onActionRef = useRef(onAction);
+  onActionRef.current = onAction;
+  const playerIdRef = useRef(playerId);
+  playerIdRef.current = playerId;
+  const previewTierRef = useRef(selectedPreviewTier);
+  previewTierRef.current = selectedPreviewTier;
+
   const bobPhaseRef = useRef<number>(0);
   const slashTimerRef = useRef<number>(0);
   const hitFlashRef = useRef<number>(0);
   const prevHpRef = useRef<number | null>(null);
   const prevRoomKeyRef = useRef<string>('');
+  const lastMoveSentAtRef = useRef<number>(0);
+  const lastStrikeAtRef = useRef<number>(0);
 
   const keyboardRef = useRef(new Set<string>());
   const joystickRef = useRef({ x: 0, y: 0 });
   const stickPointerIdRef = useRef<number | null>(null);
-  const predictedPositionRef = useRef<{ runId: string; roomIndex: number; x: number; y: number } | null>(null);
+
+  const predictedPositionRef = useRef<{
+    runId: string;
+    roomIndex: number;
+    x: number;
+    y: number;
+    facingX: number;
+    facingY: number;
+    lastInputAt: number;
+  } | null>(null);
+
+  const smoothedActorsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
 
   const worldLocks = inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
   const localPlayer = snapshot?.players.find((member) => member.id === playerId);
@@ -71,47 +96,80 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     [snapshot]
   );
 
+  const effectiveLocalX = predictedPositionRef.current?.x ?? localPlayer?.x ?? 1.5;
+  const effectiveLocalY = predictedPositionRef.current?.y ?? localPlayer?.y ?? 5.5;
+
   const atExit = Boolean(
     localPlayer &&
-      Math.hypot(localPlayer.x - ((snapshot?.width ?? 17) - 1.5), localPlayer.y - 5.5) <= 0.95
+      (Math.hypot(localPlayer.x - ((snapshot?.width ?? 17) - 1.5), localPlayer.y - 5.5) <= 0.95 ||
+        Math.hypot(effectiveLocalX - ((snapshot?.width ?? 17) - 1.5), effectiveLocalY - 5.5) <= 0.95)
   );
+  const atExitRef = useRef(atExit);
+  atExitRef.current = atExit;
 
   const nearestEnemyDistance = useMemo(() => {
     if (!localPlayer || livingEnemies.length === 0) return Infinity;
     return Math.min(
-      ...livingEnemies.map((e) => Math.hypot(e.x - localPlayer.x, e.y - localPlayer.y))
+      ...livingEnemies.map((e) => Math.hypot(e.x - effectiveLocalX, e.y - effectiveLocalY))
     );
-  }, [localPlayer, livingEnemies]);
+  }, [localPlayer, livingEnemies, effectiveLocalX, effectiveLocalY]);
 
   const keyCounts = useMemo(
     () => KEY_ITEM_IDS.map((id) => inventory.find((slot) => slot.itemId === id)?.qty ?? 0),
     [inventory]
   );
 
-  // Keep the local camera position responsive while reconciling against server snapshots.
+  const setKnobOffset = useCallback((pxX: number, pxY: number) => {
+    if (knobElRef.current) {
+      knobElRef.current.style.transform = `translate(calc(-50% + ${Math.round(pxX)}px), calc(-50% + ${Math.round(pxY)}px))`;
+    }
+  }, []);
+
+  // Reconcile local prediction when run/room changes or server snapshots arrive
   useEffect(() => {
     if (!snapshot || !localPlayer) {
       predictedPositionRef.current = null;
+      smoothedActorsRef.current.clear();
       prevRoomKeyRef.current = '';
       prevHpRef.current = null;
       return;
     }
-    const roomKey = snapshot.runId + ':' + snapshot.roomIndex;
+    const roomKey = `${snapshot.runId}:${snapshot.roomIndex}`;
     const predicted = predictedPositionRef.current;
-    if (prevRoomKeyRef.current !== roomKey || !predicted || predicted.runId !== snapshot.runId || predicted.roomIndex !== snapshot.roomIndex) {
+    if (
+      prevRoomKeyRef.current !== roomKey ||
+      !predicted ||
+      predicted.runId !== snapshot.runId ||
+      predicted.roomIndex !== snapshot.roomIndex
+    ) {
       prevRoomKeyRef.current = roomKey;
-      predictedPositionRef.current = { runId: snapshot.runId, roomIndex: snapshot.roomIndex, x: localPlayer.x, y: localPlayer.y };
-      keyboardRef.current.clear();
-      joystickRef.current = { x: 0, y: 0 };
-      setJoystickKnob({ x: 0, y: 0 });
-      yawRef.current = Math.abs(localPlayer.facingX) > 0.01 || Math.abs(localPlayer.facingY) > 0.01 ? Math.atan2(localPlayer.facingY, localPlayer.facingX) : 0;
+      predictedPositionRef.current = {
+        runId: snapshot.runId,
+        roomIndex: snapshot.roomIndex,
+        x: localPlayer.x,
+        y: localPlayer.y,
+        facingX: localPlayer.facingX || 1,
+        facingY: localPlayer.facingY || 0,
+        lastInputAt: 0,
+      };
+      smoothedActorsRef.current.clear();
     } else {
       const error = Math.hypot(localPlayer.x - predicted.x, localPlayer.y - predicted.y);
-      if (error > 0.65) { predicted.x = localPlayer.x; predicted.y = localPlayer.y; }
-      else if (error > 0.015) { predicted.x += (localPlayer.x - predicted.x) * 0.22; predicted.y += (localPlayer.y - predicted.y) * 0.22; }
+      const activelyMoving = performance.now() - predicted.lastInputAt < 220;
+      if (error > 1.15) {
+        predicted.x = localPlayer.x;
+        predicted.y = localPlayer.y;
+      } else if (!activelyMoving && error > 0.015) {
+        predicted.x += (localPlayer.x - predicted.x) * 0.3;
+        predicted.y += (localPlayer.y - predicted.y) * 0.3;
+      } else if (activelyMoving && error > 0.45) {
+        predicted.x += (localPlayer.x - predicted.x) * 0.12;
+        predicted.y += (localPlayer.y - predicted.y) * 0.12;
+      }
     }
   }, [snapshot?.runId, snapshot?.roomIndex, localPlayer?.x, localPlayer?.y, localPlayer?.facingX, localPlayer?.facingY]);
-  // Trigger a brief damage flash when the player takes a hit
+
+  // Brief damage vignette flash when player HP drops
   useEffect(() => {
     if (!localPlayer) return;
     if (prevHpRef.current !== null && localPlayer.hp < prevHpRef.current) {
@@ -120,53 +178,161 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     prevHpRef.current = localPlayer.hp;
   }, [localPlayer?.hp]);
 
-  // Melee strike follows the player's last authoritative facing direction
+  // Responsive melee strike: auto-faces closest enemy within melee reach and fires immediately
   const triggerStrike = useCallback(() => {
+    const now = performance.now();
+    if (now - lastStrikeAtRef.current < 120) return;
+    lastStrikeAtRef.current = now;
     slashTimerRef.current = 1;
-    const dirX = localPlayer?.facingX ?? Math.cos(yawRef.current);
-    const dirY = localPlayer?.facingY ?? Math.sin(yawRef.current);
-    onAction('attack', dirX, dirY);
-  }, [onAction, localPlayer?.facingX, localPlayer?.facingY]);
 
-  // Third-person dungeon render loop
+    const snap = snapshotRef.current;
+    const pred = predictedPositionRef.current;
+    const px = pred?.x ?? snap?.players.find((p) => p.id === playerIdRef.current)?.x ?? 1.5;
+    const py = pred?.y ?? snap?.players.find((p) => p.id === playerIdRef.current)?.y ?? 5.5;
+    let dirX = pred?.facingX ?? 1;
+    let dirY = pred?.facingY ?? 0;
+
+    if (snap && snap.phase === 'active') {
+      let bestDist = Infinity;
+      let bestEnemy: (typeof snap.enemies)[number] | null = null;
+      for (const enemy of snap.enemies) {
+        if (enemy.hp <= 0) continue;
+        const d = Math.hypot(enemy.x - px, enemy.y - py);
+        if (d < bestDist) {
+          bestDist = d;
+          bestEnemy = enemy;
+        }
+      }
+      if (bestEnemy && bestDist <= 1.8 && bestDist > 0.01) {
+        dirX = (bestEnemy.x - px) / bestDist;
+        dirY = (bestEnemy.y - py) / bestDist;
+        if (pred) {
+          pred.facingX = dirX;
+          pred.facingY = dirY;
+        }
+      }
+    }
+    onActionRef.current('attack', dirX, dirY);
+  }, []);
+
+  // Stable Keyboard Input Listeners (never torn down during gameplay)
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
+      const snap = snapshotRef.current;
+      if (!snap || (snap.phase !== 'active' && snap.phase !== 'cleared')) return;
+
+      const key = event.key.toLowerCase();
+      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(key)) {
+        event.preventDefault();
+        keyboardRef.current.add(key);
+      } else if (!event.repeat && (key === ' ' || key === 'j')) {
+        event.preventDefault();
+        triggerStrike();
+      } else if (!event.repeat && key === 'e' && snap.phase === 'cleared' && atExitRef.current) {
+        event.preventDefault();
+        onActionRef.current(snap.roomIndex + 1 >= snap.roomCount ? 'extract' : 'next_room');
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      keyboardRef.current.delete(event.key.toLowerCase());
+    };
+    const onBlur = () => {
+      keyboardRef.current.clear();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+      keyboardRef.current.clear();
+    };
+  }, [triggerStrike]);
+
+  // Persistent 60fps Render + Smooth Movement Prediction + Network Sync Loop
   useEffect(() => {
     let rafId = 0;
     let lastMs = performance.now();
 
     const frame = (nowMs: number) => {
-      const dt = Math.min(0.05, Math.max(0, (nowMs - lastMs) / 1000));
+      const dt = Math.min(0.05, Math.max(0.001, (nowMs - lastMs) / 1000));
       lastMs = nowMs;
 
-      if (snapshot && (snapshot.phase === 'active' || snapshot.phase === 'cleared')) {
+      const snap = snapshotRef.current;
+      const pid = playerIdRef.current;
+      let isMoving = false;
+
+      if (snap && (snap.phase === 'active' || snap.phase === 'cleared')) {
         const keys = keyboardRef.current;
+        // Screen/Grid coordinates: -Y is UP, +Y is DOWN
         let moveX = joystickRef.current.x;
-        let moveY = -joystickRef.current.y;
+        let moveY = joystickRef.current.y;
         if (keys.has('arrowleft') || keys.has('a')) moveX -= 1;
         if (keys.has('arrowright') || keys.has('d')) moveX += 1;
         if (keys.has('arrowup') || keys.has('w')) moveY -= 1;
         if (keys.has('arrowdown') || keys.has('s')) moveY += 1;
+
         const magnitude = Math.hypot(moveX, moveY);
-        if (magnitude > 1) { moveX /= magnitude; moveY /= magnitude; }
-        const predicted = predictedPositionRef.current;
-        if (predicted && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex && magnitude > 0.14) {
-          const distance = DEFAULT_DUNGEON_BALANCE.playerMoveStep / (110 / 1000) * dt * Math.min(1, magnitude);
-          const dx = moveX * distance;
-          const dy = moveY * distance;
-          const canOccupy = (x: number, y: number) => isDungeonPositionWalkable(snapshot.map, x, y) && (snapshot.phase === 'cleared' || snapshot.map[Math.floor(y)]?.[Math.floor(x)] !== '>') &&
-            !snapshot.players.some((member) => member.id !== playerId && member.hp > 0 && Math.hypot(member.x - x, member.y - y) < 0.48) &&
-            !snapshot.enemies.some((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - x, enemy.y - y) < 0.5);
-          const nextX = Math.max(1.22, Math.min(snapshot.width - 1.22, predicted.x + dx));
-          const nextY = Math.max(1.22, Math.min(snapshot.height - 1.22, predicted.y + dy));
-          if (canOccupy(nextX, nextY)) { predicted.x = nextX; predicted.y = nextY; }
-          else {
-            if (canOccupy(nextX, predicted.y)) predicted.x = nextX;
-            if (canOccupy(predicted.x, nextY)) predicted.y = nextY;
+        if (magnitude > 0.12) {
+          isMoving = true;
+          const normX = moveX / magnitude;
+          const normY = moveY / magnitude;
+          const speedScale = Math.min(1, magnitude);
+          const predicted = predictedPositionRef.current;
+
+          if (predicted && predicted.runId === snap.runId && predicted.roomIndex === snap.roomIndex) {
+            predicted.facingX = normX;
+            predicted.facingY = normY;
+            predicted.lastInputAt = nowMs;
+
+            const stepDist = MOVE_SPEED_TILES_PER_SEC * speedScale * dt;
+            const dx = normX * stepDist;
+            const dy = normY * stepDist;
+            const canOccupy = (x: number, y: number) =>
+              isDungeonPositionWalkable(snap.map, x, y) &&
+              (snap.phase === 'cleared' || snap.map[Math.floor(y)]?.[Math.floor(x)] !== '>') &&
+              !snap.players.some(
+                (member) =>
+                  member.id !== pid && member.hp > 0 && Math.hypot(member.x - x, member.y - y) < 0.46
+              ) &&
+              !snap.enemies.some(
+                (enemy) => enemy.hp > 0 && Math.hypot(enemy.x - x, enemy.y - y) < 0.46
+              );
+
+            const nextX = Math.max(1.22, Math.min(snap.width - 1.22, predicted.x + dx));
+            const nextY = Math.max(1.22, Math.min(snap.height - 1.22, predicted.y + dy));
+            if (canOccupy(nextX, nextY)) {
+              predicted.x = nextX;
+              predicted.y = nextY;
+            } else {
+              if (canOccupy(nextX, predicted.y)) predicted.x = nextX;
+              if (canOccupy(predicted.x, nextY)) predicted.y = nextY;
+            }
           }
-          bobPhaseRef.current += dt * 11 * magnitude;
+
+          bobPhaseRef.current += dt * 11 * speedScale;
+
+          if (nowMs - lastMoveSentAtRef.current >= MOVE_SYNC_INTERVAL_MS) {
+            lastMoveSentAtRef.current = nowMs;
+            onActionRef.current('move', normX, normY);
+          }
+        } else {
+          // Smoothly settle toward authoritative server position when input is released
+          const predicted = predictedPositionRef.current;
+          const srvPlayer = snap.players.find((p) => p.id === pid);
+          if (predicted && srvPlayer && predicted.runId === snap.runId && predicted.roomIndex === snap.roomIndex) {
+            const err = Math.hypot(srvPlayer.x - predicted.x, srvPlayer.y - predicted.y);
+            if (err > 0.01) {
+              const blend = Math.min(1, dt * 10);
+              predicted.x += (srvPlayer.x - predicted.x) * blend;
+              predicted.y += (srvPlayer.y - predicted.y) * blend;
+            }
+          }
         }
-      } else {
-        // Gentle scenic pan inside preview sanctuary when choosing a Gate Key
-        yawRef.current = Math.sin(nowMs * 0.00035) * 0.35;
       }
 
       if (slashTimerRef.current > 0) {
@@ -187,22 +353,64 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
         }
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          const opts = {
+          let renderSnapshot = snap;
+          if (snap) {
+            const lerpRate = Math.min(1, dt * 11);
+            const smoothed = smoothedActorsRef.current;
+            const predicted = predictedPositionRef.current;
+
+            const interpEnemies = snap.enemies.map((enemy) => {
+              const prev = smoothed.get(enemy.id);
+              if (!prev || Math.hypot(enemy.x - prev.x, enemy.y - prev.y) > 2.5) {
+                smoothed.set(enemy.id, { x: enemy.x, y: enemy.y });
+                return enemy;
+              }
+              prev.x += (enemy.x - prev.x) * lerpRate;
+              prev.y += (enemy.y - prev.y) * lerpRate;
+              return { ...enemy, x: prev.x, y: prev.y };
+            });
+
+            const interpPlayers = snap.players.map((member) => {
+              if (
+                member.id === pid &&
+                predicted &&
+                predicted.runId === snap.runId &&
+                predicted.roomIndex === snap.roomIndex
+              ) {
+                return {
+                  ...member,
+                  x: predicted.x,
+                  y: predicted.y,
+                  facingX: predicted.facingX,
+                  facingY: predicted.facingY,
+                };
+              }
+              const key = `p_${member.id}`;
+              const prev = smoothed.get(key);
+              if (!prev || Math.hypot(member.x - prev.x, member.y - prev.y) > 2.5) {
+                smoothed.set(key, { x: member.x, y: member.y });
+                return member;
+              }
+              prev.x += (member.x - prev.x) * lerpRate;
+              prev.y += (member.y - prev.y) * lerpRate;
+              return { ...member, x: prev.x, y: prev.y };
+            });
+
+            renderSnapshot = {
+              ...snap,
+              enemies: interpEnemies,
+              players: interpPlayers,
+            };
+          }
+
+          renderDungeonThirdPerson(ctx, w, h, renderSnapshot, pid, {
             nowMs,
             bobPhase: bobPhaseRef.current,
             slashTimer: slashTimerRef.current,
             hitFlash: hitFlashRef.current,
-            previewTier: selectedPreviewTier,
-          };
-          const predicted = predictedPositionRef.current;
-          const renderSnapshot = predicted && snapshot && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex
-            ? { ...snapshot, players: snapshot.players.map((member) => member.id === playerId ? { ...member, x: predicted.x, y: predicted.y } : member) }
-            : snapshot;
-          if (engine) {
-            renderDungeonThirdPerson(ctx, w, h, renderSnapshot, playerId, opts);
-          } else {
-            renderDungeonThirdPerson(ctx, w, h, renderSnapshot, playerId, opts);
-          }
+            previewTier: previewTierRef.current,
+            isMoving,
+          });
         }
       }
 
@@ -211,56 +419,11 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
 
     rafId = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(rafId);
-  }, [engine, snapshot, playerId, selectedPreviewTier]);
-
-  // Third-person 8-direction movement sync + keyboard controls
-  useEffect(() => {
-    if (!snapshot || (snapshot.phase !== 'active' && snapshot.phase !== 'cleared')) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
-      const key = event.key.toLowerCase();
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(key)) {
-        event.preventDefault();
-        keyboardRef.current.add(key);
-      } else if (!event.repeat && (key === ' ' || key === 'j')) {
-        event.preventDefault();
-        triggerStrike();
-      } else if (!event.repeat && key === 'e' && snapshot.phase === 'cleared' && atExit) {
-        event.preventDefault();
-        onAction(snapshot.roomIndex + 1 >= snapshot.roomCount ? 'extract' : 'next_room');
-      }
-    };
-    const onKeyUp = (event: KeyboardEvent) => keyboardRef.current.delete(event.key.toLowerCase());
-
-    const movementTimer = window.setInterval(() => {
-      const keys = keyboardRef.current;
-      let dx = joystickRef.current.x;
-      let dy = -joystickRef.current.y;
-      if (keys.has('arrowleft') || keys.has('a')) dx -= 1;
-      if (keys.has('arrowright') || keys.has('d')) dx += 1;
-      if (keys.has('arrowup') || keys.has('w')) dy -= 1;
-      if (keys.has('arrowdown') || keys.has('s')) dy += 1;
-      const magnitude = Math.hypot(dx, dy);
-      if (magnitude > 1) { dx /= magnitude; dy /= magnitude; }
-      if (magnitude > 0.14) onAction('move', dx, dy);
-    }, 110);
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    return () => {
-      window.clearInterval(movementTimer);
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-      keyboardRef.current.clear();
-      joystickRef.current = { x: 0, y: 0 };
-      setJoystickKnob({ x: 0, y: 0 });
-    };
-  }, [snapshot?.runId, snapshot?.phase, snapshot?.roomIndex, snapshot?.roomCount, atExit, onAction, triggerStrike]);
+  }, [engine]);
 
   const updateJoystick = (event: React.PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const maxRadius = rect.width * 0.34;
+    const maxRadius = Math.max(18, rect.width * 0.34);
     let x = (event.clientX - (rect.left + rect.width / 2)) / maxRadius;
     let y = (event.clientY - (rect.top + rect.height / 2)) / maxRadius;
     const magnitude = Math.hypot(x, y);
@@ -269,13 +432,13 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
       y /= magnitude;
     }
     joystickRef.current = { x, y };
-    setJoystickKnob({ x: x * maxRadius, y: y * maxRadius });
+    setKnobOffset(x * maxRadius, y * maxRadius);
   };
 
   const resetJoystick = () => {
     stickPointerIdRef.current = null;
     joystickRef.current = { x: 0, y: 0 };
-    setJoystickKnob({ x: 0, y: 0 });
+    setKnobOffset(0, 0);
   };
 
   const leave = () => {
@@ -388,16 +551,20 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             </div>
           </div>
 
-          {/* Bottom Peripheral Third-Person Movement Joystick & Strike */}
+          {/* Bottom Peripheral Standardized Third-Person Movement Joystick & Strike */}
           <div className="fixed inset-x-0 bottom-0 z-20 pointer-events-none p-3 sm:p-5 flex items-end justify-between gap-3">
             {(snapshot.phase === 'active' || snapshot.phase === 'cleared') && (
               <div className="pointer-events-auto flex flex-col items-center gap-1.5">
                 <div
                   data-testid="dungeon-joystick"
-                  className="relative w-28 h-28 sm:w-32 sm:h-32 shrink-0 rounded-full border-2 border-[#78c8f5] bg-[#0f1d2c]/90 shadow-2xl touch-none select-none cursor-grab active:cursor-grabbing"
+                  className="relative w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded-full border-2 border-[#78c8f5] bg-[#0f1d2c]/90 shadow-[0_6px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-grab active:cursor-grabbing"
                   onPointerDown={(event) => {
                     stickPointerIdRef.current = event.pointerId;
-                    event.currentTarget.setPointerCapture(event.pointerId);
+                    try {
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    } catch {
+                      // ignore synthetic pointer capture failure
+                    }
                     updateJoystick(event);
                   }}
                   onPointerMove={(event) => {
@@ -408,27 +575,28 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                   }}
                   onPointerCancel={resetJoystick}
                 >
-                  <span className="absolute top-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
-                    UP
+                  <span className="pointer-events-none absolute top-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
+                    ▲
                   </span>
-                  <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
-                    DOWN
+                  <span className="pointer-events-none absolute bottom-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
+                    ▼
                   </span>
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 font-pixel text-[10px] text-[#ffe18c]">
+                  <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 font-pixel text-[8px] text-[#ffe18c]">
                     ◀
                   </span>
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 font-pixel text-[10px] text-[#ffe18c]">
+                  <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-pixel text-[8px] text-[#ffe18c]">
                     ▶
                   </span>
                   <div
-                    className="absolute left-1/2 top-1/2 w-11 h-11 rounded-full border-2 border-[#f2b738] bg-[#214463] shadow-lg"
+                    ref={knobElRef}
+                    className="pointer-events-none absolute left-1/2 top-1/2 w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-[#f2b738] bg-[#214463] shadow-lg"
                     style={{
-                      transform: `translate(calc(-50% + ${joystickKnob.x}px), calc(-50% + ${joystickKnob.y}px))`,
+                      transform: 'translate(-50%, -50%)',
                     }}
                   />
                 </div>
-                <span className="font-pixel text-[8px] text-[#b9d2e8] bg-[#09131d]/90 px-2 py-1 rounded border border-[#314e6b]">
-                  W/S MOVE · A/D TURN · DRAG LOOK
+                <span className="font-pixel text-[8px] text-[#b9d2e8] bg-[#09131d]/90 px-2 py-0.5 rounded border border-[#314e6b]">
+                  WASD / ARROWS
                 </span>
               </div>
             )}
@@ -444,7 +612,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                       snapshot.roomIndex + 1 >= snapshot.roomCount ? 'extract' : 'next_room'
                     )
                   }
-                  className="px-5 py-3 rounded-md border-2 border-[#ffe18c] bg-[#b8862d] hover:bg-[#d19a38] disabled:opacity-60 text-[#171005] font-pixel text-[10px] sm:text-xs shadow-xl cursor-pointer"
+                  className="px-5 py-3 rounded-md border-2 border-[#ffe18c] bg-[#b8862d] hover:bg-[#d19a38] disabled:opacity-60 text-[#171005] font-pixel text-[10px] sm:text-xs shadow-xl cursor-pointer touch-none select-none"
                 >
                   {!atExit
                     ? 'WALK TO GREEN EXIT PORTAL →'
@@ -480,28 +648,32 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
               )}
             </div>
 
-            {/* Right: Melee Strike & Leave */}
+            {/* Right: Standardized Melee Strike & Leave */}
             {(snapshot.phase === 'active' || snapshot.phase === 'cleared') && (
-              <div className="pointer-events-auto flex flex-col items-end gap-2">
+              <div className="pointer-events-auto flex flex-col items-end gap-1.5">
                 <button
                   type="button"
                   data-testid="dungeon-attack-button"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    triggerStrike();
+                  }}
                   onClick={triggerStrike}
-                  className={`w-28 h-28 sm:w-32 sm:h-32 rounded-full border-4 font-pixel text-xs shadow-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform ${
+                  className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full border-4 font-pixel text-[11px] sm:text-xs shadow-[0_6px_0_rgba(6,12,20,0.85)] flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95 transition-transform touch-none select-none ${
                     nearestEnemyDistance <= 1.5
                       ? 'border-[#ffe18c] bg-[#a83827] hover:bg-[#bf422f] text-[#fff8e8]'
                       : 'border-[#d97757] bg-[#692c20] hover:bg-[#7d3527] text-[#ffe4db]'
                   }`}
                 >
                   <span>STRIKE</span>
-                  <span className="font-mono-num text-[10px] font-bold text-[#ffd7c9]">
+                  <span className="font-mono-num text-[9px] font-bold text-[#ffd7c9]">
                     {nearestEnemyDistance <= 1.5 ? 'IN RANGE!' : 'SPACE / J'}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={leave}
-                  className="px-3 py-1.5 rounded border border-[#7a343d] bg-[#3b1b1f]/95 hover:bg-[#52242a] font-pixel text-[9px] text-[#ffd4d4] cursor-pointer"
+                  className="px-2.5 py-1 rounded border border-[#7a343d] bg-[#3b1b1f]/95 hover:bg-[#52242a] font-pixel text-[8px] text-[#ffd4d4] cursor-pointer"
                 >
                   {snapshot.partyMode === 'solo' ? 'ABANDON' : 'LEAVE PARTY'}
                 </button>

@@ -386,11 +386,11 @@ export class DungeonStore {
           const vy = enemy.y - player.y;
           const distance = Math.hypot(vx, vy);
           if (distance > DEFAULT_DUNGEON_BALANCE.playerAttackRange) return false;
-          if (distance < 0.001) return true;
+          if (distance <= 0.95) return true;
           const facingDot = (vx / distance) * player.facingX + (vy / distance) * player.facingY;
-          return facingDot >= 0.35;
+          return facingDot >= 0.2;
         })
-        .sort((a, b) => Number(b.boss) - Number(a.boss))[0];
+        .sort((a, b) => Number(b.boss) - Number(a.boss) || Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y))[0];
       if (!target) return { ok: false, message: 'Move next to an enemy to attack.' };
       const damage = DEFAULT_DUNGEON_BALANCE.playerBaseDamage + Math.floor(account.level * DEFAULT_DUNGEON_BALANCE.playerDamagePerLevel);
       target.hp = Math.max(0, target.hp - damage);

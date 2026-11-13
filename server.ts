@@ -412,7 +412,12 @@ async function startServer() {
       if (msg.type === 'dungeon_action') {
         const result = dungeonStore.act(account, msg.action, msg.dx ?? 0, msg.dy ?? 0, Date.now(), msg.attackId);
         if (!result.ok) {
-          sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Dungeon action failed.' });
+          if (
+            msg.action !== 'move' &&
+            result.message !== 'Wait for your action cooldown.'
+          ) {
+            sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Dungeon action failed.' });
+          }
           return;
         }
         if (result.rewards) applyDungeonRewards(result.rewards);

@@ -175,39 +175,39 @@ interface PunchJoystickProps {
 
 const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange }) => {
   const baseRef = useRef<HTMLDivElement | null>(null);
+  const knobElRef = useRef<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
-  const [knob, setKnob] = useState<{ active: boolean; x: number; y: number }>({
-    active: false,
-    x: 0,
-    y: 0,
-  });
+  const [active, setActive] = useState(false);
+
+  const setKnobTransform = (x: number, y: number) => {
+    if (knobElRef.current) {
+      knobElRef.current.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+    }
+  };
 
   const updateFromClient = (clientX: number, clientY: number) => {
     const el = baseRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const maxOffset = Math.max(24, Math.round(rect.width * 0.27));
+    const maxOffset = Math.max(14, Math.round(rect.width * 0.25));
     const cx = rect.left + rect.width * 0.5;
     const cy = rect.top + rect.height * 0.5;
     const rawX = clientX - cx;
     const rawY = clientY - cy;
     const dist = Math.hypot(rawX, rawY);
-    const radius = Math.max(22, rect.width * 0.36);
+    const radius = Math.max(18, rect.width * 0.36);
     const clampedDist = Math.min(dist, radius);
     const scale = dist > 0.001 ? clampedDist / dist : 0;
     const normX = (rawX * scale) / radius;
     const normY = (rawY * scale) / radius;
-    setKnob({
-      active: true,
-      x: normX * maxOffset,
-      y: normY * maxOffset,
-    });
+    setKnobTransform(normX * maxOffset, normY * maxOffset);
     onChange(true, normX, normY);
   };
 
   const resetStick = () => {
     pointerIdRef.current = null;
-    setKnob({ active: false, x: 0, y: 0 });
+    setActive(false);
+    setKnobTransform(0, 0);
     onChange(false, 0, 0);
   };
 
@@ -217,10 +217,11 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
       data-testid="punch-joystick"
       role="slider"
       aria-label="Punch Joystick"
-      aria-valuetext={knob.active ? 'Active' : 'Idle'}
+      aria-valuetext={active ? 'Active' : 'Idle'}
       onPointerDown={(e) => {
         if (pointerIdRef.current !== null) return;
         pointerIdRef.current = e.pointerId;
+        setActive(true);
         try {
           e.currentTarget.setPointerCapture(e.pointerId);
         } catch {
@@ -240,37 +241,38 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
         if (pointerIdRef.current !== e.pointerId) return;
         resetStick();
       }}
-      className={`relative w-[100px] h-[100px] sm:w-[128px] sm:h-[128px] rounded-full border-2 flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing shadow-[0_6px_0_rgba(6,12,20,0.85)] transition-colors ${
-        knob.active
+      className={`relative w-16 h-16 sm:w-[76px] sm:h-[76px] rounded-2xl border-2 flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing shadow-[0_5px_0_rgba(6,12,20,0.85)] transition-colors ${
+        active
           ? 'bg-[#2a1512]/90 border-[#ffb89e]'
           : 'bg-[#0f1d2c]/88 border-[#e0896b]/85'
       }`}
     >
       {/* Directional ring crosshair guides */}
-      <div className="pointer-events-none absolute inset-3 rounded-full border border-dashed border-[#e0896b]/35" />
-      <span className="pointer-events-none absolute top-1.5 text-[9px] font-bold text-[#ffb89e]/70">▲</span>
-      <span className="pointer-events-none absolute bottom-1.5 text-[9px] font-bold text-[#ffb89e]/70">▼</span>
-      <span className="pointer-events-none absolute left-2 text-[9px] font-bold text-[#ffb89e]/70">◀</span>
-      <span className="pointer-events-none absolute right-2 text-[9px] font-bold text-[#ffb89e]/70">▶</span>
+      <div className="pointer-events-none absolute inset-2 rounded-xl border border-dashed border-[#e0896b]/35" />
+      <span className="pointer-events-none absolute top-1 text-[8px] font-bold text-[#ffb89e]/70 leading-none">▲</span>
+      <span className="pointer-events-none absolute bottom-1 text-[8px] font-bold text-[#ffb89e]/70 leading-none">▼</span>
+      <span className="pointer-events-none absolute left-1.5 text-[8px] font-bold text-[#ffb89e]/70 leading-none">◀</span>
+      <span className="pointer-events-none absolute right-1.5 text-[8px] font-bold text-[#ffb89e]/70 leading-none">▶</span>
 
       {/* Movable thumb knob */}
       <div
-        className={`pointer-events-none w-[46px] h-[46px] sm:w-[58px] sm:h-[58px] rounded-full border-2 flex flex-col items-center justify-center shadow-[0_3px_0_rgba(0,0,0,0.7)] ${
-          knob.active
+        ref={knobElRef}
+        className={`pointer-events-none w-9 h-9 sm:w-11 sm:h-11 rounded-xl border-2 flex flex-col items-center justify-center shadow-[0_3px_0_rgba(0,0,0,0.7)] will-change-transform ${
+          active
             ? 'bg-[#c95738] border-[#ffe3d6]'
             : 'bg-[#94422c] border-[#e89d82]'
         }`}
         style={{
-          transform: `translate(${knob.x}px, ${knob.y}px)`,
+          transform: 'translate3d(0px, 0px, 0)',
         }}
       >
         <img
           src={getItemIconUrl(selectedItemId)}
           alt="Action"
-          className="w-5 h-5 sm:w-6 sm:h-6 pixelated"
+          className="w-4 h-4 sm:w-5 sm:h-5 pixelated"
           referrerPolicy="no-referrer"
         />
-        <span className="text-[8px] font-bold uppercase tracking-wider text-[#fff2ec] leading-none mt-0.5">
+        <span className="text-[7px] sm:text-[8px] font-bold uppercase tracking-wider text-[#fff2ec] leading-none mt-0.5">
           {selectedItemId === ITEM_IDS.FIST
             ? 'Punch'
             : selectedItemId === ITEM_IDS.WRENCH
@@ -1002,10 +1004,10 @@ export const GameHud: React.FC<GameHudProps> = ({
         )}
       </div>
 
-      {/* Bottom Perimeter: Portrait-friendly 2-row stack (<700px) & Single Row (>=700px Landscape) */}
-      <div className="flex flex-col min-[700px]:flex-row min-[700px]:items-end min-[700px]:justify-between gap-2">
+      {/* Bottom Perimeter: Portrait-friendly 2-row stack (<620px) & Single Row (>=620px Landscape) */}
+      <div className="flex flex-col min-[620px]:flex-row min-[620px]:items-end min-[620px]:justify-between gap-2">
         {/* Center Hotbar (top row in portrait, middle in landscape) */}
-        <div className="pointer-events-auto order-1 min-[700px]:order-2 flex flex-col items-center gap-1 self-center">
+        <div className="pointer-events-auto order-1 min-[620px]:order-2 flex flex-col items-center gap-1 self-center">
           {selectedDef && (
             <div className="text-[11px] font-semibold text-[#f4f1ea] bg-[#0f1d2c]/85 border border-[#314a66] px-2.5 py-0.5 rounded whitespace-nowrap">
               {selectedDef.name} · {selectedDef.category}
@@ -1032,7 +1034,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     setAssignSlot(idx);
                     if (itemId !== ITEM_IDS.AIR) onSelectItem(itemId);
                   }}
-                  className={`relative w-9 h-9 min-[400px]:w-10 min-[400px]:h-10 sm:w-11 sm:h-11 rounded border-2 flex items-center justify-center cursor-pointer transition-transform ${
+                  className={`relative w-11 h-11 sm:w-12 sm:h-12 rounded-lg border-2 flex items-center justify-center touch-none select-none cursor-pointer transition-transform ${
                     active
                       ? 'bg-[#254463] border-[#f2b738] -translate-y-0.5'
                       : 'bg-[#09131d] border-[#263c52] hover:border-[#4b7299]'
@@ -1045,7 +1047,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <img
                       src={getItemIconUrl(itemId)}
                       alt={def?.name ?? 'Item'}
-                      className="w-5 h-5 min-[400px]:w-6 min-[400px]:h-6 sm:w-7 sm:h-7 pixelated"
+                      className="w-6 h-6 sm:w-7 sm:h-7 pixelated"
                       referrerPolicy="no-referrer"
                     />
                   )}
@@ -1067,7 +1069,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </button>
               );
             })}
-            <div className="h-7 sm:h-8 w-px bg-[#2a4057] mx-0.5 shrink-0" />
+            <div className="h-8 sm:h-9 w-px bg-[#2a4057] mx-0.5 shrink-0" />
             <button
               type="button"
               tabIndex={-1}
@@ -1078,7 +1080,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 e.currentTarget.blur();
                 setActivePanel((cur) => (cur === 'backpack' || cur === 'splice' ? 'none' : 'backpack'));
               }}
-              className={`relative w-9 h-9 min-[400px]:w-10 min-[400px]:h-10 sm:w-11 sm:h-11 rounded border-2 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-transform ${
+              className={`relative w-11 h-11 sm:w-12 sm:h-12 rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 touch-none select-none cursor-pointer transition-transform ${
                 activePanel === 'backpack' || activePanel === 'splice'
                   ? 'bg-[#254463] border-[#f2b738] text-[#ffe18c] -translate-y-0.5'
                   : 'bg-[#09131d] border-[#314a66] hover:border-[#78c8f5] text-[#c7d9eb]'
@@ -1091,30 +1093,42 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
 
         {/* Touch Controls Row in Portrait; split left/right of Hotbar in Landscape */}
-        <div className="order-2 w-full flex items-end justify-between gap-2 min-[700px]:contents">
+        <div className="order-2 w-full flex items-end justify-between gap-2 min-[620px]:contents">
           {/* Left Touch Movement Controls */}
-          <div className="min-[700px]:order-1 flex-1 flex items-end justify-start">
+          <div className="min-[620px]:order-1 flex-1 flex items-end justify-start">
             {touchEnabled && (
               <div className="pointer-events-auto flex items-center gap-2 sm:gap-2.5" data-testid="touch-left-controls">
                 <button
                   type="button"
                   aria-label="Move Left"
-                  onPointerDown={() => onTouchMove('left', true)}
+                  onPointerDown={(e) => {
+                    try {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    } catch {
+                      // Ignore synthetic pointer capture failure
+                    }
+                    onTouchMove('left', true);
+                  }}
                   onPointerUp={() => onTouchMove('left', false)}
-                  onPointerLeave={() => onTouchMove('left', false)}
                   onPointerCancel={() => onTouchMove('left', false)}
-                  className="w-[62px] h-[62px] sm:w-[82px] sm:h-[82px] rounded-xl bg-[#0f1d2c]/88 active:bg-[#2a4a6b] border-2 border-[#46678a] text-white font-bold text-xl sm:text-2xl flex items-center justify-center shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
+                  className="w-16 h-16 sm:w-[76px] sm:h-[76px] rounded-2xl bg-[#0f1d2c]/88 active:bg-[#2a4a6b] border-2 border-[#46678a] text-white font-bold text-xl sm:text-2xl flex items-center justify-center shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
                 >
                   ◀
                 </button>
                 <button
                   type="button"
                   aria-label="Move Right"
-                  onPointerDown={() => onTouchMove('right', true)}
+                  onPointerDown={(e) => {
+                    try {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    } catch {
+                      // Ignore synthetic pointer capture failure
+                    }
+                    onTouchMove('right', true);
+                  }}
                   onPointerUp={() => onTouchMove('right', false)}
-                  onPointerLeave={() => onTouchMove('right', false)}
                   onPointerCancel={() => onTouchMove('right', false)}
-                  className="w-[62px] h-[62px] sm:w-[82px] sm:h-[82px] rounded-xl bg-[#0f1d2c]/88 active:bg-[#2a4a6b] border-2 border-[#46678a] text-white font-bold text-xl sm:text-2xl flex items-center justify-center shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
+                  className="w-16 h-16 sm:w-[76px] sm:h-[76px] rounded-2xl bg-[#0f1d2c]/88 active:bg-[#2a4a6b] border-2 border-[#46678a] text-white font-bold text-xl sm:text-2xl flex items-center justify-center shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
                 >
                   ▶
                 </button>
@@ -1123,9 +1137,9 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
 
           {/* Right Touch Punch Joystick & Jump Button */}
-          <div className="min-[700px]:order-3 flex-1 flex items-end justify-end">
+          <div className="min-[620px]:order-3 flex-1 flex items-end justify-end">
             {touchEnabled && (
-              <div className="pointer-events-auto flex items-end gap-2 sm:gap-3" data-testid="touch-right-controls">
+              <div className="pointer-events-auto flex items-end gap-2 sm:gap-2.5" data-testid="touch-right-controls">
                 <PunchJoystick
                   selectedItemId={selectedItemId}
                   onChange={onTouchPunchStick}
@@ -1133,11 +1147,17 @@ export const GameHud: React.FC<GameHudProps> = ({
                 <button
                   type="button"
                   aria-label="Jump"
-                  onPointerDown={() => onTouchJump(true)}
+                  onPointerDown={(e) => {
+                    try {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    } catch {
+                      // Ignore synthetic pointer capture failure
+                    }
+                    onTouchJump(true);
+                  }}
                   onPointerUp={() => onTouchJump(false)}
-                  onPointerLeave={() => onTouchJump(false)}
                   onPointerCancel={() => onTouchJump(false)}
-                  className="w-[62px] h-[62px] sm:w-[82px] sm:h-[82px] rounded-xl bg-[#2d703b]/90 active:bg-[#3f9450] border-2 border-[#7ae086] text-white font-bold flex flex-col items-center justify-center gap-0.5 shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
+                  className="w-16 h-16 sm:w-[76px] sm:h-[76px] rounded-2xl bg-[#2d703b]/90 active:bg-[#3f9450] border-2 border-[#7ae086] text-white font-bold flex flex-col items-center justify-center gap-0.5 shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
                 >
                   <span className="text-xl sm:text-2xl leading-none">▲</span>
                   <span className="text-[9px] sm:text-[10px] uppercase tracking-wider leading-none">Jump</span>
@@ -1219,7 +1239,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Backpack Drawer (anchored cleanly above bottom Toolbar) */}
       {activePanel === 'backpack' && (
-        <div className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[148px] min-[700px]:bottom-24 z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[54vh] min-[700px]:max-h-[64vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
+        <div className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[144px] min-[620px]:bottom-24 z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[54vh] min-[620px]:max-h-[64vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
               <button
@@ -1365,7 +1385,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Seed Splicer Drawer (anchored cleanly above bottom Toolbar) */}
       {activePanel === 'splice' && (
-        <div className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[148px] min-[700px]:bottom-24 z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[56vh] min-[700px]:max-h-[68vh] overflow-y-auto bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
+        <div className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[144px] min-[620px]:bottom-24 z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[56vh] min-[620px]:max-h-[68vh] overflow-y-auto bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
               <button
