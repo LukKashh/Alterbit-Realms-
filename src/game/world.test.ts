@@ -25,6 +25,18 @@ import {
 } from './rules.ts';
 import { createPlayerBody, stepPlayerPhysics } from './physics.ts';
 
+test('legacy prototype block and seed types are no longer active catalog entries', () => {
+  for (const retiredId of [
+    11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    301, 302, 303, 304, 305, 306, 307, 308, 309,
+  ]) {
+    assert.equal(getItemDef(retiredId), undefined);
+  }
+  assert.ok(getItemDef(ITEM_IDS.GP_DIRT));
+  assert.ok(getItemDef(ITEM_IDS.GP_GRASS));
+  assert.ok(getItemDef(ITEM_IDS.GP_SEED_GRASS));
+});
+
 test('world dimensions are strictly 100x60 with 6 bottom rows of bedrock', () => {
   assert.equal(WORLD_WIDTH, 100);
   assert.equal(WORLD_HEIGHT, 60);
@@ -82,11 +94,11 @@ test('foreground placement rejects self-overlap and respects background separati
   const player = { id: 'p1', x: body.x, y: body.y };
 
   // Cannot place solid block on player's own tile
-  const selfRes = canPlaceTile(world, player, ITEM_IDS.TIMBER_PLANK, world.spawnX, world.spawnY);
+  const selfRes = canPlaceTile(world, player, ITEM_IDS.GP_WOOD_BLOCK, world.spawnX, world.spawnY);
   assert.equal(selfRes.ok, false);
 
   // Can place timber plank adjacent to ground beside spawn
-  const placeFg = canPlaceTile(world, player, ITEM_IDS.TIMBER_PLANK, world.spawnX + 2, world.spawnY);
+  const placeFg = canPlaceTile(world, player, ITEM_IDS.GP_WOOD_BLOCK, world.spawnX + 2, world.spawnY);
   assert.equal(placeFg.ok, true);
   assert.equal(placeFg.layer, 'fg');
 
@@ -123,7 +135,7 @@ test('seed growth stages, splicing recipes, world name validation, and XP leveli
   const plant = {
     x: 52,
     y: 23,
-    seedId: ITEM_IDS.SEED_TURF,
+    seedId: ITEM_IDS.GP_SEED_GRASS,
     plantedAt: 1000,
     maturityAt: 11000,
     ownerId: 'p1',
@@ -204,7 +216,7 @@ test('world lock, area lock permissions, restricted entry, and vending machine p
     ownerName: 'OwnerOne',
     x: vx,
     y: vy,
-    stockItemId: ITEM_IDS.RICH_SOIL,
+    stockItemId: ITEM_IDS.GP_DIRT,
     stockQty: 5,
     priceItemId: ITEM_IDS.SMALL_LOCK,
     priceQty: 1,
@@ -259,11 +271,11 @@ test('player hitbox is strictly 0.8 wide x 1.75 tall and requires 2-tile doorway
     world.fg[tileIndex(x, 28)] = ITEM_IDS.AIR;
     world.fg[tileIndex(x, 29)] = ITEM_IDS.AIR;
     world.fg[tileIndex(x, 30)] = ITEM_IDS.AIR;
-    world.fg[tileIndex(x, 31)] = ITEM_IDS.RICH_SOIL;
+    world.fg[tileIndex(x, 31)] = ITEM_IDS.GP_DIRT;
   }
 
   // Place a ceiling block at x=48, y=29 leaving only a 1-tile gap at y=30
-  world.fg[tileIndex(48, 29)] = ITEM_IDS.GRANITE_STONE;
+  world.fg[tileIndex(48, 29)] = ITEM_IDS.GP_ROCK;
 
   const body = createPlayerBody(46, 30);
   body.grounded = true;
@@ -275,7 +287,7 @@ test('player hitbox is strictly 0.8 wide x 1.75 tall and requires 2-tile doorway
 
   // Open row 29 leaving 2-tile vertical clearance (y=29..30)
   world.fg[tileIndex(48, 29)] = ITEM_IDS.AIR;
-  world.fg[tileIndex(48, 28)] = ITEM_IDS.GRANITE_STONE;
+  world.fg[tileIndex(48, 28)] = ITEM_IDS.GP_ROCK;
   for (let i = 0; i < 40; i++) {
     stepPlayerPhysics(body, world, moveRight, 1 / 60);
   }
@@ -290,7 +302,7 @@ test('interaction reach is strictly 3 blocks by default and honors GameConfig dr
   const cfg = sanitizeGameConfig({
     mechanics: { viewScale: 1.5, reachTiles: 3.05, globalGemDropChance: 1 } as never,
     itemOverrides: {
-      [ITEM_IDS.RICH_SOIL]: {
+      [ITEM_IDS.GP_DIRT]: {
         hardness: 1,
         gemValue: 5,
         xpValue: 10,
@@ -298,7 +310,7 @@ test('interaction reach is strictly 3 blocks by default and honors GameConfig dr
       },
     },
   });
-  const def = getEffectiveItemDef(ITEM_IDS.RICH_SOIL, cfg);
+  const def = getEffectiveItemDef(ITEM_IDS.GP_DIRT, cfg);
   assert.equal(def?.hardness, 1);
   assert.equal(def?.drops?.[0].itemId, ITEM_IDS.CRYSTAL_VEIN);
   assert.equal(def?.drops?.[0].minQty, 2);
@@ -352,9 +364,9 @@ test('seeded admin login, empty Fist+Wrench starter inventory, and centered tile
         mechanics: { ...prevCfg.mechanics, punchCooldownMs: 60 },
         itemOverrides: {
           ...prevCfg.itemOverrides,
-          [ITEM_IDS.MEADOW_TURF]: {
+          [ITEM_IDS.GP_GRASS]: {
             hardness: 1,
-            drops: [{ itemId: ITEM_IDS.MEADOW_TURF, chance: 1, minQty: 1, maxQty: 1 }],
+            drops: [{ itemId: ITEM_IDS.GP_GRASS, chance: 1, minQty: 1, maxQty: 1 }],
           },
         },
       });
