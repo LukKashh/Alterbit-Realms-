@@ -7,6 +7,7 @@ import {
   GEM_STORE_LISTINGS,
   getItemDef,
   ITEM_IDS,
+  type ItemDefinition,
   type BuffType,
   type PlayerStatKey,
 } from '../src/game/catalog.ts';
@@ -73,6 +74,26 @@ import type {
   WorldSummary,
 } from '../src/game/network.ts';
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
+
+
+/** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
+function rollTreeHarvestRewards(seedId: number, seedDef: ItemDefinition | undefined, luckPct = 0) {
+  if (!seedDef?.producesTileId) return [] as Array<{ itemId: number; qty: number }>;
+  const yieldCfg = seedDef.treeHarvestYield ?? { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 };
+  const minBlocks = Math.max(1, Math.round(yieldCfg.minBlocks));
+  const maxBlocks = Math.max(minBlocks, Math.round(yieldCfg.maxBlocks));
+  const rewards = [{ itemId: seedDef.producesTileId, qty: minBlocks + Math.floor(Math.random() * (maxBlocks - minBlocks + 1)) }];
+  const luckMultiplier = 1 + Math.max(0, luckPct) / 100;
+  if (Math.random() < Math.min(1, yieldCfg.seedChance * luckMultiplier)) rewards.push({ itemId: seedId, qty: 1 });
+  for (const bonus of seedDef.bonusHarvestDrops ?? []) {
+    if (Math.random() <= Math.min(1, bonus.chance * luckMultiplier)) {
+      const minQty = Math.max(1, Math.round(bonus.minQty));
+      const maxQty = Math.max(minQty, Math.round(bonus.maxQty));
+      rewards.push({ itemId: bonus.itemId, qty: minQty + Math.floor(Math.random() * (maxQty - minQty + 1)) });
+    }
+  }
+  return rewards;
+}
 
 export interface PlayerAccount {
   id: string;
@@ -1236,33 +1257,8 @@ export class AuthoritativeWorldStore {
       delete live.state.plants[key];
       if (growth.stage === 'mature' && targetDef?.producesTileId) {
         account.stats.treesHarvested = (account.stats.treesHarvested ?? 0) + 1;
-        const yieldCfg = targetDef.treeHarvestYield ?? {
-          minBlocks: 2,
-          maxBlocks: 3,
-          seedChance: 0.65,
-        };
-        const minB = Math.max(1, yieldCfg.minBlocks);
-        const maxB = Math.max(minB, yieldCfg.maxBlocks);
-        const yieldQty = minB + Math.floor(Math.random() * (maxB - minB + 1));
-        spawnedDrops.push(
-          this.createDrop(live, targetDef.producesTileId, yieldQty, tx, ty, spawnedDrops.length)
-        );
-        if (Math.random() < Math.min(1, yieldCfg.seedChance * (1 + luckPct / 100))) {
-          spawnedDrops.push(
-            this.createDrop(live, plant.seedId, 1, tx, ty, spawnedDrops.length)
-          );
-        }
-        if (Array.isArray(targetDef.bonusHarvestDrops)) {
-          for (const bd of targetDef.bonusHarvestDrops) {
-            if (Math.random() <= Math.min(1, bd.chance * (1 + luckPct / 100))) {
-              const bQty = bd.minQty + Math.floor(Math.random() * (bd.maxQty - bd.minQty + 1));
-              if (bQty > 0) {
-                spawnedDrops.push(
-                  this.createDrop(live, bd.itemId, bQty, tx, ty, spawnedDrops.length)
-                );
-              }
-            }
-          }
+        for (const reward of rollTreeHarvestRewards(plant.seedId, targetDef, luckPct)) {
+          spawnedDrops.push(this.createDrop(live, reward.itemId, reward.qty, tx, ty, spawnedDrops.length));
         }
         if (!isMineShaft) {
           gemsGained = 2 + Math.floor(Math.random() * 4);
@@ -1404,22 +1400,40 @@ export class AuthoritativeWorldStore {
     ty: number,
     slotIndex = 0
   ): WorldDrop {
-    const offsets = [
-      [0, 0],
-      [-5, -2],
-      [5, -2],
-      [0, 4],
-    ];
-    const [ox, oy] = offsets[slotIndex % offsets.length];
-    const drop: WorldDrop = {
-      id: `drp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      itemId,
-      qty,
-      x: tx * TILE_SIZE + TILE_SIZE * 0.5 + ox,
-      y: ty * TILE_SIZE + TILE_SIZE * 0.5 + oy,
-    };
-    live.drops.set(drop.id, drop);
-    return drop;
+    const maxStack = Math.max(1, getItemDef(itemId)?.stackLimit ?? 99);
+    const originX = tx * TILE_SIZE + TILE_SIZE * 0.5;
+    const originY = ty * TILE_SIZE + TILE_SIZE * 0.5;
+    let remaining = Math.max(1, Math.floor(qty));
+    let firstDrop: WorldDrop | undefined;
+    // Merge nearby identical item drops before creating another visible stack.
+    for (const existing of live.drops.values()) {
+      if (existing.isGem || existing.itemId !== itemId || Math.hypot(existing.x - originX, existing.y - originY) > TILE_SIZE * 1.35) continue;
+      const room = Math.max(0, maxStack - existing.qty);
+      if (room <= 0) continue;
+      const added = Math.min(room, remaining);
+      existing.qty += added;
+      remaining -= added;
+      firstDrop ??= existing;
+      if (remaining <= 0) return firstDrop;
+    }
+    const offsets = [[0, 0], [-5, -2], [5, -2], [0, 4]];
+    let created = 0;
+    while (remaining > 0) {
+      const [ox, oy] = offsets[(slotIndex + created) % offsets.length];
+      const stackQty = Math.min(maxStack, remaining);
+      const drop: WorldDrop = {
+        id: `drp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        itemId,
+        qty: stackQty,
+        x: originX + ox + created * 2,
+        y: originY + oy,
+      };
+      live.drops.set(drop.id, drop);
+      firstDrop ??= drop;
+      remaining -= stackQty;
+      created += 1;
+    }
+    return firstDrop!;
   }
 
   handlePlaceTile(
@@ -2533,13 +2547,8 @@ export class AuthoritativeWorldStore {
           const seedDef = getEffectiveItemDef(plant.seedId, this.gameConfig);
           delete live.state.plants[key];
           harvestedTiles.push({ tx: plant.x, ty: plant.y });
-          if (seedDef?.producesTileId) {
-            const yieldCfg = seedDef.treeHarvestYield ?? { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 };
-            const qty = yieldCfg.minBlocks + Math.floor(Math.random() * (Math.max(0, yieldCfg.maxBlocks - yieldCfg.minBlocks) + 1));
-            storeInBfg(bfg, seedDef.producesTileId, qty);
-            if (Math.random() < yieldCfg.seedChance) {
-              storeInBfg(bfg, plant.seedId, 1);
-            }
+          for (const reward of rollTreeHarvestRewards(plant.seedId, seedDef)) {
+            storeInBfg(bfg, reward.itemId, reward.qty);
           }
           bfg.storedGems += 2 + Math.floor(Math.random() * 3);
           touched = true;

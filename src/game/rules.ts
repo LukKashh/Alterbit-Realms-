@@ -314,15 +314,21 @@ export function canPlaceTile(
   return { ok: true, layer: 'fg' };
 }
 
-export type GrowthStage = 'planted' | 'sprout' | 'mature';
+export type GrowthStage = 'planted' | 'sprout' | 'young' | 'developing' | 'mature';
 
-export function getPlantGrowthState(plant: PlantedTree, nowMs: number): { stage: GrowthStage; progress: number } {
+export function getPlantGrowthState(
+  plant: PlantedTree,
+  nowMs: number
+): { stage: GrowthStage; progress: number; remainingMs: number } {
   const total = Math.max(1000, plant.maturityAt - plant.plantedAt || PLANT_DEFAULT_GROWTH_MS);
   const elapsed = Math.max(0, nowMs - plant.plantedAt);
   const progress = Math.min(1, elapsed / total);
-  if (progress >= 1) return { stage: 'mature', progress: 1 };
-  if (progress >= 0.4) return { stage: 'sprout', progress };
-  return { stage: 'planted', progress };
+  const remainingMs = Math.max(0, total - elapsed);
+  if (progress >= 1) return { stage: 'mature', progress: 1, remainingMs: 0 };
+  if (progress >= 0.6) return { stage: 'developing', progress, remainingMs };
+  if (progress >= 0.3) return { stage: 'young', progress, remainingMs };
+  if (progress >= 0.1) return { stage: 'sprout', progress, remainingMs };
+  return { stage: 'planted', progress, remainingMs };
 }
 
 export function resolveSplice(seedA: number, seedB: number): number | null {
