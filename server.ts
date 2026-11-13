@@ -703,7 +703,15 @@ async function startServer() {
           return;
         }
         if (!res.finished) {
-          broadcastWorld(live.state.name, { type: 'fishing_progress', playerId: account.id, progress: res.progress });
+          const activeCast = live.activeCasts.get(account.id);
+          broadcastWorld(live.state.name, {
+            type: 'fishing_progress',
+            playerId: account.id,
+            progress: res.progress,
+            lineTension: activeCast?.lineTension ?? 0.5,
+            bobberOffset: activeCast?.bobberOffset ?? 0,
+            fightPattern: activeCast?.fightPattern ?? 'darting',
+          });
           return;
         }
         broadcastWorld(live.state.name, {
