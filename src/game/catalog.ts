@@ -299,6 +299,13 @@ export const ITEM_IDS = {
   COPPER_VEIN: 791,
   IRON_VEIN: 792,
   OBSIDIAN_VEIN: 793,
+
+  // Station Gate Keys (810..814)
+  GATE_KEY_I: 810,
+  GATE_KEY_II: 811,
+  GATE_KEY_III: 812,
+  GATE_KEY_IV: 813,
+  GATE_KEY_V: 814,
 } as const;
 
 export const CATALOG: Record<number, ItemDefinition> = {
@@ -2236,6 +2243,42 @@ export const CATALOG: Record<number, ItemDefinition> = {
     spliceIngredients: [ITEM_IDS.GP_SEED_WOODEN_PLATFORM, ITEM_IDS.GP_SEED_MUSHROOM],
     colorPrimary: '#e67e32', colorSecondary: '#6b3e24', colorAccent: '#ffe38c',
   },
+  [ITEM_IDS.GATE_KEY_I]: {
+    id: ITEM_IDS.GATE_KEY_I, key: 'station_gate_key_i', name: 'Station Gate Key I',
+    description: 'Opens a Tier I Station dungeon expedition. Consumed when the expedition is created.',
+    category: 'consumable', rarity: 'common', stackLimit: 20,
+    collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0, colorPrimary: '#b9a16a', colorSecondary: '#6b5633', colorAccent: '#f4d98b',
+  },
+  [ITEM_IDS.GATE_KEY_II]: {
+    id: ITEM_IDS.GATE_KEY_II, key: 'station_gate_key_ii', name: 'Station Gate Key II',
+    description: 'Opens a Tier II Station dungeon expedition. Consumed when the expedition is created.',
+    category: 'consumable', rarity: 'uncommon', stackLimit: 20,
+    collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0, colorPrimary: '#8c9eaa', colorSecondary: '#425866', colorAccent: '#d7efff',
+  },
+  [ITEM_IDS.GATE_KEY_III]: {
+    id: ITEM_IDS.GATE_KEY_III, key: 'station_gate_key_iii', name: 'Station Gate Key III',
+    description: 'Opens a Tier III Station dungeon expedition. Consumed when the expedition is created.',
+    category: 'consumable', rarity: 'rare', stackLimit: 20,
+    collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0, colorPrimary: '#4e9a78', colorSecondary: '#245944', colorAccent: '#9bf2c1',
+  },
+  [ITEM_IDS.GATE_KEY_IV]: {
+    id: ITEM_IDS.GATE_KEY_IV, key: 'station_gate_key_iv', name: 'Station Gate Key IV',
+    description: 'Opens a Tier IV Station dungeon expedition. Consumed when the expedition is created.',
+    category: 'consumable', rarity: 'epic', stackLimit: 20,
+    collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0, colorPrimary: '#8361bb', colorSecondary: '#49326e', colorAccent: '#d2b8ff',
+  },
+  [ITEM_IDS.GATE_KEY_V]: {
+    id: ITEM_IDS.GATE_KEY_V, key: 'station_gate_key_v', name: 'Station Gate Key V',
+    description: 'Opens a Tier V Station dungeon expedition. Consumed when the expedition is created.',
+    category: 'consumable', rarity: 'epic', stackLimit: 20,
+    collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0, colorPrimary: '#d28c3b', colorSecondary: '#75451e', colorAccent: '#ffe0a0',
+  },
+
 };
 
 export const GROWPIXEL_COLLECTION_IDS = {
