@@ -388,7 +388,7 @@ async function startServer() {
           sendTo(ws, { type: 'dungeon_error', message: 'Dungeon gates can only be activated from STATION.' });
           return;
         }
-        const result = dungeonStore.createRun(account, msg.tier);
+        const result = dungeonStore.createRun(account, msg.tier, msg.partyMode);
         if (!result.ok || !result.snapshot) {
           sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not create dungeon.' });
           return;
