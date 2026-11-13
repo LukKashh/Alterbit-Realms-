@@ -6,7 +6,7 @@ import { sanitizeGameConfig } from '../src/game/config.ts';
 const plant = {
   x: 4,
   y: 8,
-  seedId: 1,
+  seedId: 600,
   plantedAt: 10_000,
   maturityAt: 20_000,
   ownerId: 'test-player',
@@ -40,13 +40,13 @@ test('growth state clamps times before planting and after maturity', () => {
 test('tree harvest overrides are clamped and kept internally consistent', () => {
   const config = sanitizeGameConfig({
     itemOverrides: {
-      1: {
+      600: {
         treeHarvestYield: { minBlocks: 9, maxBlocks: 2, seedChance: 1.5 },
-        bonusHarvestDrops: [{ itemId: 1, chance: 0.4, minQty: 2, maxQty: 5 }],
+        bonusHarvestDrops: [{ itemId: 600, chance: 0.4, minQty: 2, maxQty: 5 }],
       },
     },
   });
-  const override = config.itemOverrides[1];
+  const override = config.itemOverrides[600];
   assert.ok(override);
   assert.deepEqual(override.treeHarvestYield, {
     minBlocks: 9,
