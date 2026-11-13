@@ -1085,8 +1085,13 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: enterCheck.reason ?? 'World access is restricted.' };
     }
 
-    const playerLimit = live.state.worldLock?.ownerId ? MAX_OWNED_WORLD_PLAYERS : MAX_WORLD_PLAYERS;
-    if (live.players.size >= playerLimit && !live.players.has(account.id)) {
+    const ownerId = live.state.worldLock?.ownerId;
+    const playerLimit = ownerId ? MAX_OWNED_WORLD_PLAYERS : MAX_WORLD_PLAYERS;
+    const ownerAlreadyPresent = ownerId ? live.players.has(ownerId) : true;
+    const visitorLimit = ownerId && !ownerAlreadyPresent && account.id !== ownerId
+      ? playerLimit - 1
+      : playerLimit;
+    if (live.players.size >= visitorLimit && !live.players.has(account.id) && account.id !== ownerId) {
       return {
         ok: false,
         message: `World ${v.normalized} is full (${playerLimit}/${playerLimit}).`,
