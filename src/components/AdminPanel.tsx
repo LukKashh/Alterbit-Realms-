@@ -49,9 +49,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 }) => {
   const [subTab, setSubTab] = useState<'drops' | 'mechanics' | 'tools'>('drops');
   const [draft, setDraft] = useState<GameConfig>(() => cloneGameConfig(gameConfig));
-  const [selectedTileId, setSelectedTileId] = useState<number>(ITEM_IDS.MEADOW_TURF);
+  const [selectedTileId, setSelectedTileId] = useState<number>(ITEM_IDS.GP_GRASS);
 
-  const [grantItemId, setGrantItemId] = useState<number>(ITEM_IDS.RICH_SOIL);
+  const [grantItemId, setGrantItemId] = useState<number>(ITEM_IDS.GP_DIRT);
   const [grantQty, setGrantQty] = useState<number>(25);
   const [grantGemsAmt, setGrantGemsAmt] = useState<number>(500);
 
