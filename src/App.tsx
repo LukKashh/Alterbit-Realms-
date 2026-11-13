@@ -180,7 +180,9 @@ export default function App() {
   // Orientation monitor (strictly landscape-only)
   useEffect(() => {
     const check = () => {
-      setIsPortrait(window.innerHeight > window.innerWidth);
+      const portrait = window.innerHeight > window.innerWidth;
+      setIsPortrait(portrait);
+      document.body.dataset.orientation = portrait ? 'portrait' : 'landscape';
     };
     window.addEventListener('resize', check);
     window.addEventListener('orientationchange', check);
@@ -195,6 +197,7 @@ export default function App() {
   useEffect(() => {
     modeRef.current = appState;
     document.body.dataset.state = appState;
+    document.body.dataset.orientation = window.innerHeight > window.innerWidth ? 'portrait' : 'landscape';
     if (appState === 'playing' || appState === 'paused') {
       engineRef.current?.setMode(appState);
     } else {
@@ -441,7 +444,6 @@ export default function App() {
       setAuthSubmitting(true);
       setErrorMessage(null);
       soundEngine.uiClick();
-      void requestLandscapeLock();
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -468,7 +470,6 @@ export default function App() {
       setAuthSubmitting(true);
       setErrorMessage(null);
       soundEngine.uiClick();
-      void requestLandscapeLock();
       try {
         const res = await fetch('/api/auth/register', {
           method: 'POST',
@@ -493,15 +494,17 @@ export default function App() {
   const handleEnterWorld = useCallback((targetWorldName: string) => {
     const cleanWorld = (targetWorldName || 'START').trim().toUpperCase();
     soundEngine.uiClick();
+    void requestLandscapeLock();
     setLoadingText({
       title: `Entering ${cleanWorld}...`,
       subtitle: 'Loading 100×60 tiles, trees, locks & active players',
     });
     setAppState('loading');
     socketRef.current?.joinWorld(cleanWorld);
-  }, []);
+  }, [requestLandscapeLock]);
 
   const handleReturnToHub = useCallback(() => {
+    try { screen.orientation.unlock?.(); } catch { /* unsupported on some browsers */ }
     socketRef.current?.leaveWorld();
     void fetchWorldsList();
     setInspectInfo(null);
@@ -509,6 +512,7 @@ export default function App() {
   }, [fetchWorldsList]);
 
   const handleSignOut = useCallback(async () => {
+    try { screen.orientation.unlock?.(); } catch { /* unsupported on some browsers */ }
     let token: string | null = null;
     try {
       token = localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -712,7 +716,9 @@ export default function App() {
         />
       )}
 
-      {isPortrait && <PortraitBlocker onTryLock={requestLandscapeLock} />}
+      {isPortrait && (appState === 'playing' || appState === 'paused') && (
+        <PortraitBlocker onTryLock={requestLandscapeLock} />
+      )}
     </main>
   );
 }
