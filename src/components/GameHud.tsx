@@ -105,7 +105,12 @@ interface GameHudProps {
   onConfigureLock: (
     tx: number,
     ty: number,
-    opts: { publicAccess?: boolean; addEditorName?: string; removeEditorId?: string }
+    opts: {
+      addEditorName?: string;
+      removeEditorId?: string;
+      permissionTargetId?: string;
+      permissions?: Partial<import('../game/shareLocks.ts').ShareLockPermissions>;
+    }
   ) => void;
   onConfigureVending: (
     tx: number,
@@ -405,7 +410,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [signDraft, setSignDraft] = useState('');
   const [vmItemId, setVmItemId] = useState<number>(ITEM_IDS.GP_DIRT);
   const [vmStockQty, setVmStockQty] = useState<number>(5);
-  const [vmPriceItemId, setVmPriceItemId] = useState<number>(ITEM_IDS.SMALL_LOCK);
+  const [vmPriceItemId, setVmPriceItemId] = useState<number>(ITEM_IDS.GP_RED_BRICKS);
   const [vmPriceQty, setVmPriceQty] = useState<number>(1);
 
   useEffect(() => {
@@ -484,7 +489,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   const getQty = (itemId: number) => inventory.find((s) => s.itemId === itemId)?.qty ?? 0;
   const isCurrentWorldFav = favoriteWorlds.includes(worldName);
 
-  const activeLock = inspectInfo?.worldLock ?? inspectInfo?.areaLock ?? null;
+  const activeLock = inspectInfo?.shareLock ?? null;
   const isLockOwner = activeLock?.ownerId === playerId;
 
   return (
@@ -701,94 +706,41 @@ export const GameHud: React.FC<GameHudProps> = ({
               {inspectInfo.lockInfo && <span className="text-[#ffe18c] font-semibold">{inspectInfo.lockInfo}</span>}
             </div>
 
-            {/* Lock Permissions Panel */}
+            {/* Share Lock Permissions Panel */}
             {activeLock && (
               <div className="border-t border-[#28425e] pt-2 flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#ffe18c]">
-                    {inspectInfo.worldLock ? 'World Lock Settings' : 'Area Lock (7×7) Settings'}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-[#8cf7ee]">
+                    {getItemDef(activeLock.itemId)?.name ?? 'Share Lock'} · {activeLock.width}×{activeLock.height}
                   </span>
-                  <span className="text-[11px] text-[#89d6ff]">Owner: {activeLock.ownerName}</span>
+                  <span className="text-[10px] text-[#89d6ff]">Owner: {activeLock.ownerName}</span>
                 </div>
-
-                {inspectInfo.worldLock && (
-                  <div className="flex items-center justify-between bg-[#09131d] border border-[#263c52] rounded px-2 py-1.5">
-                    <span className="text-[11px] text-[#d5e4f2]">
-                      Entry: {inspectInfo.worldLock.publicAccess !== false ? 'Public Visits' : 'Builders Only'}
-                    </span>
-                    {isLockOwner && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onConfigureLock(inspectInfo.tx, inspectInfo.ty, {
-                            publicAccess: inspectInfo.worldLock?.publicAccess === false,
-                          })
-                        }
-                        className="px-2 py-0.5 rounded bg-[#213b57] hover:bg-[#2c4f75] text-[11px] font-bold text-[#ffe18c] cursor-pointer"
-                      >
-                        Toggle
-                      </button>
-                    )}
-                  </div>
-                )}
-
+                <p className="text-[10px] text-[#9cb5cc]">Access is limited to this claimed rectangle. Permissions can be changed independently.</p>
                 <div className="flex flex-col gap-1">
-                  <span className="text-[11px] font-semibold text-[#9cb5cc]">
-                    Authorized Builders ({activeLock.editors.length}):
-                  </span>
-                  {activeLock.editors.length === 0 ? (
-                    <span className="text-[11px] text-[#6d8ba8]">Only {activeLock.ownerName} can build here.</span>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {activeLock.editors.map((edId) => (
-                        <div
-                          key={edId}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#142538] border border-[#2d4863] text-[11px]"
-                        >
-                          <span>{activeLock.editorNames?.[edId] ?? edId}</span>
-                          {isLockOwner && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onConfigureLock(inspectInfo.tx, inspectInfo.ty, { removeEditorId: edId })
-                              }
-                              className="text-[#ff9b9b] hover:text-white font-bold ml-1 cursor-pointer"
-                            >
-                              ×
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                  {Object.entries(activeLock.access ?? {}).length === 0 ? (
+                    <span className="text-[11px] text-[#6d8ba8]">No players have been granted access.</span>
+                  ) : Object.entries(activeLock.access ?? {}).map(([targetId, grant]) => (
+                    <div key={targetId} className="rounded bg-[#09131d] border border-[#263c52] p-2 flex flex-col gap-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-[#eaf2fa]">{grant.playerName}</span>
+                        {isLockOwner && <button type="button" onClick={() => onConfigureLock(inspectInfo.tx, inspectInfo.ty, { removeEditorId: targetId })} className="text-[#ff9b9b] font-bold cursor-pointer">Revoke</button>}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {(['build', 'break', 'interact'] as const).map((permission) => (
+                          <button key={permission} type="button" disabled={!isLockOwner}
+                            onClick={() => onConfigureLock(inspectInfo.tx, inspectInfo.ty, { permissionTargetId: targetId, permissions: { [permission]: !grant.permissions[permission] } })}
+                            className={`px-1 py-1 rounded border text-[10px] font-bold capitalize ${grant.permissions[permission] ? 'bg-[#174a37] border-[#4ec46a] text-[#b7ffd7]' : 'bg-[#3b1b1f] border-[#80333a] text-[#ffb0b0]'} ${isLockOwner ? 'cursor-pointer' : 'cursor-default'}`}>
+                            {permission}: {grant.permissions[permission] ? 'On' : 'Off'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-
                 {isLockOwner && (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (editorInput.trim()) {
-                        onConfigureLock(inspectInfo.tx, inspectInfo.ty, {
-                          addEditorName: editorInput.trim(),
-                        });
-                        setEditorInput('');
-                      }
-                    }}
-                    className="flex gap-1.5"
-                  >
-                    <input
-                      type="text"
-                      value={editorInput}
-                      onChange={(e) => setEditorInput(e.target.value)}
-                      placeholder="Add builder by name..."
-                      className="flex-1 px-2 py-1 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-                    />
-                    <button
-                      type="submit"
-                      className="px-2.5 py-1 rounded bg-[#4aa64d] text-[#081709] font-bold text-xs cursor-pointer"
-                    >
-                      Grant
-                    </button>
+                  <form onSubmit={(e) => { e.preventDefault(); if (editorInput.trim()) { onConfigureLock(inspectInfo.tx, inspectInfo.ty, { addEditorName: editorInput.trim() }); setEditorInput(''); } }} className="flex gap-1.5">
+                    <input type="text" value={editorInput} onChange={(e) => setEditorInput(e.target.value)} placeholder="Grant access by username..." className="flex-1 min-w-0 px-2 py-1 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white" />
+                    <button type="submit" className="px-2.5 py-1 rounded bg-[#4aa64d] text-[#081709] font-bold text-xs cursor-pointer">Grant</button>
                   </form>
                 )}
               </div>
@@ -867,8 +819,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                         onChange={(e) => setVmPriceItemId(Number(e.target.value))}
                         className="px-1.5 py-1 rounded bg-[#08101a] border border-[#2d4863] text-[11px] text-white"
                       >
-                        <option value={ITEM_IDS.SMALL_LOCK}>Price in: Area Lock</option>
-                        <option value={ITEM_IDS.WORLD_LOCK}>Price in: World Lock</option>
                         <option value={ITEM_IDS.GP_RED_BRICKS}>Price in: Red Bricks</option>
                       </select>
                       <input
