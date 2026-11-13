@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GATE_KEYS } from '../game/expansion.ts';
 import { ITEM_IDS } from '../game/catalog.ts';
 import type { InventorySlot } from '../game/network.ts';
+import { DEFAULT_DUNGEON_BALANCE, isDungeonPositionWalkable } from '../game/dungeon.ts';
 import type { DungeonAction, DungeonSnapshot } from '../game/dungeon.ts';
 import { BlockgroveEngine, renderDungeonRaycaster } from '../game/engine.ts';
 
@@ -63,6 +64,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
   const stickPointerIdRef = useRef<number | null>(null);
   const lookPointerIdRef = useRef<number | null>(null);
   const lookLastXRef = useRef<number>(0);
+  const predictedPositionRef = useRef<{ runId: string; roomIndex: number; x: number; y: number } | null>(null);
 
   const worldLocks = inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
   const localPlayer = snapshot?.players.find((member) => member.id === playerId);
