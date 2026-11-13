@@ -152,8 +152,24 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
         let fwdInput = -joystickRef.current.y;
         if (keys.has('arrowup') || keys.has('w')) fwdInput += 1;
         if (keys.has('arrowdown') || keys.has('s')) fwdInput -= 1;
-        if (Math.abs(fwdInput) > 0.14) {
-          bobPhaseRef.current += dt * 11;
+        fwdInput = Math.max(-1, Math.min(1, fwdInput));
+        const predicted = predictedPositionRef.current;
+        if (predicted && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex && Math.abs(fwdInput) > 0.14) {
+          const direction = fwdInput > 0 ? 1 : -1;
+          const distance = DEFAULT_DUNGEON_BALANCE.playerMoveStep / (DEFAULT_DUNGEON_BALANCE.playerMoveCooldownMs / 1000) * dt * Math.min(1, Math.abs(fwdInput));
+          const dx = Math.cos(yawRef.current) * direction * distance;
+          const dy = Math.sin(yawRef.current) * direction * distance;
+          const canOccupy = (x: number, y: number) => isDungeonPositionWalkable(snapshot.map, x, y) &&
+            !snapshot.players.some((member) => member.id !== playerId && member.hp > 0 && Math.hypot(member.x - x, member.y - y) < 0.48) &&
+            !snapshot.enemies.some((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - x, enemy.y - y) < 0.5);
+          const nextX = Math.max(1.22, Math.min(snapshot.width - 1.22, predicted.x + dx));
+          const nextY = Math.max(1.22, Math.min(snapshot.height - 1.22, predicted.y + dy));
+          if (canOccupy(nextX, nextY)) { predicted.x = nextX; predicted.y = nextY; }
+          else {
+            if (canOccupy(nextX, predicted.y)) predicted.x = nextX;
+            if (canOccupy(predicted.x, nextY)) predicted.y = nextY;
+          }
+          bobPhaseRef.current += dt * 11 * Math.abs(fwdInput);
         }
       } else {
         // Gentle scenic pan inside preview sanctuary when choosing a Gate Key
@@ -185,10 +201,14 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             hitFlash: hitFlashRef.current,
             previewTier: selectedPreviewTier,
           };
+          const predicted = predictedPositionRef.current;
+          const renderSnapshot = predicted && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex
+            ? { ...snapshot, players: snapshot.players.map((member) => member.id === playerId ? { ...member, x: predicted.x, y: predicted.y } : member) }
+            : snapshot;
           if (engine) {
-            engine.renderDungeonFrame(ctx, w, h, snapshot, playerId, yawRef.current, opts);
+            engine.renderDungeonFrame(ctx, w, h, renderSnapshot, playerId, yawRef.current, opts);
           } else {
-            renderDungeonRaycaster(ctx, w, h, snapshot, playerId, yawRef.current, opts);
+            renderDungeonRaycaster(ctx, w, h, renderSnapshot, playerId, yawRef.current, opts);
           }
         }
       }
