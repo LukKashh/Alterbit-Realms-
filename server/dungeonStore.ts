@@ -501,6 +501,7 @@ export class DungeonStore {
 
   private snapshot(run: DungeonRun): DungeonSnapshot {
     return {
+      worldKind: 'adventure_dungeon',
       runId: run.runId, code: run.code, tier: run.tier, partyMode: run.partyMode,
       roomIndex: run.roomIndex, roomCount: GATE_KEYS[run.tier - 1].rooms,
       width: DUNGEON_WIDTH, height: DUNGEON_HEIGHT, map: [...run.map],
