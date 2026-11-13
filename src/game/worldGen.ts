@@ -127,19 +127,19 @@ export function generateWorld(worldName: string): WorldState {
         bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       } else if (y < sy + 7) {
         fg[idx] = ITEM_IDS.GP_DIRT;
-        bg[idx] = ITEM_IDS.BG_SOIL_WALL;
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       } else if (y < 46) {
         const r = rand();
         if (r < 0.032) {
           fg[idx] = ITEM_IDS.CRYSTAL_VEIN;
         } else if (r < 0.16 && y < sy + 14) {
-          fg[idx] = ITEM_IDS.RICH_SOIL;
+          fg[idx] = ITEM_IDS.GP_DIRT;
         } else if (r < 0.045 && y > sy + 10) {
           fg[idx] = ITEM_IDS.AIR;
         } else {
           fg[idx] = ITEM_IDS.GP_ROCK;
         }
-        bg[idx] = ITEM_IDS.BG_STONE_WALL;
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       } else {
         const r = rand();
         if (r < 0.12) {
@@ -149,7 +149,7 @@ export function generateWorld(worldName: string): WorldState {
         } else {
           fg[idx] = ITEM_IDS.GP_LAVA;
         }
-        bg[idx] = ITEM_IDS.BG_STONE_WALL;
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       }
     }
   }
