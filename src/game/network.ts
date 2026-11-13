@@ -170,7 +170,7 @@ export type ClientMessage =
   | { type: 'dungeon_create'; tier: number; partyMode: 'solo' | 'cooperative' }
   | { type: 'dungeon_join'; code: string }
   | { type: 'dungeon_resume' }
-  | { type: 'dungeon_action'; action: 'move' | 'attack' | 'next_room' | 'extract' | 'leave'; dx?: number; dy?: number }
+  | { type: 'dungeon_action'; action: 'move' | 'attack' | 'next_room' | 'extract' | 'leave'; dx?: number; dy?: number; attackId?: string }
   | {
       type: 'move';
       x: number;
