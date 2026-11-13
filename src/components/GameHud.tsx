@@ -91,6 +91,7 @@ interface GameHudProps {
   worlds: WorldSummary[];
   onRefreshWorlds: () => void;
   onJoinWorld: (name: string) => void;
+  onCreateWorld: (name: string, terraBlast: boolean) => void;
   onToggleFavoriteWorld: (worldName: string) => void;
   chatMessages: ChatMessage[];
   onSendChat: (text: string) => void;
@@ -337,6 +338,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   worlds,
   onRefreshWorlds,
   onJoinWorld,
+  onCreateWorld,
   onToggleFavoriteWorld,
   chatMessages,
   onSendChat,
@@ -375,6 +377,8 @@ export const GameHud: React.FC<GameHudProps> = ({
 }) => {
   const [activePanel, setActivePanel] = useState<ActivePanel>('none');
   const [worldInput, setWorldInput] = useState('');
+  const [newWorldName, setNewWorldName] = useState('');
+  const [useTerraBlast, setUseTerraBlast] = useState(false);
   const [worldTab, setWorldTab] = useState<'public' | 'favorites' | 'recent'>('public');
   const [chatInput, setChatInput] = useState('');
   const [spliceA, setSpliceA] = useState<number | null>(null);
@@ -491,6 +495,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
   const activeLock = inspectInfo?.shareLock ?? null;
   const isLockOwner = activeLock?.ownerId === playerId;
+  const myRealms = worlds.filter((world) => world.ownerId === playerId);
 
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-2.5">
@@ -742,6 +747,66 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <input type="text" value={editorInput} onChange={(e) => setEditorInput(e.target.value)} placeholder="Grant access by username..." className="flex-1 min-w-0 px-2 py-1 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white" />
                     <button type="submit" className="px-2.5 py-1 rounded bg-[#4aa64d] text-[#081709] font-bold text-xs cursor-pointer">Grant</button>
                   </form>
+                )}
+              </div>
+            )}
+
+            {/* Nexus Landlord: personal realm management */}
+            {inspectInfo.isLandlord && worldName === 'NEXUS' && (
+              <div className="border-t border-[#28425e] pt-2 flex flex-col gap-2">
+                <div>
+                  <h3 className="font-pixel text-xs text-[#ffe18c]">LANDLORD · REALM STEWARD</h3>
+                  <p className="text-[11px] text-[#9cb5cc]">Manage the realms you own or conjure a new private realm.</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#8cf7ee]">My Realms ({myRealms.length})</span>
+                  <button type="button" onClick={onRefreshWorlds} className="text-[10px] text-[#89d6ff] font-bold cursor-pointer">Refresh</button>
+                </div>
+                {myRealms.length === 0 ? (
+                  <span className="text-[11px] text-[#6d8ba8]">You do not own any realms yet.</span>
+                ) : myRealms.map((realm) => (
+                  <button key={realm.name} type="button" onClick={() => onJoinWorld(realm.name)}
+                    className="flex items-center justify-between rounded bg-[#142538] border border-[#2d4863] p-2 text-left cursor-pointer">
+                    <span className="font-bold text-[#f7f4eb]">{realm.name}</span>
+                    <span className="text-[10px] text-[#8cf7ee]">{realm.playerCount}/10 · Enter</span>
+                  </button>
+                ))}
+                <form onSubmit={(e) => { e.preventDefault(); if (newWorldName.trim()) { onCreateWorld(newWorldName.trim(), useTerraBlast); setNewWorldName(''); setUseTerraBlast(false); } }}
+                  className="border-t border-[#28425e] pt-2 flex flex-col gap-1.5">
+                  <label className="text-[11px] font-bold text-[#ffe18c]">Conjure up a Fresh one</label>
+                  <input value={newWorldName} onChange={(e) => setNewWorldName(e.target.value.toUpperCase())}
+                    maxLength={20} placeholder="Choose a unique realm name"
+                    className="w-full px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white uppercase" />
+                  {getQty(ITEM_IDS.WORLD_BLAST) > 0 && (
+                    <label className="flex items-center gap-2 text-[11px] text-[#d8c3ff]">
+                      <input type="checkbox" checked={useTerraBlast} onChange={(e) => setUseTerraBlast(e.target.checked)} />
+                      Use World Blast · {getQty(ITEM_IDS.WORLD_BLAST)} available
+                    </label>
+                  )}
+                  <button type="submit" disabled={!newWorldName.trim() || (useTerraBlast && getQty(ITEM_IDS.WORLD_BLAST) < 1)}
+                    className="py-2 rounded bg-[#4aa64d] hover:bg-[#57ba5a] disabled:opacity-40 text-[#081709] font-bold text-xs cursor-pointer">
+                    Create Private Realm
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* WorldCore: owner-only realm manager */}
+            {inspectInfo.isWorldCore && inspectInfo.worldLock && (
+              <div className="border-t border-[#28425e] pt-2 flex flex-col gap-2">
+                {inspectInfo.worldLock.ownerId === playerId ? (
+                  <>
+                    <h3 className="font-pixel text-xs text-[#ffe18c]">WORLD MANAGER PANEL</h3>
+                    <p className="text-[11px] text-[#9cb5cc]">You own {worldName}. WorldCore secures this entire realm to your account.</p>
+                    <div className="rounded bg-[#09131d] border border-[#263c52] p-2 text-[11px] text-[#d5e4f2]">
+                      <div>Owner: {inspectInfo.worldLock.ownerName}</div>
+                      <div>Players: {playerCount}/10</div>
+                      <div>Access: Private · Share Locks grant access to selected areas</div>
+                    </div>
+                    <span className="text-[10px] text-[#6d8ba8]">Share Lock permissions are managed by inspecting each Share Lock.</span>
+                  </>
+                ) : (
+                  <span className="text-[11px] text-[#ffcf8b]">Only this realm's owner can access its Manager Panel.</span>
                 )}
               </div>
             )}
