@@ -8,7 +8,7 @@ import {
   WORLD_TILE_COUNT,
   WORLD_WIDTH,
 } from './constants.ts';
-import { ACHIEVEMENTS, GEM_STORE_LISTINGS, ITEM_IDS } from './catalog.ts';
+import { ACHIEVEMENTS, GEM_STORE_LISTINGS, GROWPIXEL_COLLECTION_IDS, ITEM_IDS, SPLICE_RECIPES, getItemDef } from './catalog.ts';
 import { generateWorld } from './worldGen.ts';
 import {
   addXp,
@@ -132,10 +132,10 @@ test('seed growth stages, splicing recipes, world name validation, and XP leveli
   assert.equal(getPlantGrowthState(plant, 6000).stage, 'sprout');
   assert.equal(getPlantGrowthState(plant, 12000).stage, 'mature');
 
-  assert.equal(resolveSplice(ITEM_IDS.SEED_STONE, ITEM_IDS.SEED_SOIL), ITEM_IDS.SEED_BRICK);
-  assert.equal(resolveSplice(ITEM_IDS.SEED_SOIL, ITEM_IDS.SEED_STONE), ITEM_IDS.SEED_BRICK);
-  assert.equal(resolveSplice(ITEM_IDS.SEED_CRYSTAL, ITEM_IDS.SEED_BRICK), ITEM_IDS.SEED_GOLD);
-  assert.equal(resolveSplice(ITEM_IDS.SEED_TURF, ITEM_IDS.SEED_TURF), null);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_ROCK, ITEM_IDS.GP_SEED_GRASS), ITEM_IDS.GP_SEED_BRICKS);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_GRASS, ITEM_IDS.GP_SEED_ROCK), ITEM_IDS.GP_SEED_BRICKS);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_BRICKS, ITEM_IDS.GP_SEED_MUSHROOM), ITEM_IDS.GP_SEED_WHITE_BLOCK);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_HEDGE, ITEM_IDS.GP_SEED_DIRT), null);
 
   assert.equal(validateWorldName('My_World1').ok, true);
   assert.equal(validateWorldName('My_World1').normalized, 'MY_WORLD1');
@@ -371,4 +371,21 @@ test('seeded admin login, empty Fist+Wrench starter inventory, and centered tile
       store.leaveWorld('START', adminLogin.account.id);
     }
   }
+});
+
+
+test('GrowPixel collection has 42 placeables, 42 matching seeds, and complete splicing graph', () => {
+  assert.equal(GROWPIXEL_COLLECTION_IDS.blocks.length, 42);
+  assert.equal(GROWPIXEL_COLLECTION_IDS.seeds.length, 42);
+  for (let i = 0; i < GROWPIXEL_COLLECTION_IDS.blocks.length; i++) {
+    const block = getItemDef(GROWPIXEL_COLLECTION_IDS.blocks[i]);
+    const seed = getItemDef(GROWPIXEL_COLLECTION_IDS.seeds[i]);
+    assert.ok(block && seed);
+    assert.equal(block.seedId, seed.id);
+    assert.equal(seed.producesTileId, block.id);
+    assert.ok(seed.growthTimeMs && seed.growthTimeMs > 0);
+  }
+  assert.equal(SPLICE_RECIPES.length, 36);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_BUSH, ITEM_IDS.GP_SEED_MUSHROOM), ITEM_IDS.GP_SEED_BLUEBERRY);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_HEDGE, ITEM_IDS.GP_SEED_ROCK), null);
 });

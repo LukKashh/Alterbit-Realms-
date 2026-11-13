@@ -115,7 +115,7 @@ export function generateWorld(worldName: string): WorldState {
       // Bottom 6 rows (y = 54..59) are unbreakable bedrock
       if (y >= PLAYABLE_ROWS) {
         fg[idx] = ITEM_IDS.BEDROCK;
-        bg[idx] = ITEM_IDS.BG_STONE_WALL;
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
         continue;
       }
 
@@ -123,10 +123,10 @@ export function generateWorld(worldName: string): WorldState {
         fg[idx] = ITEM_IDS.AIR;
         bg[idx] = ITEM_IDS.BG_SKY;
       } else if (y === sy) {
-        fg[idx] = ITEM_IDS.MEADOW_TURF;
-        bg[idx] = ITEM_IDS.BG_SOIL_WALL;
+        fg[idx] = ITEM_IDS.GP_GRASS;
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       } else if (y < sy + 7) {
-        fg[idx] = ITEM_IDS.RICH_SOIL;
+        fg[idx] = ITEM_IDS.GP_DIRT;
         bg[idx] = ITEM_IDS.BG_SOIL_WALL;
       } else if (y < 46) {
         const r = rand();
@@ -137,17 +137,17 @@ export function generateWorld(worldName: string): WorldState {
         } else if (r < 0.045 && y > sy + 10) {
           fg[idx] = ITEM_IDS.AIR;
         } else {
-          fg[idx] = ITEM_IDS.GRANITE_STONE;
+          fg[idx] = ITEM_IDS.GP_ROCK;
         }
         bg[idx] = ITEM_IDS.BG_STONE_WALL;
       } else {
         const r = rand();
         if (r < 0.12) {
-          fg[idx] = ITEM_IDS.MAGMA_ROCK;
+          fg[idx] = ITEM_IDS.GP_LAVA;
         } else if (r < 0.18) {
           fg[idx] = ITEM_IDS.CRYSTAL_VEIN;
         } else {
-          fg[idx] = ITEM_IDS.BASALT;
+          fg[idx] = ITEM_IDS.GP_LAVA;
         }
         bg[idx] = ITEM_IDS.BG_STONE_WALL;
       }
