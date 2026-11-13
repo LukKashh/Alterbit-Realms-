@@ -100,27 +100,40 @@ export class DungeonStore {
     return account;
   }
 
-  buyGateKey(account: PlayerAccount, tier: number): DungeonActionResult {
+  buyGateKey(account: PlayerAccount, tier: number, payment: 'gems' | 'world_locks', txId: string): DungeonActionResult {
     const key = GATE_KEYS.find((entry) => entry.tier === tier);
     const itemId = this.keyItemId(tier);
     this.accountRefs.set(account.id, account);
     if (!key || !itemId) return { ok: false, message: 'Unknown Gate Key tier.' };
     if (account.level < key.minLevel) return { ok: false, message: 'Explorer level ' + key.minLevel + ' is required.' };
+    const requestId = String(txId ?? '').trim();
+    if (!requestId || requestId.length > 100) return { ok: false, message: 'A valid purchase request ID is required.' };
+    if (account.processedTxIds.includes(requestId)) {
+      return { ok: true, message: 'This Gate Key purchase was already processed.' };
+    }
     const locks = account.inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
-    if (account.gems < key.gemPrice || locks < key.worldLockPrice) {
-      return { ok: false, message: 'Requires ' + key.gemPrice + ' Gems and ' + key.worldLockPrice + ' World Lock(s).' };
+    if (payment === 'gems' && account.gems < key.gemPrice) {
+      return { ok: false, message: 'Requires ' + key.gemPrice + ' Gems.' };
     }
-    if (!this.playerStore.consumeInventory(account, ITEM_IDS.WORLD_LOCK, key.worldLockPrice)) {
-      return { ok: false, message: 'Could not consume the required World Locks.' };
+    if (payment === 'world_locks' && locks < key.worldLockPrice) {
+      return { ok: false, message: 'Requires ' + key.worldLockPrice + ' World Lock(s).' };
     }
-    account.gems -= key.gemPrice;
+    if (payment !== 'gems' && payment !== 'world_locks') {
+      return { ok: false, message: 'Choose Gems or World Locks as the payment method.' };
+    }
     if (!this.playerStore.addInventory(account, itemId, 1)) {
-      account.gems += key.gemPrice;
-      this.playerStore.addInventory(account, ITEM_IDS.WORLD_LOCK, key.worldLockPrice);
       return { ok: false, message: 'Could not add the Gate Key to your inventory.' };
     }
+    if (payment === 'gems') {
+      account.gems -= key.gemPrice;
+    } else if (!this.playerStore.consumeInventory(account, ITEM_IDS.WORLD_LOCK, key.worldLockPrice)) {
+      this.playerStore.consumeInventory(account, itemId, 1);
+      return { ok: false, message: 'Could not consume the selected World Locks.' };
+    }
+    account.processedTxIds.push(requestId);
+    if (account.processedTxIds.length > 500) account.processedTxIds = account.processedTxIds.slice(-500);
     this.playerStore.savePlayer(account);
-    return { ok: true, message: 'Purchased ' + key.id.replace(/_/g, ' ').toUpperCase() + '.' };
+    return { ok: true, message: 'Purchased ' + key.id.replace(/_/g, ' ').toUpperCase() + ' using ' + (payment === 'gems' ? 'Gems' : 'World Locks') + '.' };
   }
 
   createRun(account: PlayerAccount, tier: number, now = Date.now()): DungeonActionResult {
@@ -301,13 +314,18 @@ export class DungeonStore {
           ? 'The Gate Guardian is defeated. Expedition cleared!'
           : 'Room cleared. The exit gate is unlocked.';
       }
-    } else if (action === 'next_room') {
-      if (run.phase !== 'cleared') return { ok: false, message: 'Defeat every enemy before advancing.' };
+    } else if (action === 'next_room' || action === 'extract') {
+      if (run.phase !== 'cleared') return { ok: false, message: 'Defeat every enemy before using the exit.' };
+      const exitX = DUNGEON_WIDTH - 2;
+      const atExit = Math.hypot(player.x - exitX, player.y - 5) <= 0.85;
+      if (!atExit) return { ok: false, message: 'Reach the unlocked extraction gate at the far right of the room.' };
       const roomCount = GATE_KEYS[run.tier - 1].rooms;
-      if (run.roomIndex >= roomCount - 1) {
+      const isFinalRoom = run.roomIndex >= roomCount - 1;
+      if (action === 'extract') {
+        if (!isFinalRoom) return { ok: false, message: 'The extraction portal is only available after the final encounter.' };
         run.phase = 'completed';
         run.completedAt = now;
-        run.message = 'Expedition completed. Rewards have been secured.';
+        run.message = 'Extraction successful. Expedition rewards have been secured.';
         const ore = getDungeonOreReward(run.tier);
         const rewards = Object.keys(run.players).map((playerId) => ({
           playerId,
@@ -321,16 +339,16 @@ export class DungeonStore {
           affectedPlayerIds: Object.keys(run.players),
         };
       }
+      if (isFinalRoom) return { ok: false, message: 'Use the extraction portal to finish the expedition.' };
       run.roomIndex += 1;
       run.map = createDungeonMap(run.tier, run.roomIndex, run.seed);
-      run.enemies = this.createEnemies(run.tier, run.roomIndex, GATE_KEYS[run.tier - 1].rooms, run.seed, now);
+      run.enemies = this.createEnemies(run.tier, run.roomIndex, roomCount, run.seed, now);
       run.phase = 'active';
       for (const member of Object.values(run.players)) {
         member.x = 1;
         member.y = 5;
       }
       run.message = 'Room ' + (run.roomIndex + 1) + ' / ' + roomCount + '. Defeat the Cave Dwellers.';
-    }
     run.updatedAt = now;
     this.persist();
     return { ok: true, snapshot: this.snapshot(run), affectedPlayerIds: Object.keys(run.players) };
