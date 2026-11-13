@@ -306,7 +306,8 @@ export class DungeonStore {
       const nx = Math.max(1.22, Math.min(DUNGEON_WIDTH - 1.22, player.x + directionX * speed));
       const ny = Math.max(1.22, Math.min(DUNGEON_HEIGHT - 1.22, player.y + directionY * speed));
       if (!isDungeonPositionWalkable(run.map, nx, ny) ||
-          Object.values(run.players).some((other) => other.id !== player.id && other.hp > 0 && Math.hypot(other.x - nx, other.y - ny) < 0.48)) {
+          Object.values(run.players).some((other) => other.id !== player.id && other.hp > 0 && Math.hypot(other.x - nx, other.y - ny) < 0.48) ||
+          run.enemies.some((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - nx, enemy.y - ny) < 0.5)) {
         return { ok: false, message: 'Blocked.' };
       }
       player.x = nx;
