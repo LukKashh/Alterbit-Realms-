@@ -57,6 +57,7 @@ export interface DungeonActionResult {
 export class DungeonStore {
   private readonly runs = new Map<string, DungeonRun>();
   private readonly accountRefs = new Map<string, PlayerAccount>();
+  private lastPersistAt = 0;
   private readonly filePath = path.resolve(process.cwd(), 'data', 'dungeons.json');
 
   constructor(private readonly playerStore: AuthoritativeWorldStore) {
@@ -85,11 +86,12 @@ export class DungeonStore {
     }
   }
 
-  private persist() {
+  private persist(now = Date.now()) {
     const runs = [...this.runs.values()].filter((run) => run.phase === 'active' || run.phase === 'cleared');
     const tempPath = this.filePath + '.tmp';
     fs.writeFileSync(tempPath, JSON.stringify(runs), 'utf8');
     fs.renameSync(tempPath, this.filePath);
+    this.lastPersistAt = now;
   }
 
   private keyItemId(tier: number) {
@@ -398,7 +400,7 @@ export class DungeonStore {
       }
       run.message = 'Room ' + (run.roomIndex + 1) + ' / ' + roomCount + '. Defeat the Cave Dwellers.';
     run.updatedAt = now;
-    this.persist();
+    if (action !== 'move' || now - this.lastPersistAt >= 1000) this.persist(now);
     return { ok: true, snapshot: this.snapshot(run), affectedPlayerIds: Object.keys(run.players) };
   }
 
@@ -504,7 +506,8 @@ export class DungeonStore {
         }
       }
     }
-    if (changed.length || cleanupChanged) this.persist();
+    const terminalChanged = changed.some((snapshot) => snapshot.phase === 'completed' || snapshot.phase === 'failed');
+    if (cleanupChanged || terminalChanged || (changed.length > 0 && now - this.lastPersistAt >= 1000)) this.persist(now);
     return changed;
   }
 
