@@ -6,6 +6,7 @@ import { ITEM_IDS } from '../src/game/catalog.ts';
 import { addXp } from '../src/game/rules.ts';
 import {
   createDungeonMap,
+  DEFAULT_DUNGEON_BALANCE,
   DUNGEON_HEIGHT,
   DUNGEON_PARTY_LIMIT,
   DUNGEON_WIDTH,
@@ -14,6 +15,7 @@ import {
   isDungeonWalkable,
   isDungeonPositionWalkable,
   type DungeonAction,
+  type DungeonPartyMode,
   type DungeonEnemyState,
   type DungeonPhase,
   type DungeonPlayerState,
@@ -23,13 +25,14 @@ import {
 import type { PlayerAccount, AuthoritativeWorldStore } from './worldStore.ts';
 
 const GATE_KEY_ITEM_IDS = [ITEM_IDS.GATE_KEY_I, ITEM_IDS.GATE_KEY_II, ITEM_IDS.GATE_KEY_III, ITEM_IDS.GATE_KEY_IV, ITEM_IDS.GATE_KEY_V] as const;
-const MAX_RUN_AGE_MS = 2 * 60 * 60 * 1000;
-const DISCONNECT_GRACE_MS = 120_000;
+const MAX_RUN_AGE_MS = DEFAULT_DUNGEON_BALANCE.maxRunAgeMs;
+const DISCONNECT_GRACE_MS = DEFAULT_DUNGEON_BALANCE.disconnectGraceMs;
 
 interface DungeonRun {
   runId: string;
   code: string;
   tier: number;
+  partyMode: DungeonPartyMode;
   roomIndex: number;
   seed: number;
   map: string[];
@@ -141,7 +144,7 @@ export class DungeonStore {
     return { ok: true, message: 'Purchased ' + key.id.replace(/_/g, ' ').toUpperCase() + ' using ' + (payment === 'gems' ? 'Gems' : 'World Locks') + '.' };
   }
 
-  createRun(account: PlayerAccount, tier: number, now = Date.now()): DungeonActionResult {
+  createRun(account: PlayerAccount, tier: number, partyMode: DungeonPartyMode, now = Date.now()): DungeonActionResult {
     const key = GATE_KEYS.find((entry) => entry.tier === tier);
     const keyItemId = this.keyItemId(tier);
     this.accountRefs.set(account.id, account);
@@ -153,16 +156,17 @@ export class DungeonStore {
       return { ok: false, message: 'You need a ' + key.id.replace(/_/g, ' ') + ' to open this dungeon.' };
     }
 
+    if (partyMode !== 'solo' && partyMode !== 'cooperative') return { ok: false, message: 'Choose Solo or Cooperative mode.' };
     const seed = crypto.randomBytes(4).readUInt32BE(0);
     const runId = crypto.randomUUID();
     const code = this.makeCode();
     const map = createDungeonMap(tier, 0, seed);
     const player: DungeonPlayerState & { lastSeenAt: number; lastActionAt: number } = {
-      id: account.id, name: account.name, x: 1.5, y: 5.5, hp: 100, maxHp: 100,
+      id: account.id, name: account.name, x: 1.5, y: 5.5, hp: DEFAULT_DUNGEON_BALANCE.playerMaxHealth, maxHp: DEFAULT_DUNGEON_BALANCE.playerMaxHealth,
       connected: true, facingX: 1, facingY: 0, lastSeenAt: now, lastActionAt: 0,
     };
     const run: DungeonRun = {
-      runId, code, tier, roomIndex: 0, seed, map, phase: 'active',
+      runId, code, tier, partyMode, roomIndex: 0, seed, map, phase: 'active',
       message: 'Dungeon opened. Clear the room to unlock the next gate.',
       players: { [account.id]: player },
       enemies: this.createEnemies(tier, 0, key.rooms, seed, now),
@@ -180,6 +184,7 @@ export class DungeonStore {
     if (!/^[A-Z0-9]{6}$/.test(code)) return { ok: false, message: 'Enter a valid six-character party code.' };
     const run = [...this.runs.values()].find((entry) => entry.code === code);
     if (!run || run.phase !== 'active' && run.phase !== 'cleared') return { ok: false, message: 'That dungeon party is no longer available.' };
+    if (run.partyMode !== 'cooperative') return { ok: false, message: 'This expedition was created as a solo run.' };
     const currentRun = this.findRun(account.id);
     if (currentRun && currentRun.runId !== run.runId) return { ok: false, message: 'Leave your current dungeon party before joining another.' };
     if (run.players[account.id]) {
@@ -187,7 +192,7 @@ export class DungeonStore {
       run.players[account.id].lastSeenAt = now;
       return { ok: true, snapshot: this.snapshot(run) };
     }
-    if (Object.keys(run.players).length >= DUNGEON_PARTY_LIMIT) return { ok: false, message: 'This dungeon party is full.' };
+    if (Object.keys(run.players).length >= DEFAULT_DUNGEON_BALANCE.cooperativePartyLimit) return { ok: false, message: 'This dungeon party is full.' };
     run.players[account.id] = {
       id: account.id, name: account.name, x: 1.5, y: 5.5, hp: 100, maxHp: 100,
       connected: true, facingX: 1, facingY: 0, lastSeenAt: now, lastActionAt: 0,
@@ -238,7 +243,7 @@ export class DungeonStore {
       return state / 4294967296;
     };
     const isBossRoom = roomIndex === roomCount - 1;
-    const count = isBossRoom ? 1 : 2 + Math.min(3, tier);
+    const count = isBossRoom ? 1 : DEFAULT_DUNGEON_BALANCE.enemyCountBase + Math.min(DEFAULT_DUNGEON_BALANCE.enemyCountBonusCap, tier * DEFAULT_DUNGEON_BALANCE.enemyCountTierBonus);
     const enemies: DungeonEnemyState[] = [];
     const used = new Set<string>();
     for (let i = 0; i < count; i++) {
@@ -259,7 +264,7 @@ export class DungeonStore {
         kind: isBossRoom ? 'boss' : (tier === 1 && i % 2 === 1 ? 'drone' : 'dweller'),
         x: x + 0.5, y: y + 0.5,
         hp: enemyStats.hp, maxHp: enemyStats.hp, damage: enemyStats.damage,
-        boss: isBossRoom, nextAttackAt: now + 700, nextMoveAt: now + 350,
+        boss: isBossRoom, nextAttackAt: now + DEFAULT_DUNGEON_BALANCE.enemyAttackCooldownMs, nextMoveAt: now + DEFAULT_DUNGEON_BALANCE.enemyMoveCooldownMs,
       });
     }
     return enemies;
@@ -290,7 +295,7 @@ export class DungeonStore {
     }
     if (run.phase !== 'active' && run.phase !== 'cleared') return { ok: false, message: 'This dungeon has ended.' };
     if (player.hp <= 0) return { ok: false, message: 'You are down and cannot act.' };
-    if (now - player.lastActionAt < (action === 'move' ? 90 : 260)) return { ok: false, message: 'Wait for your action cooldown.' };
+    if (now - player.lastActionAt < (action === 'move' ? DEFAULT_DUNGEON_BALANCE.playerMoveCooldownMs : DEFAULT_DUNGEON_BALANCE.playerAttackCooldownMs)) return { ok: false, message: 'Wait for your action cooldown.' };
     player.lastActionAt = now;
 
     if (action === 'move') {
@@ -298,7 +303,7 @@ export class DungeonStore {
       const magnitude = Math.hypot(dx, dy);
       const directionX = dx / magnitude;
       const directionY = dy / magnitude;
-      const speed = 0.18;
+      const speed = DEFAULT_DUNGEON_BALANCE.playerMoveStep;
       const nx = Math.max(1.22, Math.min(DUNGEON_WIDTH - 1.22, player.x + directionX * speed));
       const ny = Math.max(1.22, Math.min(DUNGEON_HEIGHT - 1.22, player.y + directionY * speed));
       if (!isDungeonPositionWalkable(run.map, nx, ny) ||
@@ -316,14 +321,14 @@ export class DungeonStore {
           const vx = enemy.x - player.x;
           const vy = enemy.y - player.y;
           const distance = Math.hypot(vx, vy);
-          if (distance > 1.35) return false;
+          if (distance > DEFAULT_DUNGEON_BALANCE.playerAttackRange) return false;
           if (distance < 0.001) return true;
           const facingDot = (vx / distance) * player.facingX + (vy / distance) * player.facingY;
           return facingDot >= 0.35;
         })
         .sort((a, b) => Number(b.boss) - Number(a.boss))[0];
       if (!target) return { ok: false, message: 'Move next to an enemy to attack.' };
-      const damage = 8 + Math.floor(account.level * 0.8);
+      const damage = DEFAULT_DUNGEON_BALANCE.playerBaseDamage + Math.floor(account.level * DEFAULT_DUNGEON_BALANCE.playerDamagePerLevel);
       target.hp = Math.max(0, target.hp - damage);
       run.message = account.name + ' dealt ' + damage + ' damage to ' + target.name + '.';
       if (target.hp <= 0) run.message = target.name + ' was defeated.';
@@ -429,9 +434,9 @@ export class DungeonStore {
           Math.abs(a.x - enemy.x) + Math.abs(a.y - enemy.y) - (Math.abs(b.x - enemy.x) + Math.abs(b.y - enemy.y))
         )[0];
         const distance = Math.hypot(target.x - enemy.x, target.y - enemy.y);
-        if (distance <= 0.9 && now >= enemy.nextAttackAt) {
+        if (distance <= DEFAULT_DUNGEON_BALANCE.enemyAttackRange && now >= enemy.nextAttackAt) {
           target.hp = Math.max(0, target.hp - enemy.damage);
-          enemy.nextAttackAt = now + (enemy.boss ? 850 : 1100);
+          enemy.nextAttackAt = now + (enemy.boss ? DEFAULT_DUNGEON_BALANCE.bossAttackCooldownMs : DEFAULT_DUNGEON_BALANCE.enemyAttackCooldownMs);
           run.message = enemy.name + ' hit ' + target.name + ' for ' + enemy.damage + '.';
           didChange = true;
         } else if (distance > 0.9 && now >= enemy.nextMoveAt) {
@@ -441,7 +446,7 @@ export class DungeonStore {
             enemy.x = step.x + 0.5;
             enemy.y = step.y + 0.5;
           }
-          enemy.nextMoveAt = now + (enemy.boss ? 420 : 600);
+          enemy.nextMoveAt = now + (enemy.boss ? DEFAULT_DUNGEON_BALANCE.bossMoveCooldownMs : DEFAULT_DUNGEON_BALANCE.enemyMoveCooldownMs);
           didChange = true;
         }
       }
@@ -469,7 +474,7 @@ export class DungeonStore {
 
   private snapshot(run: DungeonRun): DungeonSnapshot {
     return {
-      runId: run.runId, code: run.code, tier: run.tier,
+      runId: run.runId, code: run.code, tier: run.tier, partyMode: run.partyMode,
       roomIndex: run.roomIndex, roomCount: GATE_KEYS[run.tier - 1].rooms,
       width: DUNGEON_WIDTH, height: DUNGEON_HEIGHT, map: [...run.map],
       phase: run.phase, message: run.message,
