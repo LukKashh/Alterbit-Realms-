@@ -1,18 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeftRight,
   Backpack,
   Globe,
   Lock,
   Menu,
   MessageSquare,
   Shield,
-  ShoppingBag,
   Smartphone,
   Sparkles,
   Star,
   Timer,
-  Trophy,
   Users,
   Volume2,
   VolumeX,
@@ -396,6 +393,20 @@ export const GameHud: React.FC<GameHudProps> = ({
     }
   }, [inspectInfo]);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (mode !== 'playing') return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.code === 'KeyB' || e.code === 'KeyI') {
+        e.preventDefault();
+        setActivePanel((cur) => (cur === 'backpack' || cur === 'splice' ? 'none' : 'backpack'));
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mode]);
+
   const liveBuffs = activeBuffs.filter((b) => b.expiresAt > nowMs);
   const mineRemainingSec =
     worldKind === 'mine_shaft' && mineExpiresAt
@@ -438,50 +449,112 @@ export const GameHud: React.FC<GameHudProps> = ({
 
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-2.5">
-      {/* Top Perimeter Bar (Responsive status + single Menu button) */}
+      {/* Top Perimeter Bar (Responsive status + World Chat below top-left + Menu button) */}
       <div className="flex items-start justify-between gap-1.5 sm:gap-2">
-        {/* Top-left: Identity, Level/XP, Gems, World */}
-        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 bg-[#0f1d2c]/92 border-2 border-[#314a66] rounded-md px-2 py-1 sm:px-2.5 sm:py-1.5 shadow-[0_3px_0_rgba(6,12,20,0.8)] max-w-[calc(100vw-6.5rem)] overflow-hidden">
-          <div className="flex flex-col text-left min-w-0">
-            <div className="flex items-center gap-1 sm:gap-1.5">
-              <span className="text-[11px] sm:text-xs font-bold text-[#f7f4eb] whitespace-nowrap truncate max-w-[74px] sm:max-w-none">
-                {playerName}
-              </span>
-              <span className="text-[10px] sm:text-[11px] font-mono-num font-bold text-[#89d6ff] whitespace-nowrap">
-                LVL {level}
-              </span>
+        {/* Top-left Column: Panel View (Profile, Gem Store, World) + World Chat directly below */}
+        <div className="flex flex-col items-start gap-1.5 min-w-0 max-w-[calc(100vw-6.5rem)]">
+          <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 bg-[#0f1d2c]/92 border-2 border-[#314a66] rounded-md px-1.5 py-1 sm:px-2 sm:py-1 shadow-[0_3px_0_rgba(6,12,20,0.8)] max-w-full overflow-hidden">
+            {/* Profile Trigger (Identity, Level & XP) */}
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="hud-profile-button"
+              aria-label="Profile"
+              aria-expanded={activePanel === 'profile'}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                togglePanel('profile');
+              }}
+              className={`relative flex flex-col text-left min-w-0 px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                activePanel === 'profile'
+                  ? 'bg-[#1c354f] border-[#f2b738]/80'
+                  : 'border-transparent hover:bg-[#162a3f]'
+              }`}
+            >
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <span className="text-[11px] sm:text-xs font-bold text-[#f7f4eb] whitespace-nowrap truncate max-w-[74px] sm:max-w-none">
+                  {playerName}
+                </span>
+                <span className="text-[10px] sm:text-[11px] font-mono-num font-bold text-[#89d6ff] whitespace-nowrap">
+                  LVL {level}
+                </span>
+                {claimableCount > 0 && (
+                  <span
+                    aria-label={`${claimableCount} claimable achievements`}
+                    className="w-3.5 h-3.5 rounded-full bg-[#4aa64d] text-[9px] font-mono-num font-bold text-[#081709] flex items-center justify-center shrink-0"
+                  >
+                    {claimableCount}
+                  </span>
+                )}
+              </div>
+              <div className="w-14 sm:w-24 h-1.5 bg-[#08101a] rounded-sm overflow-hidden mt-0.5">
+                <div
+                  className="h-full bg-[#4ec46a] transition-[width] duration-150"
+                  style={{ width: `${xpPct}%` }}
+                />
+              </div>
+            </button>
+
+            <div className="h-6 w-px bg-[#2a4057] shrink-0" />
+
+            {/* Gem Store Trigger */}
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="hud-gemstore-button"
+              aria-label={`Gem Store (${Math.round(gems)} Gems)`}
+              aria-expanded={activePanel === 'store'}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                togglePanel('store');
+              }}
+              className={`flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 rounded border transition-colors shrink-0 cursor-pointer ${
+                activePanel === 'store'
+                  ? 'bg-[#143647] border-[#38e8d8]/80'
+                  : 'border-transparent hover:bg-[#162a3f]'
+              }`}
+            >
+              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" aria-hidden="true">
+                <polygon points="12,2 21,9 12,22 3,9" fill="#38e8d8" stroke="#0b2430" strokeWidth="2" />
+                <polygon points="12,4 17,9 12,18 7,9" fill="#a8fff7" />
+              </svg>
+              <span className="text-[11px] sm:text-xs font-mono-num font-bold text-[#8cf7ee]">{Math.round(gems)}</span>
+            </button>
+
+            <div className="h-6 w-px bg-[#2a4057] shrink-0" />
+
+            {/* Active World Status */}
+            <div className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1.5 py-0.5 text-[11px] sm:text-xs font-bold text-[#ffe18c] whitespace-nowrap truncate">
+              {worldOwner ? <Lock className="w-3 h-3 text-[#f2b738] shrink-0" /> : <Globe className="w-3 h-3 text-[#78c8f5] shrink-0" />}
+              <span className="truncate max-w-[64px] sm:max-w-none">{worldName}</span>
+              <span className="hidden sm:inline text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/20)</span>
             </div>
-            <div className="w-14 sm:w-24 h-1.5 bg-[#08101a] rounded-sm overflow-hidden mt-0.5">
-              <div
-                className="h-full bg-[#4ec46a] transition-[width] duration-150"
-                style={{ width: `${xpPct}%` }}
-              />
-            </div>
+
+            <span className="hidden md:inline text-[11px] font-mono-num text-[#8aa4bd] whitespace-nowrap pr-1">
+              {coords.tx},{coords.ty}
+            </span>
           </div>
 
-          <div className="h-6 w-px bg-[#2a4057] shrink-0" />
-
-          {/* Gems Counter */}
-          <div aria-label={`Gems ${gems}`} className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1 py-0.5 shrink-0">
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" aria-hidden="true">
-              <polygon points="12,2 21,9 12,22 3,9" fill="#38e8d8" stroke="#0b2430" strokeWidth="2" />
-              <polygon points="12,4 17,9 12,18 7,9" fill="#a8fff7" />
-            </svg>
-            <span className="text-[11px] sm:text-xs font-mono-num font-bold text-[#8cf7ee]">{Math.round(gems)}</span>
-          </div>
-
-          <div className="h-6 w-px bg-[#2a4057] shrink-0" />
-
-          {/* Active World Status */}
-          <div className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1.5 py-0.5 text-[11px] sm:text-xs font-bold text-[#ffe18c] whitespace-nowrap truncate">
-            {worldOwner ? <Lock className="w-3 h-3 text-[#f2b738] shrink-0" /> : <Globe className="w-3 h-3 text-[#78c8f5] shrink-0" />}
-            <span className="truncate max-w-[64px] sm:max-w-none">{worldName}</span>
-            <span className="hidden sm:inline text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/20)</span>
-          </div>
-
-          <span className="hidden md:inline text-[11px] font-mono-num text-[#8aa4bd] whitespace-nowrap">
-            {coords.tx},{coords.ty}
-          </span>
+          {/* World Chat Toggle positioned directly below the Top-Left Panel View */}
+          <button
+            type="button"
+            tabIndex={-1}
+            data-testid="hud-chat-button"
+            aria-label="World Chat"
+            aria-expanded={activePanel === 'chat'}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              togglePanel('chat');
+            }}
+            className={`pointer-events-auto h-7 sm:h-8 px-2.5 rounded-md border-2 flex items-center gap-1.5 text-[11px] sm:text-xs font-bold shadow-[0_3px_0_rgba(6,12,20,0.8)] cursor-pointer transition-colors ${
+              activePanel === 'chat'
+                ? 'bg-[#1b3957]/96 border-[#78c8f5] text-[#eaf6ff]'
+                : 'bg-[#0f1d2c]/90 hover:bg-[#192f47] border-[#314a66] text-[#c7d9eb]'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-[#89d6ff] shrink-0" />
+            <span>World Chat</span>
+          </button>
         </div>
 
         {/* Top-right: Mine Shaft Exit / Status + Single Menu Button */}
@@ -520,9 +593,9 @@ export const GameHud: React.FC<GameHudProps> = ({
           >
             <Menu className="w-4 h-4 text-[#ffe18c]" />
             <span>Menu</span>
-            {incomingRequests.length + claimableCount > 0 && (
+            {incomingRequests.length > 0 && (
               <span className="w-4 h-4 rounded-full bg-[#e6482e] text-[9px] font-mono-num font-bold text-white flex items-center justify-center">
-                {incomingRequests.length + claimableCount}
+                {incomingRequests.length}
               </span>
             )}
           </button>
@@ -919,7 +992,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     setAssignSlot(idx);
                     if (itemId !== ITEM_IDS.AIR) onSelectItem(itemId);
                   }}
-                  className={`relative w-10 h-10 sm:w-11 sm:h-11 rounded border-2 flex items-center justify-center cursor-pointer transition-transform ${
+                  className={`relative w-9 h-9 min-[400px]:w-10 min-[400px]:h-10 sm:w-11 sm:h-11 rounded border-2 flex items-center justify-center cursor-pointer transition-transform ${
                     active
                       ? 'bg-[#254463] border-[#f2b738] -translate-y-0.5'
                       : 'bg-[#09131d] border-[#263c52] hover:border-[#4b7299]'
@@ -932,7 +1005,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <img
                       src={getItemIconUrl(itemId)}
                       alt={def?.name ?? 'Item'}
-                      className="w-6 h-6 sm:w-7 sm:h-7 pixelated"
+                      className="w-5 h-5 min-[400px]:w-6 min-[400px]:h-6 sm:w-7 sm:h-7 pixelated"
                       referrerPolicy="no-referrer"
                     />
                   )}
@@ -954,6 +1027,26 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </button>
               );
             })}
+            <div className="h-7 sm:h-8 w-px bg-[#2a4057] mx-0.5 shrink-0" />
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="hud-backpack-button"
+              aria-label="Backpack Inventory Toggle"
+              aria-expanded={activePanel === 'backpack' || activePanel === 'splice'}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                setActivePanel((cur) => (cur === 'backpack' || cur === 'splice' ? 'none' : 'backpack'));
+              }}
+              className={`relative w-9 h-9 min-[400px]:w-10 min-[400px]:h-10 sm:w-11 sm:h-11 rounded border-2 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-transform ${
+                activePanel === 'backpack' || activePanel === 'splice'
+                  ? 'bg-[#254463] border-[#f2b738] text-[#ffe18c] -translate-y-0.5'
+                  : 'bg-[#09131d] border-[#314a66] hover:border-[#78c8f5] text-[#c7d9eb]'
+              }`}
+            >
+              <Backpack className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+              <span className="text-[8px] font-bold uppercase tracking-wider leading-none">Bag</span>
+            </button>
           </div>
         </div>
 
@@ -1015,9 +1108,9 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       </div>
 
-      {/* Gem Store Drawer */}
+      {/* Gem Store Drawer (anchored below Top-Left Panel View) */}
       {activePanel === 'store' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-88 max-w-[92vw] max-h-[72vh] bg-[#0f1d2c]/96 border-2 border-[#38e8d8] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
+        <div className="pointer-events-auto fixed left-2.5 top-[58px] sm:top-[62px] z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[70vh] bg-[#0f1d2c]/96 border-2 border-[#38e8d8] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h2 className="font-pixel text-xs text-[#8cf7ee]">Gem Store</h2>
@@ -1084,11 +1177,27 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Backpack Drawer */}
+      {/* Backpack Drawer (anchored cleanly above bottom Toolbar) */}
       {activePanel === 'backpack' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-84 max-w-[92vw] max-h-[68vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <h2 className="font-pixel text-xs text-[#ffe18c]">Backpack</h2>
+        <div className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[148px] min-[700px]:bottom-24 z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[54vh] min-[700px]:max-h-[64vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setActivePanel('backpack')}
+                className="px-2 py-0.5 rounded bg-[#254463] border border-[#f2b738] text-[11px] font-bold text-[#ffe18c] cursor-pointer"
+              >
+                Backpack
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePanel('splice')}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#09131d] hover:bg-[#142538] border border-[#263c52] text-[11px] font-bold text-[#9cb5cc] hover:text-[#82e068] cursor-pointer"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Splice</span>
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setActivePanel('none')}
@@ -1178,11 +1287,27 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Seed Splicer Drawer */}
+      {/* Seed Splicer Drawer (anchored cleanly above bottom Toolbar) */}
       {activePanel === 'splice' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-88 max-w-[92vw] max-h-[75vh] overflow-y-auto bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <h2 className="font-pixel text-xs text-[#82e068]">Biome Seed Splicer</h2>
+        <div className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[148px] min-[700px]:bottom-24 z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[56vh] min-[700px]:max-h-[68vh] overflow-y-auto bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setActivePanel('backpack')}
+                className="px-2 py-0.5 rounded bg-[#09131d] hover:bg-[#142538] border border-[#263c52] text-[11px] font-bold text-[#9cb5cc] hover:text-[#ffe18c] cursor-pointer"
+              >
+                Backpack
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePanel('splice')}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#1f422b] border border-[#82e068] text-[11px] font-bold text-[#b4f7a1] cursor-pointer"
+              >
+                <Sparkles className="w-3 h-3" />
+                <span>Splice</span>
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setActivePanel('none')}
@@ -1445,9 +1570,9 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Profile, Wardrobe & Achievements Drawer */}
+      {/* Profile, Wardrobe & Achievements Drawer (anchored below Top-Left Panel View) */}
       {activePanel === 'profile' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-88 max-w-[92vw] max-h-[72vh] bg-[#0f1d2c]/96 border-2 border-[#f2b738] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
+        <div className="pointer-events-auto fixed left-2.5 top-[58px] sm:top-[62px] z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[70vh] bg-[#0f1d2c]/96 border-2 border-[#f2b738] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="font-pixel text-xs text-[#ffe18c]">
@@ -1712,9 +1837,9 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* World Chat Drawer */}
+      {/* World Chat Drawer (anchored below Top-Left World Chat button) */}
       {activePanel === 'chat' && (
-        <div className="pointer-events-auto fixed left-3 top-14 z-20 w-80 max-w-[92vw] bg-[#0f1d2c]/94 border-2 border-[#46678a] rounded-md p-2.5 shadow-[0_6px_0_rgba(6,12,20,0.85)] flex flex-col gap-2">
+        <div className="pointer-events-auto fixed left-2.5 top-[92px] sm:top-[100px] z-20 w-80 max-w-[calc(100vw-1.25rem)] bg-[#0f1d2c]/94 border-2 border-[#46678a] rounded-md p-2.5 shadow-[0_6px_0_rgba(6,12,20,0.85)] flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-[#89d6ff]">World Chat · {worldName}</span>
             <button
@@ -1815,114 +1940,23 @@ export const GameHud: React.FC<GameHudProps> = ({
               Resume World
             </button>
 
-            {/* Navigation Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onResume();
-                  setActivePanel('backpack');
-                }}
-                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
-              >
-                <Backpack className="w-4 h-4 text-[#89d6ff]" />
-                <span>Backpack</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onResume();
-                  setActivePanel('store');
-                }}
-                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#8cf7ee] cursor-pointer"
-              >
-                <ShoppingBag className="w-4 h-4" />
-                <span>Gem Store</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onResume();
-                  setActivePanel('splice');
-                }}
-                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4 text-[#ffe18c]" />
-                <span>Splice Seeds</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onResume();
-                  setActivePanel('profile');
-                }}
-                className="relative flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#ffe18c] cursor-pointer"
-              >
-                <Trophy className="w-4 h-4" />
-                <span>Profile</span>
-                {claimableCount > 0 && (
-                  <span className="ml-auto px-1.5 py-0.2 rounded-full bg-[#4aa64d] text-[10px] font-mono-num text-[#081709]">
-                    {claimableCount}
-                  </span>
-                )}
-              </button>
-
+            {/* Navigation Grid (Streamlined: Friends & Admin only; Backpack is in Toolbar, Gem Store/Profile/Chat in Top-Left HUD) */}
+            <div className={`grid ${role === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
               <button
                 type="button"
                 onClick={() => {
                   onResume();
                   setActivePanel('friends');
                 }}
-                className="relative flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
+                className="relative flex items-center justify-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
               >
                 <Users className="w-4 h-4 text-[#89d6ff]" />
                 <span>Friends</span>
                 {incomingRequests.length > 0 && (
-                  <span className="ml-auto px-1.5 py-0.2 rounded-full bg-[#e6482e] text-[10px] font-mono-num text-white">
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full bg-[#e6482e] text-[10px] font-mono-num text-white">
                     {incomingRequests.length}
                   </span>
                 )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onResume();
-                  setActivePanel('chat');
-                }}
-                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
-              >
-                <MessageSquare className="w-4 h-4 text-[#89d6ff]" />
-                <span>World Chat</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onResume();
-                  onRefreshWorlds();
-                  setActivePanel('worlds');
-                }}
-                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
-              >
-                <Globe className="w-4 h-4 text-[#78c8f5]" />
-                <span>Switch World</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onResume();
-                  onExchangeAction({ action: 'list' });
-                  setActivePanel('exchange');
-                }}
-                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#ffe18c] cursor-pointer"
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-                <span>WL Exchange</span>
               </button>
 
               {role === 'admin' && (
@@ -1933,7 +1967,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     onResume();
                     setActivePanel('admin');
                   }}
-                  className="flex items-center gap-2 px-3 py-2 rounded bg-[#332710] hover:bg-[#473717] border border-[#f2b738] text-xs font-bold text-[#ffe18c] cursor-pointer"
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded bg-[#332710] hover:bg-[#473717] border border-[#f2b738] text-xs font-bold text-[#ffe18c] cursor-pointer"
                 >
                   <Shield className="w-4 h-4" />
                   <span>Admin Panel</span>

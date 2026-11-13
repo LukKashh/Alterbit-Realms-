@@ -135,8 +135,9 @@ export class BlockgroveEngine {
   private worldLayerCtx: CanvasRenderingContext2D;
   private shakeTrauma = 0;
   private hitstopTimer = 0;
-  private scaleX = 1;
-  private scaleY = 1;
+  private cssWidth = 960;
+  private cssHeight = 540;
+  private dpr = 1;
 
   private keysHeld = new Set<string>();
   private jumpJustPressed = false;
@@ -222,13 +223,25 @@ export class BlockgroveEngine {
 
   private handleResize() {
     const rect = this.container.getBoundingClientRect();
-    const w = Math.max(320, Math.floor(rect.width));
-    const h = Math.max(200, Math.floor(rect.height));
-    if (this.canvas.width !== w || this.canvas.height !== h) {
-      this.canvas.width = w;
-      this.canvas.height = h;
+    const cssW = Math.max(320, Math.floor(rect.width));
+    const cssH = Math.max(200, Math.floor(rect.height));
+    const dpr = Math.min(3, Math.max(1, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1));
+    const physW = Math.round(cssW * dpr);
+    const physH = Math.round(cssH * dpr);
+    if (
+      this.cssWidth !== cssW ||
+      this.cssHeight !== cssH ||
+      this.dpr !== dpr ||
+      this.canvas.width !== physW ||
+      this.canvas.height !== physH
+    ) {
+      this.cssWidth = cssW;
+      this.cssHeight = cssH;
+      this.dpr = dpr;
+      this.canvas.width = physW;
+      this.canvas.height = physH;
       this.ctx.imageSmoothingEnabled = false;
-      const grad = this.ctx.createLinearGradient(0, 0, 0, h);
+      const grad = this.ctx.createLinearGradient(0, 0, 0, cssH);
       grad.addColorStop(0, '#4a9ee0');
       grad.addColorStop(0.55, '#86ccf5');
       grad.addColorStop(1, '#c8ecff');
@@ -982,8 +995,8 @@ export class BlockgroveEngine {
   }
 
   private snapCameraToPlayer() {
-    const viewW = (this.canvas.width || 960) / this.viewScale;
-    const viewH = (this.canvas.height || 540) / this.viewScale;
+    const viewW = (this.cssWidth || 960) / this.viewScale;
+    const viewH = (this.cssHeight || 540) / this.viewScale;
     const wPx = worldWidth(this.world) * TILE_SIZE;
     const hPx = worldHeight(this.world) * TILE_SIZE;
     const targetX = this.body.x + PLAYER_WIDTH * 0.5 - viewW * 0.5;
@@ -1025,11 +1038,9 @@ export class BlockgroveEngine {
       p.y += p.vy * dt;
     }
     this.shakeTrauma = Math.max(0, this.shakeTrauma - dt * 2.4);
-    this.scaleX += (1 - this.scaleX) * (1 - Math.exp(-14 * dt));
-    this.scaleY += (1 - this.scaleY) * (1 - Math.exp(-14 * dt));
 
-    const viewW = this.canvas.width / this.viewScale;
-    const viewH = this.canvas.height / this.viewScale;
+    const viewW = this.cssWidth / this.viewScale;
+    const viewH = this.cssHeight / this.viewScale;
     const wPx = worldWidth(this.world) * TILE_SIZE;
     const hPx = worldHeight(this.world) * TILE_SIZE;
     const maxCamX = Math.max(0, wPx - viewW);
@@ -1097,16 +1108,10 @@ export class BlockgroveEngine {
     this.jumpJustPressed = false;
 
     if (result.bounced) {
-      this.scaleX = 0.78;
-      this.scaleY = 1.28;
       soundEngine.jump();
     } else if (result.jumped) {
-      this.scaleX = 0.84;
-      this.scaleY = 1.18;
       soundEngine.jump();
     } else if (result.landed) {
-      this.scaleX = 1.2;
-      this.scaleY = 0.82;
       soundEngine.land();
     }
 
@@ -1191,19 +1196,28 @@ export class BlockgroveEngine {
   }
 
   private render(nowMs: number) {
+    const liveDpr = Math.min(3, Math.max(1, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1));
+    if (liveDpr !== this.dpr) {
+      this.handleResize();
+    }
+
     const ctx = this.ctx;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+    const w = this.cssWidth;
+    const h = this.cssHeight;
     const viewScale = this.viewScale;
     const viewW = w / viewScale;
     const viewH = h / viewScale;
+
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
 
     const shakeAmp = this.shakeTrauma * this.shakeTrauma * 6;
     const shakeX = shakeAmp > 0.1 ? (Math.random() * 2 - 1) * shakeAmp : 0;
     const shakeY = shakeAmp > 0.1 ? (Math.random() * 2 - 1) * shakeAmp : 0;
 
-    const cx = Math.floor(this.camX + shakeX);
-    const cy = Math.floor(this.camY + shakeY);
+    const snapScale = this.dpr * viewScale;
+    const cx = Math.round((this.camX + shakeX) * snapScale) / snapScale;
+    const cy = Math.round((this.camY + shakeY) * snapScale) / snapScale;
 
     // 1. Sky or Deep Cavern backdrop (unscaled full viewport)
     if (this.world.worldKind === 'mine_shaft') {
@@ -1380,9 +1394,11 @@ export class BlockgroveEngine {
       }
     }
 
+    const queuedNameplates: Array<{ name: string; screenX: number; screenY: number }> = [];
+
     // 6. Remote players
     for (const rp of this.remotePlayers.values()) {
-      this.drawCharacter(
+      const topY = this.drawCharacter(
         ctx,
         rp.renderX - cx,
         rp.renderY - cy,
@@ -1393,23 +1409,26 @@ export class BlockgroveEngine {
         rp.punching,
         Boolean(rp.placing),
         rp.shirtColor,
-        rp.name,
-        1,
-        1,
         nowMs * 0.007,
         nowMs,
         rp.punching ? ((nowMs % 320) / 320) : 0,
         rp.equipped
       );
+      queuedNameplates.push({
+        name: rp.name,
+        screenX: (rp.renderX - cx + PLAYER_WIDTH * 0.5) * viewScale,
+        screenY: topY * viewScale,
+      });
     }
 
     // 7. Local player, nearby Sign banner & targeting reticle (3-block reach check)
+    const queuedSignBanners: Array<{ text: string; screenX: number; screenY: number }> = [];
     if (this.mode !== 'title') {
       const punchProgress =
         this.punchAnimTimer > 0
           ? Math.max(0, Math.min(1, 1 - this.punchAnimTimer / PUNCH_ANIM_DURATION))
           : 0;
-      this.drawCharacter(
+      const localTopY = this.drawCharacter(
         ctx,
         this.body.x - cx,
         this.body.y - cy,
@@ -1420,16 +1439,18 @@ export class BlockgroveEngine {
         this.punchAnimTimer > 0,
         this.placeAnimTimer > 0,
         this.localShirtColor,
-        this.localPlayerName,
-        this.scaleX,
-        this.scaleY,
         this.body.walkDistance * 0.085,
         nowMs,
         punchProgress,
         this.localEquipped
       );
+      queuedNameplates.push({
+        name: this.localPlayerName,
+        screenX: (this.body.x - cx + PLAYER_WIDTH * 0.5) * viewScale,
+        screenY: localTopY * viewScale,
+      });
 
-      // Nearby Signboard floating caption
+      // Nearby Signboard floating caption (queued for crisp screen-space pass)
       if (this.world.signs) {
         const ptx = (this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE;
         const pty = (this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE;
@@ -1440,11 +1461,11 @@ export class BlockgroveEngine {
           const stx = Number(sxStr);
           const sty = Number(syStr);
           if (Math.hypot(ptx - (stx + 0.5), pty - (sty + 0.5)) <= 2.6) {
-            const banner = this.getSignBannerCanvas(text);
-            const rawBx = Math.round(stx * TILE_SIZE - cx + TILE_SIZE * 0.5 - banner.width * 0.5);
-            const bx = Math.max(4, Math.min(Math.max(4, viewW - banner.width - 4), rawBx));
-            const by = Math.max(4, Math.round(sty * TILE_SIZE - cy - banner.height - 6));
-            ctx.drawImage(banner, bx, by);
+            queuedSignBanners.push({
+              text,
+              screenX: (stx * TILE_SIZE - cx + TILE_SIZE * 0.5) * viewScale,
+              screenY: (sty * TILE_SIZE - cy) * viewScale,
+            });
           }
         }
       }
@@ -1520,6 +1541,30 @@ export class BlockgroveEngine {
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+
+    // 9. Crisp HiDPI screen-space nameplates & signboard overlays (never distorted by world viewScale)
+    if (queuedNameplates.length > 0 || queuedSignBanners.length > 0) {
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      for (const np of queuedNameplates) {
+        const nameplate = this.getNameplateCanvas(np.name);
+        const nw = nameplate.width / 2;
+        const nh = nameplate.height / 2;
+        const tagX = Math.round(np.screenX - nw * 0.5);
+        const tagY = Math.round(np.screenY - nh - 6);
+        ctx.drawImage(nameplate, tagX, tagY, nw, nh);
+      }
+      for (const sb of queuedSignBanners) {
+        const banner = this.getSignBannerCanvas(sb.text);
+        const bw = banner.width / 2;
+        const bh = banner.height / 2;
+        const rawBx = Math.round(sb.screenX - bw * 0.5);
+        const bx = Math.max(8, Math.min(Math.max(8, w - bw - 8), rawBx));
+        const by = Math.max(8, Math.round(sb.screenY - bh - 8));
+        ctx.drawImage(banner, bx, by, bw, bh);
+      }
+      ctx.restore();
+    }
   }
 
   private drawPlantedTree(
@@ -1598,29 +1643,30 @@ export class BlockgroveEngine {
     if (cached) return cached;
     const c = document.createElement('canvas');
     const tmpCtx = c.getContext('2d')!;
-    tmpCtx.font = 'bold 11px "Plus Jakarta Sans", sans-serif';
+    tmpCtx.font = 'bold 24px "Plus Jakarta Sans", sans-serif';
     const textW = Math.ceil(tmpCtx.measureText(name).width);
-    c.width = textW + 10;
-    c.height = 14;
+    c.width = textW + 24;
+    c.height = 32;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = 'rgba(11, 22, 34, 0.78)';
+    ctx.fillStyle = 'rgba(11, 22, 34, 0.84)';
     ctx.fillRect(0, 0, c.width, c.height);
-    ctx.font = 'bold 11px "Plus Jakarta Sans", sans-serif';
+    ctx.font = 'bold 24px "Plus Jakarta Sans", sans-serif';
     ctx.fillStyle = '#f4f1ea';
-    ctx.fillText(name, 5, 11);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, 12, c.height / 2 + 1);
     this.nameplateCache.set(name, c);
     return c;
   }
 
   private getSignBannerCanvas(text: string): HTMLCanvasElement {
-    const cacheKey = `sign::${text}`;
+    const cacheKey = `sign2x::${text}`;
     const cached = this.nameplateCache.get(cacheKey);
     if (cached) return cached;
     const c = document.createElement('canvas');
     const tmpCtx = c.getContext('2d')!;
-    const font = 'bold 10px "Plus Jakarta Sans", sans-serif';
+    const font = 'bold 22px "Plus Jakarta Sans", sans-serif';
     tmpCtx.font = font;
-    const maxLineW = 210;
+    const maxLineW = 440;
     const words = text.split(/\s+/);
     const lines: string[] = [];
     let current = '';
@@ -1639,19 +1685,19 @@ export class BlockgroveEngine {
     for (const l of lines) {
       widest = Math.max(widest, Math.ceil(tmpCtx.measureText(l).width));
     }
-    const lineH = 13;
-    c.width = widest + 12;
-    c.height = lines.length * lineH + 6;
+    const lineH = 28;
+    c.width = widest + 28;
+    c.height = lines.length * lineH + 16;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = 'rgba(11, 22, 34, 0.88)';
+    ctx.fillStyle = 'rgba(11, 22, 34, 0.9)';
     ctx.fillRect(0, 0, c.width, c.height);
     ctx.strokeStyle = '#78c8f5';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0.5, 0.5, c.width - 1, c.height - 1);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, c.width - 2, c.height - 2);
     ctx.font = font;
     ctx.fillStyle = '#f4f1ea';
     lines.forEach((line, idx) => {
-      ctx.fillText(line, 6, 13 + idx * lineH);
+      ctx.fillText(line, 14, 28 + idx * lineH);
     });
     this.nameplateCache.set(cacheKey, c);
     return c;
@@ -1668,14 +1714,11 @@ export class BlockgroveEngine {
     punching: boolean,
     placing: boolean,
     shirtColor: string,
-    name: string,
-    scaleX: number,
-    scaleY: number,
     walkPhase: number,
     nowMs: number,
     punchProgress: number,
     equipped?: EquippedWearables
-  ) {
+  ): number {
     let pose: PlayerPose = (`idle${Math.floor(nowMs / 280) % 4}` as PlayerPose) || 'idle0';
     if (punching) {
       const pFrame = Math.min(3, Math.max(0, Math.floor(punchProgress * 4)));
@@ -1690,16 +1733,11 @@ export class BlockgroveEngine {
     }
 
     const sprite = getPlayerSprite(pose, facing, shirtColor, equipped);
-    const drawW = Math.round(sprite.width * scaleX);
-    const drawH = Math.round(sprite.height * scaleY);
-    const drawX = Math.round(screenX + (PLAYER_WIDTH - drawW) * 0.5);
-    const drawY = Math.round(screenY + PLAYER_HEIGHT - drawH);
+    const drawX = Math.round(screenX + (PLAYER_WIDTH - sprite.width) * 0.5);
+    const drawY = Math.round(screenY + PLAYER_HEIGHT - sprite.height);
 
-    ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
-
-    const nameplate = this.getNameplateCanvas(name);
-    const tagX = Math.round(screenX + PLAYER_WIDTH * 0.5 - nameplate.width * 0.5);
-    const tagY = Math.round(drawY - 16);
-    ctx.drawImage(nameplate, tagX, tagY);
+    // 1:1 native pixel blit with zero fractional resampling or squash/stretch blur
+    ctx.drawImage(sprite, drawX, drawY);
+    return drawY;
   }
 }

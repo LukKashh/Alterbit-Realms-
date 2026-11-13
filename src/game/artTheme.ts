@@ -13,7 +13,7 @@ export const BLOCKGROVE_ART_THEME = {
   styleName: 'Warm-Pixel Storybook Sandbox',
   lightDirection: 'top-left-45deg',
   tileTextureSize: 48,
-  playerSpriteSize: { width: 68, height: 84 },
+  playerSpriteSize: { width: 72, height: 84 },
   playerBoxSize: { width: 38.4, height: 84 },
   ink: {
     outline: '#151b26',

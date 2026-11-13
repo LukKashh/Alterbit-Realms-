@@ -1038,13 +1038,7 @@ export function getCrackOverlay(stage: number): HTMLCanvasElement {
   return crackFrames[idx];
 }
 
-// 2x virtual pixel helper (34x42 virtual grid -> 68x84 crisp canvas, centered 19x42 -> 38x84 player box)
-function p2(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, w = 1, h = 1) {
-  ctx.fillStyle = color;
-  ctx.fillRect(Math.round(x * 2), Math.round(y * 2), Math.round(w * 2), Math.round(h * 2));
-}
-
-// Color palette strictly matched to the added sprite sheet template
+// Template palette for crisp pixel-art character sprites (unified 3x pixel grid: 24x28 vpx -> 72x84px)
 const TEMPLATE_PAL = {
   ink: '#191314',
   skinRim: '#ffe0c4',
@@ -1077,62 +1071,50 @@ function drawTemplateHead(
   squint = false
 ) {
   const P = TEMPLATE_PAL;
-  // Crisp chamfered pixel-art boxy head (15x16 vpx -> 30x32px)
-  p2(ctx, hx + 1, hy, P.ink, 13, 1);
-  p2(ctx, hx + 1, hy + 15, P.ink, 13, 1);
-  p2(ctx, hx, hy + 1, P.ink, 1, 14);
-  p2(ctx, hx + 14, hy + 1, P.ink, 1, 14);
-  p2(ctx, hx + 1, hy + 1, P.ink, 1, 1);
-  p2(ctx, hx + 13, hy + 1, P.ink, 1, 1);
-  p2(ctx, hx + 1, hy + 14, P.ink, 1, 1);
-  p2(ctx, hx + 13, hy + 14, P.ink, 1, 1);
+  // Crisp chamfered pixel-art boxy head (12x11 vpx -> 36x33px, exact 3x tile pixel scale)
+  p3(ctx, hx + 1, hy, P.ink, 10, 1);
+  p3(ctx, hx + 1, hy + 10, P.ink, 10, 1);
+  p3(ctx, hx, hy + 1, P.ink, 1, 9);
+  p3(ctx, hx + 11, hy + 1, P.ink, 1, 9);
 
   // Face skin & shading (top-left highlight, right/chin shade)
-  p2(ctx, hx + 1, hy + 1, P.skinLit, 13, 14);
-  p2(ctx, hx + 2, hy + 1, P.skinLit, 11, 14);
-  p2(ctx, hx + 1, hy + 2, P.skinRim, 2, 4);
-  p2(ctx, hx + 2, hy + 1, P.skinRim, 8, 2);
-  p2(ctx, hx + 12, hy + 3, P.skinMid, 2, 11);
-  p2(ctx, hx + 13, hy + 5, P.skinShade, 1, 8);
-  p2(ctx, hx + 2, hy + 13, P.skinShade, 11, 2);
-  p2(ctx, hx + 1, hy + 1, P.ink, 1, 1);
-  p2(ctx, hx + 13, hy + 1, P.ink, 1, 1);
-  p2(ctx, hx + 1, hy + 14, P.ink, 1, 1);
-  p2(ctx, hx + 13, hy + 14, P.ink, 1, 1);
+  p3(ctx, hx + 1, hy + 1, P.skinLit, 10, 9);
+  p3(ctx, hx + 1, hy + 1, P.skinRim, 7, 2);
+  p3(ctx, hx + 10, hy + 2, P.skinMid, 1, 8);
+  p3(ctx, hx + 2, hy + 9, P.skinShade, 8, 1);
 
   if (profile === 'front') {
-    // Front/3-4 hero eye layout: [white][black][black] left, [black][black][white] right
-    p2(ctx, hx + 3, hy + 6, P.eyeWhite, 1, 3);
-    p2(ctx, hx + 4, hy + 6, P.eyeDark, 2, 3);
-    p2(ctx, hx + 9, hy + 6, P.eyeDark, 2, 3);
-    p2(ctx, hx + 11, hy + 6, P.eyeWhite, 1, 3);
-    p2(ctx, hx + 6, hy + 10, P.skinDeep, 3, 1);
-    p2(ctx, hx + 5, hy + 12, P.mouth, 5, 1);
+    // Symmetric hero eyes: [white][dark] left, [dark][white] right
+    p3(ctx, hx + 2, hy + 4, P.eyeWhite, 1, 2);
+    p3(ctx, hx + 3, hy + 4, P.eyeDark, 1, 2);
+    p3(ctx, hx + 8, hy + 4, P.eyeDark, 1, 2);
+    p3(ctx, hx + 9, hy + 4, P.eyeWhite, 1, 2);
+    p3(ctx, hx + 5, hy + 7, P.skinDeep, 2, 1);
+    p3(ctx, hx + 4, hy + 8, P.mouth, 4, 1);
   } else {
-    // 3/4 side-facing view (Walk / Jump / Punch / Place)
-    const eyeH = squint ? 2 : 3;
-    const eyeY = squint ? hy + 7 : hy + 6;
-    p2(ctx, hx + 5, eyeY, P.eyeDark, 2, eyeH);
-    p2(ctx, hx + 7, eyeY, P.eyeWhite, 1, eyeH);
-    p2(ctx, hx + 10, eyeY, P.eyeDark, 2, eyeH);
-    p2(ctx, hx + 12, eyeY, P.eyeWhite, 1, eyeH);
+    // 3/4 side-facing view (Walk / Jump / Punch / Mine / Place)
+    const eyeH = squint ? 1 : 2;
+    const eyeY = squint ? hy + 5 : hy + 4;
+    p3(ctx, hx + 4, eyeY, P.eyeDark, 1, eyeH);
+    p3(ctx, hx + 5, eyeY, P.eyeWhite, 1, eyeH);
+    p3(ctx, hx + 8, eyeY, P.eyeDark, 1, eyeH);
+    p3(ctx, hx + 9, eyeY, P.eyeWhite, 1, eyeH);
     if (squint) {
-      // Determined brow on windup/punch
-      p2(ctx, hx + 5, hy + 6, P.skinDeep, 3, 1);
-      p2(ctx, hx + 10, hy + 6, P.skinDeep, 3, 1);
+      p3(ctx, hx + 4, hy + 4, P.skinDeep, 2, 1);
+      p3(ctx, hx + 8, hy + 4, P.skinDeep, 2, 1);
     }
-    p2(ctx, hx + 9, hy + 10, P.skinDeep, 2, 1);
-    p2(ctx, hx + 8, hy + 12, P.mouth, 4, 1);
+    p3(ctx, hx + 7, hy + 7, P.skinDeep, 1, 1);
+    p3(ctx, hx + 6, hy + 8, P.mouth, 3, 1);
   }
 }
 
 function drawTemplateArmDown(ctx: CanvasRenderingContext2D, ax: number, ay: number, isBack = false) {
   const P = TEMPLATE_PAL;
-  // 4x10 vertical hanging arm with white short sleeve + skin forearm
-  p2(ctx, ax, ay, P.ink, 4, 10);
-  p2(ctx, ax + 1, ay + 1, isBack ? P.teeMid : P.teeRim, 2, 3);
-  p2(ctx, ax + 1, ay + 4, isBack ? P.skinMid : P.skinLit, 2, 5);
-  p2(ctx, ax + 1, ay + 8, isBack ? P.skinShade : P.skinMid, 2, 1);
+  // 3x8 vertical hanging arm with white short sleeve + skin forearm
+  p3(ctx, ax, ay, P.ink, 3, 8);
+  p3(ctx, ax + 1, ay + 1, isBack ? P.teeMid : P.teeRim, 1, 2);
+  p3(ctx, ax + 1, ay + 3, isBack ? P.skinMid : P.skinLit, 1, 4);
+  p3(ctx, ax + 1, ay + 6, isBack ? P.skinShade : P.skinMid, 1, 1);
 }
 
 function drawTemplateArmAngled(
@@ -1144,13 +1126,12 @@ function drawTemplateArmAngled(
   isBack = false
 ) {
   const P = TEMPLATE_PAL;
-  // Crisp stepped pixel arm from (ax, ay) extending by (dx, dy)
-  const steps = Math.max(4, Math.ceil(Math.hypot(dx, dy)));
+  const steps = Math.max(3, Math.ceil(Math.hypot(dx, dy)));
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const px = Math.round(ax + dx * t);
     const py = Math.round(ay + dy * t);
-    p2(ctx, px - 1, py - 1, P.ink, 4, 4);
+    p3(ctx, px - 1, py - 1, P.ink, 3, 3);
   }
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
@@ -1164,7 +1145,7 @@ function drawTemplateArmAngled(
       : isBack
         ? P.skinMid
         : P.skinLit;
-    p2(ctx, px, py, col, 2, 2);
+    p3(ctx, px, py, col, 1, 1);
   }
 }
 
@@ -1176,20 +1157,20 @@ function drawTemplateLegVertical(
   tucked = false
 ) {
   const P = TEMPLATE_PAL;
-  const h = tucked ? 9 : 13;
-  p2(ctx, lx, ly, P.ink, 5, h);
+  const h = tucked ? 6 : 8;
+  p3(ctx, lx, ly, P.ink, 4, h);
   // Jeans
-  p2(ctx, lx + 1, ly + 1, isBack ? P.jeansDeep : P.jeansMid, 3, h - 5);
+  p3(ctx, lx + 1, ly + 1, isBack ? P.jeansDeep : P.jeansMid, 2, h - 4);
   if (!isBack) {
-    p2(ctx, lx + 1, ly + 2, P.jeansLit, 2, Math.max(2, h - 7));
+    p3(ctx, lx + 1, ly + 1, P.jeansLit, 1, Math.max(1, h - 5));
   }
-  // Dark sneaker + crisp white sole
-  const sy = ly + h - 4;
-  p2(ctx, lx + 1, sy, isBack ? P.shoeDark : P.shoeMid, 3, 2);
+  // Dark sneaker + crisp white sole (bottom touches ly + h = 28 -> 84px exact)
+  const sy = ly + h - 3;
+  p3(ctx, lx + 1, sy, isBack ? P.shoeDark : P.shoeMid, 2, 1);
   if (!isBack) {
-    p2(ctx, lx + 1, sy, P.shoeLit, 2, 1);
+    p3(ctx, lx + 1, sy, P.shoeLit, 1, 1);
   }
-  p2(ctx, lx + 1, sy + 2, P.soleWhite, 3, 1);
+  p3(ctx, lx + 1, sy + 1, P.soleWhite, 2, 1);
 }
 
 function drawTemplateLegStride(
@@ -1201,46 +1182,44 @@ function drawTemplateLegStride(
   isBack = false
 ) {
   const P = TEMPLATE_PAL;
-  // Striding jeans from hip -> ankle + wide sneaker foot with white sole
-  const steps = 6;
+  const steps = 4;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const px = Math.round(hipX + (footX - hipX) * t);
     const py = Math.round(hipY + (footY - 3 - hipY) * t);
-    p2(ctx, px - 1, py - 1, P.ink, 5, 4);
+    p3(ctx, px - 1, py - 1, P.ink, 4, 3);
   }
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const px = Math.round(hipX + (footX - hipX) * t);
     const py = Math.round(hipY + (footY - 3 - hipY) * t);
-    p2(ctx, px, py, isBack ? P.jeansDeep : P.jeansMid, 3, 2);
+    p3(ctx, px, py, isBack ? P.jeansDeep : P.jeansMid, 2, 2);
     if (!isBack && i > 0 && i < steps) {
-      p2(ctx, px, py, P.jeansLit, 2, 1);
+      p3(ctx, px, py, P.jeansLit, 1, 1);
     }
   }
-  // Sneaker anchored at footX, footY
+  // Sneaker anchored cleanly with sole bottom at footY + 1 (28 vpx = 84px)
   const sx = Math.round(footX);
-  const sy = Math.round(footY - 3);
-  p2(ctx, sx - 1, sy - 1, P.ink, 6, 5);
-  p2(ctx, sx, sy, isBack ? P.shoeDark : P.shoeMid, 4, 2);
-  if (!isBack) p2(ctx, sx + 1, sy, P.shoeLit, 2, 1);
-  p2(ctx, sx, sy + 2, P.soleWhite, 4, 1);
+  const sy = Math.round(footY - 2);
+  p3(ctx, sx - 1, sy - 1, P.ink, 5, 4);
+  p3(ctx, sx, sy, isBack ? P.shoeDark : P.shoeMid, 3, 1);
+  if (!isBack) p3(ctx, sx + 1, sy, P.shoeLit, 1, 1);
+  p3(ctx, sx, sy + 1, P.soleWhite, 3, 1);
 }
 
-function drawTemplateTorso(ctx: CanvasRenderingContext2D, tx: number, ty: number, widthVpx = 11) {
+function drawTemplateTorso(ctx: CanvasRenderingContext2D, tx: number, ty: number, widthVpx = 10) {
   const P = TEMPLATE_PAL;
   // White short-sleeve t-shirt torso + indigo waistband
-  p2(ctx, tx, ty, P.ink, widthVpx, 12);
-  p2(ctx, tx + 1, ty + 1, P.teeMid, widthVpx - 2, 9);
-  p2(ctx, tx + 1, ty + 1, P.teeRim, Math.max(3, widthVpx - 4), 7);
-  p2(ctx, tx + widthVpx - 3, ty + 2, P.teeShade, 2, 8);
-  p2(ctx, tx + 1, ty + 9, P.teeShade, widthVpx - 2, 1);
+  p3(ctx, tx, ty, P.ink, widthVpx, 8);
+  p3(ctx, tx + 1, ty + 1, P.teeMid, widthVpx - 2, 5);
+  p3(ctx, tx + 1, ty + 1, P.teeRim, Math.max(2, widthVpx - 4), 4);
+  p3(ctx, tx + widthVpx - 2, ty + 2, P.teeShade, 1, 4);
+  p3(ctx, tx + 1, ty + 5, P.teeShade, widthVpx - 2, 1);
   // Collar neckline shadow
-  const colX = tx + Math.floor((widthVpx - 4) * 0.5);
-  p2(ctx, colX, ty + 1, P.skinShade, 4, 1);
-  p2(ctx, colX + 1, ty + 2, P.teeDeep, 2, 1);
+  const colX = tx + Math.floor((widthVpx - 2) * 0.5);
+  p3(ctx, colX, ty + 1, P.skinShade, 2, 1);
   // Jeans waistband top
-  p2(ctx, tx + 1, ty + 10, P.jeansDark, widthVpx - 2, 1);
+  p3(ctx, tx + 1, ty + 6, P.jeansDark, widthVpx - 2, 1);
 }
 
 function drawTemplateWearables(
@@ -1254,44 +1233,44 @@ function drawTemplateWearables(
   const ink = TEMPLATE_PAL.ink;
 
   if (layer === 'back' && equipped.back === ITEM_IDS.WEAR_SKY_WINGS) {
-    const wy = hy + 16;
-    p2(ctx, hx - 5, wy, ink, 7, 14);
-    p2(ctx, hx - 4, wy + 1, '#2b6cb0', 5, 12);
-    p2(ctx, hx - 3, wy + 2, THEME.arcane.aquaLit, 4, 9);
-    p2(ctx, hx - 2, wy + 4, '#ffffff', 2, 5);
+    const wy = hy + 10;
+    p3(ctx, hx - 4, wy, ink, 5, 9);
+    p3(ctx, hx - 3, wy + 1, '#2b6cb0', 3, 7);
+    p3(ctx, hx - 2, wy + 2, THEME.arcane.aquaLit, 3, 5);
+    p3(ctx, hx - 1, wy + 3, '#ffffff', 1, 3);
     return;
   }
 
   if (layer !== 'front') return;
 
   if (equipped.face === ITEM_IDS.WEAR_CYBER_VISOR) {
-    p2(ctx, hx + 3, hy + 5, ink, 12, 5);
-    p2(ctx, hx + 4, hy + 6, THEME.arcane.aquaMid, 10, 3);
-    p2(ctx, hx + 5, hy + 6, THEME.arcane.aquaRim, 5, 1);
+    p3(ctx, hx + 2, hy + 3, ink, 9, 4);
+    p3(ctx, hx + 3, hy + 4, THEME.arcane.aquaMid, 7, 2);
+    p3(ctx, hx + 4, hy + 4, THEME.arcane.aquaRim, 4, 1);
   }
 
   if (equipped.head === ITEM_IDS.WEAR_GOLD_CROWN) {
-    p2(ctx, hx + 2, hy - 2, ink, 11, 4);
-    p2(ctx, hx + 3, hy - 1, THEME.metal.goldMid, 9, 2);
-    p2(ctx, hx + 3, hy - 3, THEME.metal.goldLit, 2, 2);
-    p2(ctx, hx + 6, hy - 4, THEME.metal.goldRim, 3, 3);
-    p2(ctx, hx + 10, hy - 3, THEME.metal.goldLit, 2, 2);
-    p2(ctx, hx + 7, hy, '#ff4f5e', 1, 1);
+    p3(ctx, hx + 1, hy - 1, ink, 10, 3);
+    p3(ctx, hx + 2, hy, THEME.metal.goldMid, 8, 1);
+    p3(ctx, hx + 2, hy - 2, THEME.metal.goldLit, 2, 2);
+    p3(ctx, hx + 5, hy - 2, THEME.metal.goldRim, 2, 2);
+    p3(ctx, hx + 8, hy - 2, THEME.metal.goldLit, 2, 2);
+    p3(ctx, hx + 5, hy, '#ff4f5e', 2, 1);
   } else if (equipped.head === ITEM_IDS.WEAR_EXPLORER_HAT) {
-    p2(ctx, hx - 1, hy + 1, ink, 17, 3);
-    p2(ctx, hx + 2, hy - 3, ink, 11, 5);
-    p2(ctx, hx, hy + 2, THEME.wood.deep, 15, 1);
-    p2(ctx, hx + 3, hy - 2, THEME.wood.mid, 9, 3);
-    p2(ctx, hx + 4, hy - 2, THEME.wood.lit, 6, 1);
-    p2(ctx, hx + 3, hy, THEME.metal.goldMid, 9, 1);
+    p3(ctx, hx - 1, hy, ink, 14, 2);
+    p3(ctx, hx + 1, hy - 2, ink, 10, 3);
+    p3(ctx, hx, hy + 1, THEME.wood.deep, 12, 1);
+    p3(ctx, hx + 2, hy - 1, THEME.wood.mid, 8, 2);
+    p3(ctx, hx + 3, hy - 1, THEME.wood.lit, 5, 1);
+    p3(ctx, hx + 2, hy, THEME.metal.goldMid, 8, 1);
   }
 }
 
 /**
- * Pixel-Art Player Sprite Renderer crafted directly from the added sprite sheet template:
- * - Boxy character proportions rescaled cleanly into the 38.4 x 84 player hitbox (centered in 68 x 84 canvas)
- * - White short-sleeve tee, dark indigo jeans, dark sneakers with white soles
- * - 4-frame Idle, 4-frame Walk, Jump/Fall, 4-frame Punch/Break, and Block Placing animations
+ * Pixel-Art Player Sprite Renderer (Unified 3x Pixel Grid: 24x28 vpx = 72x84px)
+ * - Exact 1:1 pixel density with 48x48 world blocks (3px per virtual pixel)
+ * - Exact horizontal symmetry around center x=12 so left/right flips never shift
+ * - Shoes anchored flush at y=28 (84px = PLAYER_HEIGHT) for zero ground gap
  */
 export function getPlayerSprite(
   pose: PlayerPose,
@@ -1300,14 +1279,12 @@ export function getPlayerSprite(
   equipped?: EquippedWearables
 ): HTMLCanvasElement {
   const eqKey = `${equipped?.head ?? 0}_${equipped?.face ?? 0}_${equipped?.back ?? 0}`;
-  const key = `tpl:${pose}:${facing}:${shirtColor}:${eqKey}`;
+  const key = `tpl3:${pose}:${facing}:${shirtColor}:${eqKey}`;
   const cached = playerFrames.get(key);
   if (cached) return cached;
 
   const [c, ctx] = makeCanvas(PLAYER_CANVAS_W, PLAYER_CANVAS_H);
-  const P = TEMPLATE_PAL;
 
-  // Normalize aliases
   const normPose: PlayerPose = pose === 'idle' ? 'idle0' : pose === 'punch' ? 'punch3' : pose;
 
   ctx.save();
@@ -1316,34 +1293,31 @@ export function getPlayerSprite(
     ctx.scale(-1, 1);
   }
 
-  // Core 19x42 body starts at OX = 7.5 (2px * 19 = 38px inside 38.4px Player Box, centered in 68px canvas)
-  const OX = 7;
+  // Exact symmetric origin around canvas center (24 vpx / 2 = 12)
+  const CX = 12;
 
-  // Determine pose geometry
   const isIdle =
     normPose === 'idle0' || normPose === 'idle1' || normPose === 'idle2' || normPose === 'idle3';
 
   if (isIdle) {
-    // Idle 4-frame subtle breathing settle from template
     const breath = normPose === 'idle1' || normPose === 'idle2' ? 1 : 0;
-    const hx = OX + 2;
-    const hy = 1 + breath;
-    const tx = OX + 4;
-    const ty = 17 + breath;
+    const hx = CX - 6; // 6..18 (12 wide)
+    const hy = 2 + breath; // 2..13
+    const tx = CX - 5; // 7..17 (10 wide)
+    const ty = 13 + breath; // 13..21
 
     drawTemplateWearables(ctx, equipped, hx, hy, 'back');
-    // Left & right legs planted cleanly
-    drawTemplateLegVertical(ctx, OX + 4, 28, true);
-    drawTemplateLegVertical(ctx, OX + 10, 28, false);
-    // Side arms
-    drawTemplateArmDown(ctx, OX + 1, ty + 1, false);
-    drawTemplateArmDown(ctx, OX + 14, ty + 1, false);
-    // White t-shirt torso & head
-    drawTemplateTorso(ctx, tx, ty, 11);
+    // Left & right legs firmly planted to y=28 (84px)
+    drawTemplateLegVertical(ctx, CX - 5, 20, true);
+    drawTemplateLegVertical(ctx, CX + 1, 20, false);
+    // Symmetric hanging arms
+    drawTemplateArmDown(ctx, CX - 7, ty + 1, false);
+    drawTemplateArmDown(ctx, CX + 4, ty + 1, false);
+    // Torso & head
+    drawTemplateTorso(ctx, tx, ty, 10);
     drawTemplateHead(ctx, hx, hy, 'front');
     drawTemplateWearables(ctx, equipped, hx, hy, 'front');
   } else {
-    // 3/4 side-facing poses: Walk (4 frames), Jump, Fall, Punch/Break (4 frames), Place
     let bobY = 0;
     let leanX = 0;
     let squint = false;
@@ -1358,133 +1332,122 @@ export function getPlayerSprite(
     }
     if (normPose === 'place') leanX = 1;
 
-    const hx = OX + 2 + leanX;
-    const hy = 1 + bobY;
-    const tx = OX + 5 + leanX;
-    const ty = 17 + bobY;
+    const hx = CX - 6 + leanX;
+    const hy = 2 + bobY;
+    const tx = CX - 4 + leanX; // 8 wide torso in side profile
+    const ty = 13 + bobY;
 
     drawTemplateWearables(ctx, equipped, hx, hy, 'back');
 
-    // 1. Back Arm (drawn behind torso)
+    // 1. Back Arm
     if (normPose === 'walk0') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 2, -2, 6, true);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -2, 4, true);
     } else if (normPose === 'walk1') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 2, 4, 5, true);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 3, 3, true);
     } else if (normPose === 'walk2') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 2, 1, 6, true);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 1, 4, true);
     } else if (normPose === 'walk3') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 2, -4, 5, true);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -3, 3, true);
     } else if (normPose === 'jump') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 2, -5, -4, true);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -4, -3, true);
     } else if (normPose === 'fall') {
-      drawTemplateArmAngled(ctx, tx + 1, ty + 2, -6, 1, true);
+      drawTemplateArmAngled(ctx, tx + 1, ty + 1, -4, 0, true);
     } else if (normPose === 'punch0' || normPose === 'mine0') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 2, 2, 6, true);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 1, 4, true);
     } else if (normPose === 'punch1' || normPose === 'mine1') {
-      drawTemplateArmAngled(ctx, tx + 4, ty + 2, 4, 2, true);
+      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 3, 1, true);
     } else if (normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3') {
-      drawTemplateArmAngled(ctx, tx + 1, ty + 2, -3, 5, true);
+      drawTemplateArmAngled(ctx, tx + 1, ty + 1, -2, 3, true);
     } else if (normPose === 'place') {
-      drawTemplateArmAngled(ctx, tx + 1, ty + 2, -2, 6, true);
+      drawTemplateArmAngled(ctx, tx + 1, ty + 1, -1, 4, true);
     }
 
-    // 2. Legs & Sneakers (per-pose stride)
+    // 2. Legs & Sneakers (anchored flush at footY = 27 -> sole bottom at 28 vpx = 84px)
     if (normPose === 'walk0') {
-      drawTemplateLegStride(ctx, OX + 6, 28, OX + 5, 40, true);
-      drawTemplateLegStride(ctx, OX + 10, 28, OX + 11, 40, false);
+      drawTemplateLegStride(ctx, CX - 2, 20, CX - 3, 27, true);
+      drawTemplateLegStride(ctx, CX + 1, 20, CX + 2, 27, false);
     } else if (normPose === 'walk1') {
-      drawTemplateLegStride(ctx, OX + 7, 27, OX + 3, 39, true);
-      drawTemplateLegStride(ctx, OX + 10, 27, OX + 13, 39, false);
+      drawTemplateLegStride(ctx, CX - 1, 19, CX - 5, 27, true);
+      drawTemplateLegStride(ctx, CX + 1, 19, CX + 4, 27, false);
     } else if (normPose === 'walk2') {
-      drawTemplateLegVertical(ctx, OX + 6, 28, true);
-      drawTemplateLegVertical(ctx, OX + 9, 28, false);
+      drawTemplateLegVertical(ctx, CX - 3, 20, true);
+      drawTemplateLegVertical(ctx, CX, 20, false);
     } else if (normPose === 'walk3') {
-      drawTemplateLegStride(ctx, OX + 9, 27, OX + 13, 39, true);
-      drawTemplateLegStride(ctx, OX + 7, 27, OX + 3, 39, false);
+      drawTemplateLegStride(ctx, CX + 1, 19, CX + 4, 27, true);
+      drawTemplateLegStride(ctx, CX - 1, 19, CX - 5, 27, false);
     } else if (normPose === 'jump') {
-      // Trailing rear leg + tucked front knee
-      drawTemplateLegStride(ctx, OX + 7, 27, OX + 3, 39, true);
-      drawTemplateLegVertical(ctx, OX + 11, 27, false, true);
+      drawTemplateLegStride(ctx, CX - 1, 19, CX - 4, 26, true);
+      drawTemplateLegVertical(ctx, CX + 1, 19, false, true);
     } else if (normPose === 'fall') {
-      // Braced spread landing legs
-      drawTemplateLegStride(ctx, OX + 6, 28, OX + 4, 40, true);
-      drawTemplateLegStride(ctx, OX + 10, 28, OX + 13, 40, false);
+      drawTemplateLegStride(ctx, CX - 2, 20, CX - 4, 27, true);
+      drawTemplateLegStride(ctx, CX + 1, 20, CX + 4, 27, false);
     } else if (normPose === 'punch0' || normPose === 'mine0' || normPose === 'punch1' || normPose === 'mine1') {
-      drawTemplateLegStride(ctx, OX + 6, 28, OX + 4, 40, true);
-      drawTemplateLegStride(ctx, OX + 11, 28, OX + 12, 40, false);
+      drawTemplateLegStride(ctx, CX - 2, 20, CX - 4, 27, true);
+      drawTemplateLegStride(ctx, CX + 2, 20, CX + 3, 27, false);
     } else if (normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3') {
-      // Wide grounded punching stance matching bottom row of template
-      drawTemplateLegStride(ctx, OX + 7, 28, OX + 4, 40, true);
-      drawTemplateLegStride(ctx, OX + 11, 28, OX + 14, 40, false);
+      drawTemplateLegStride(ctx, CX - 1, 20, CX - 4, 27, true);
+      drawTemplateLegStride(ctx, CX + 2, 20, CX + 5, 27, false);
     } else {
-      // Place stance
-      drawTemplateLegStride(ctx, OX + 6, 28, OX + 5, 40, true);
-      drawTemplateLegStride(ctx, OX + 11, 28, OX + 12, 40, false);
+      drawTemplateLegStride(ctx, CX - 2, 20, CX - 3, 27, true);
+      drawTemplateLegStride(ctx, CX + 1, 20, CX + 3, 27, false);
     }
 
     // 3. Torso & Head
-    drawTemplateTorso(ctx, tx, ty, 9);
+    drawTemplateTorso(ctx, tx, ty, 8);
     drawTemplateHead(ctx, hx, hy, 'side', squint);
     drawTemplateWearables(ctx, equipped, hx, hy, 'front');
 
-    // 4. Front Arm (drawn in front of torso) + Action Impact/Placement FX
+    // 4. Front Arm + Action Impact/Placement FX
     if (normPose === 'walk0') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 2, 2, 6, false);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 1, 4, false);
     } else if (normPose === 'walk1') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 2, -4, 5, false);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -3, 3, false);
     } else if (normPose === 'walk2') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 2, -1, 6, false);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -1, 4, false);
     } else if (normPose === 'walk3') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 2, 4, 5, false);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 3, 3, false);
     } else if (normPose === 'jump') {
-      drawTemplateArmAngled(ctx, tx + 4, ty + 2, 5, -4, false);
+      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 3, -3, false);
     } else if (normPose === 'fall') {
-      drawTemplateArmAngled(ctx, tx + 4, ty + 2, 6, 1, false);
+      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 4, 0, false);
     } else if (normPose === 'punch0' || normPose === 'mine0') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 2, -1, 6, false);
+      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -1, 4, false);
     } else if (normPose === 'punch1' || normPose === 'mine1') {
-      // Windup arm cocked back near chest
-      drawTemplateArmAngled(ctx, tx + 2, ty + 2, -3, 2, false);
-      p2(ctx, tx + 2, ty + 4, P.skinLit, 3, 2);
+      drawTemplateArmAngled(ctx, tx + 1, ty + 1, -2, 1, false);
+      p3(ctx, tx + 1, ty + 2, TEMPLATE_PAL.skinLit, 2, 2);
     } else if (normPose === 'punch2') {
-      // Mid-jab forward
-      p2(ctx, tx + 2, ty + 1, P.ink, 11, 4);
-      p2(ctx, tx + 2, ty + 2, P.teeRim, 4, 2);
-      p2(ctx, tx + 6, ty + 2, P.skinLit, 6, 2);
+      p3(ctx, tx + 2, ty + 1, TEMPLATE_PAL.ink, 8, 3);
+      p3(ctx, tx + 2, ty + 2, TEMPLATE_PAL.teeRim, 3, 1);
+      p3(ctx, tx + 5, ty + 2, TEMPLATE_PAL.skinLit, 4, 1);
     } else if (normPose === 'punch3') {
-      // Full horizontal punch extension + crisp 3-ray burst (Template Frame 4)
-      p2(ctx, tx + 3, ty + 1, P.ink, 13, 4);
-      p2(ctx, tx + 3, ty + 2, P.teeRim, 5, 2);
-      p2(ctx, tx + 8, ty + 2, P.skinLit, 6, 2);
-      p2(ctx, tx + 13, ty + 2, P.skinRim, 2, 2);
-      // 3 white burst rays off the fist tip
-      p2(ctx, tx + 17, ty, P.eyeWhite, 1, 1);
-      p2(ctx, tx + 18, ty - 1, P.eyeWhite, 1, 1);
-      p2(ctx, tx + 17, ty + 2, P.eyeWhite, 2, 1);
-      p2(ctx, tx + 17, ty + 4, P.eyeWhite, 1, 1);
-      p2(ctx, tx + 18, ty + 5, P.eyeWhite, 1, 1);
+      p3(ctx, tx + 3, ty + 1, TEMPLATE_PAL.ink, 10, 3);
+      p3(ctx, tx + 3, ty + 2, TEMPLATE_PAL.teeRim, 4, 1);
+      p3(ctx, tx + 7, ty + 2, TEMPLATE_PAL.skinLit, 4, 1);
+      p3(ctx, tx + 11, ty + 2, TEMPLATE_PAL.skinRim, 1, 1);
+      // 3 crisp white burst rays off the fist tip
+      p3(ctx, tx + 14, ty, TEMPLATE_PAL.eyeWhite, 1, 1);
+      p3(ctx, tx + 14, ty + 2, TEMPLATE_PAL.eyeWhite, 2, 1);
+      p3(ctx, tx + 14, ty + 4, TEMPLATE_PAL.eyeWhite, 1, 1);
     } else if (normPose === 'mine2' || normPose === 'mine3') {
-      // Raise the mining tool overhead before bringing it down.
-      drawTemplateArmAngled(ctx, tx + 4, ty + 1, 3, -7, false);
-      const toolX = tx + 8;
-      const toolY = ty - 8;
-      p2(ctx, toolX, toolY, P.ink, 2, 7);
-      p2(ctx, toolX - 3, toolY, '#a9c4d5', 8, 2);
-      p2(ctx, toolX - 2, toolY - 1, '#e7f4fa', 5, 1);
+      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 2, -5, false);
+      const toolX = tx + 6;
+      const toolY = ty - 6;
+      p3(ctx, toolX, toolY, TEMPLATE_PAL.ink, 2, 5);
+      p3(ctx, toolX - 2, toolY, '#a9c4d5', 6, 2);
+      p3(ctx, toolX - 1, toolY - 1, '#e7f4fa', 4, 1);
       if (normPose === 'mine3') {
-        p2(ctx, toolX + 6, toolY - 3, '#fff1a6', 2, 1);
-        p2(ctx, toolX + 8, toolY - 1, '#fff1a6', 1, 2);
+        p3(ctx, toolX + 4, toolY - 2, '#fff1a6', 2, 1);
+        p3(ctx, toolX + 6, toolY, '#fff1a6', 1, 1);
       }
     } else if (normPose === 'place') {
-      // Extending arm forward-upward to set a block
-      drawTemplateArmAngled(ctx, tx + 4, ty + 2, 7, -3, false);
-      const gx = tx + 12;
-      const gy = ty - 4;
-      p2(ctx, gx, gy, 'rgba(255, 240, 148, 0.38)', 4, 4);
-      p2(ctx, gx, gy, '#fff3a8', 4, 1);
-      p2(ctx, gx, gy + 3, '#fff3a8', 4, 1);
-      p2(ctx, gx, gy, '#fff3a8', 1, 4);
-      p2(ctx, gx + 3, gy, '#fff3a8', 1, 4);
+      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 5, -2, false);
+      const gx = tx + 9;
+      const gy = ty - 3;
+      p3(ctx, gx, gy, 'rgba(255, 240, 148, 0.38)', 3, 3);
+      p3(ctx, gx, gy, '#fff3a8', 3, 1);
+      p3(ctx, gx, gy + 2, '#fff3a8', 3, 1);
+      p3(ctx, gx, gy, '#fff3a8', 1, 3);
+      p3(ctx, gx + 2, gy, '#fff3a8', 1, 3);
     }
   }
 
@@ -1492,4 +1455,5 @@ export function getPlayerSprite(
   playerFrames.set(key, c);
   return c;
 }
+
 

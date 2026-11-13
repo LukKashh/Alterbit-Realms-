@@ -135,7 +135,9 @@ test('seed growth stages, splicing recipes, world name validation, and XP leveli
     ownerId: 'p1',
   };
   assert.equal(getPlantGrowthState(plant, 1500).stage, 'planted');
-  assert.equal(getPlantGrowthState(plant, 6000).stage, 'sprout');
+  assert.equal(getPlantGrowthState(plant, 2500).stage, 'sprout');
+  assert.equal(getPlantGrowthState(plant, 6000).stage, 'young');
+  assert.equal(getPlantGrowthState(plant, 9000).stage, 'developing');
   assert.equal(getPlantGrowthState(plant, 12000).stage, 'mature');
 
   assert.equal(resolveSplice(ITEM_IDS.GP_SEED_DIRT, ITEM_IDS.GP_SEED_ROCK), ITEM_IDS.GP_SEED_GRASS);
