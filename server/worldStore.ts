@@ -1906,6 +1906,9 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: 'Duplicate transaction ignored.' };
     }
     const key = `${tx},${ty}`;
+    if (!hasEditPermission(live.state, buyer.id, tx, ty, 'interact')) {
+      return { ok: false, message: 'You do not have permission to use this Vending Machine.' };
+    }
     const vm = live.state.vendingMachines?.[key];
     if (!vm || vm.stockQty <= 0 || vm.stockItemId <= 0) {
       return { ok: false, message: 'This Vending Machine is out of stock.' };
@@ -1969,7 +1972,7 @@ export class AuthoritativeWorldStore {
     ty: number,
     rawText: string
   ): { ok: true; text: string; notice: string } | { ok: false; message: string } {
-    if (!hasEditPermission(live.state, account.id, tx, ty)) {
+    if (!hasEditPermission(live.state, account.id, tx, ty, 'interact')) {
       return { ok: false, message: 'You do not have permission to edit this sign.' };
     }
     const idx = tileIndexIn(live.state, tx, ty);
@@ -1991,7 +1994,7 @@ export class AuthoritativeWorldStore {
     ty: number,
     opts: { action: 'craft' | 'collect' | 'repair'; recipeId?: string; toolItemId?: number }
   ): { ok: true; furnace: FurnaceRecord; notice: string } | { ok: false; message: string } {
-    if (!hasEditPermission(live.state, account.id, tx, ty)) {
+    if (!hasEditPermission(live.state, account.id, tx, ty, 'interact')) {
       return { ok: false, message: 'Protected by Lock.' };
     }
     const key = `${tx},${ty}`;
@@ -2121,8 +2124,10 @@ export class AuthoritativeWorldStore {
     const key = `${tx},${ty}`;
     const bfg = live.state.bfgCollectors?.[key];
     if (!bfg) return { ok: false, message: 'BFG Auto-Collector not found.' };
-    if (bfg.ownerId !== account.id && live.state.worldLock?.ownerId !== account.id) {
-      return { ok: false, message: 'Only the BFG owner or World Lock owner can access this unit.' };
+    const isBfgOwner = bfg.ownerId === account.id || live.state.worldLock?.ownerId === account.id;
+    const hasSharedInteract = Boolean(live.state.worldLock && hasEditPermission(live.state, account.id, tx, ty, 'interact'));
+    if (!isBfgOwner && !hasSharedInteract) {
+      return { ok: false, message: 'You do not have permission to interact with this BFG Collector.' };
     }
 
     if (opts.action === 'toggle') {
