@@ -372,7 +372,7 @@ export class DungeonStore {
       if (run.enemies.every((enemy) => enemy.hp <= 0)) {
         run.phase = 'cleared';
         run.message = run.roomIndex === GATE_KEYS[run.tier - 1].rooms - 1
-          ? 'The final ' + this.createEnemies(run.tier, run.roomIndex, GATE_KEYS[run.tier - 1].rooms, run.seed, now)[0]?.name + ' encounter is defeated. Extraction is unlocked.'
+          ? getDungeonEnemyStats(run.tier, true).name + ' defeated. Extraction is unlocked.'
           : 'Room cleared. The exit gate is unlocked.';
       }
     } else if (action === 'next_room' || action === 'extract') {
