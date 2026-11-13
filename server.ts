@@ -746,6 +746,16 @@ async function startServer() {
         depthTier: fb.cast.depthTier,
       });
     }
+    for (const fs of tick.fishingStates) {
+      broadcastWorld(fs.worldName, {
+        type: 'fishing_progress',
+        playerId: fs.cast.playerId,
+        progress: Math.round(fs.cast.pullProgress),
+        lineTension: fs.cast.lineTension,
+        bobberOffset: fs.cast.bobberOffset,
+        fightPattern: fs.cast.fightPattern ?? 'darting',
+      });
+    }
     for (const ft of tick.fishingTimeouts) {
       broadcastWorld(ft.worldName, { type: 'fishing_ended', playerId: ft.playerId });
     }
