@@ -428,6 +428,7 @@ export default function App() {
             msg.plant,
             msg.worldLock,
             msg.areaLock,
+            msg.shareLock,
             msg.vendingMachine,
             msg.signText,
             msg.fluidType,
