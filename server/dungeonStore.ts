@@ -300,7 +300,7 @@ export class DungeonStore {
     return [...this.runs.values()].find((run) => run.players[playerId] && (run.phase === 'active' || run.phase === 'cleared')) ?? null;
   }
 
-  act(account: PlayerAccount, action: DungeonAction, dx = 0, dy = 0, now = Date.now()): DungeonActionResult {
+  act(account: PlayerAccount, action: DungeonAction, dx = 0, dy = 0, now = Date.now(), attackId?: string): DungeonActionResult {
     const run = this.findRun(account.id);
     if (!run) return { ok: false, message: 'You are not in an active dungeon.' };
     const player = run.players[account.id];
@@ -343,6 +343,13 @@ export class DungeonStore {
       player.facingX = directionX;
       player.facingY = directionY;
     } else if (action === 'attack') {
+      const requestId = String(attackId ?? '').trim();
+      if (!requestId || requestId.length > 100) return { ok: false, message: 'Attack request ID is required.' };
+      const transactionId = 'dungeon_attack:' + requestId;
+      if (account.processedTxIds.includes(transactionId)) return { ok: false, message: 'Duplicate attack ignored.' };
+      account.processedTxIds.push(transactionId);
+      if (account.processedTxIds.length > 500) account.processedTxIds = account.processedTxIds.slice(-500);
+      this.playerStore.savePlayer(account);
       const target = run.enemies
         .filter((enemy) => {
           if (enemy.hp <= 0) return false;
