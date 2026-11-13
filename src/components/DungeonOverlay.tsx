@@ -156,10 +156,10 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
         const predicted = predictedPositionRef.current;
         if (predicted && predicted.runId === snapshot.runId && predicted.roomIndex === snapshot.roomIndex && Math.abs(fwdInput) > 0.14) {
           const direction = fwdInput > 0 ? 1 : -1;
-          const distance = DEFAULT_DUNGEON_BALANCE.playerMoveStep / (DEFAULT_DUNGEON_BALANCE.playerMoveCooldownMs / 1000) * dt * Math.min(1, Math.abs(fwdInput));
+          const distance = DEFAULT_DUNGEON_BALANCE.playerMoveStep / (110 / 1000) * dt * Math.min(1, Math.abs(fwdInput));
           const dx = Math.cos(yawRef.current) * direction * distance;
           const dy = Math.sin(yawRef.current) * direction * distance;
-          const canOccupy = (x: number, y: number) => isDungeonPositionWalkable(snapshot.map, x, y) &&
+          const canOccupy = (x: number, y: number) => isDungeonPositionWalkable(snapshot.map, x, y) && (snapshot.phase === 'cleared' || snapshot.map[Math.floor(y)]?.[Math.floor(x)] !== '>') &&
             !snapshot.players.some((member) => member.id !== playerId && member.hp > 0 && Math.hypot(member.x - x, member.y - y) < 0.48) &&
             !snapshot.enemies.some((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - x, enemy.y - y) < 0.5);
           const nextX = Math.max(1.22, Math.min(snapshot.width - 1.22, predicted.x + dx));
