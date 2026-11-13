@@ -702,6 +702,10 @@ async function startServer() {
           sendTo(ws, { type: 'world_error', message: res.message });
           return;
         }
+        if (!res.finished) {
+          broadcastWorld(live.state.name, { type: 'fishing_progress', playerId: account.id, progress: res.progress });
+          return;
+        }
         broadcastWorld(live.state.name, {
           type: 'fishing_ended',
           playerId: account.id,
