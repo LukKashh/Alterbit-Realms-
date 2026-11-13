@@ -899,6 +899,9 @@ export default function App() {
             socketRef.current?.send({ type: 'use_consumable', itemId })
           }
           onReelFishing={() => socketRef.current?.send({ type: 'reel_fishing' })}
+          onUpgradeFishingRod={(rodInstanceId) =>
+            socketRef.current?.send({ type: 'upgrade_fishing_rod', rodInstanceId })
+          }
           onConfigureFurnace={(tx, ty, opts) =>
             socketRef.current?.send({ type: 'configure_furnace', tx, ty, ...opts })
           }
