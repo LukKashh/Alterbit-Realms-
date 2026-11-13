@@ -410,6 +410,7 @@ export class DungeonStore {
         member.y = 5.5;
       }
       run.message = 'Room ' + (run.roomIndex + 1) + ' / ' + roomCount + '. Defeat the Cave Dwellers.';
+    }
     run.updatedAt = now;
     if (action !== 'move' || now - this.lastPersistAt >= 1000) this.persist(now);
     return { ok: true, snapshot: this.snapshot(run), affectedPlayerIds: Object.keys(run.players) };
