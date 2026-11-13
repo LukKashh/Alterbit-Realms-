@@ -9,6 +9,7 @@ import {
   getDungeonKey,
   getDungeonOreReward,
   isDungeonWalkable,
+  isDungeonPositionWalkable,
 } from '../src/game/dungeon.ts';
 
 test('dungeon room generation is deterministic and uses the expected arena dimensions', () => {
@@ -60,4 +61,13 @@ test('enemy scaling and ore rewards stay within safe configured bounds', () => {
     assert.equal(reward[0].qty, 1);
     assert.ok(reward[0].itemId >= 830 && reward[0].itemId <= 841);
   }
+});
+
+test('top-down AABB movement accepts floor and rejects walls', () => {
+  const map = createDungeonMap(4, 1, 24680);
+  assert.equal(isDungeonPositionWalkable(map, 1.5, 5.5), true);
+  assert.equal(isDungeonPositionWalkable(map, 0.5, 5.5), false);
+  const wallY = map.findIndex((row, y) => y > 0 && y < DUNGEON_HEIGHT - 1 && row[0] === '#' && row.includes('#'));
+  assert.ok(wallY > 0);
+  assert.equal(isDungeonPositionWalkable(map, 0.9, wallY + 0.5), false);
 });
