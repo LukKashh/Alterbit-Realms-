@@ -2292,7 +2292,8 @@ export class AuthoritativeWorldStore {
       cast.fishResistance = getFishPullResistance(cast.fishItemId, this.gameConfig.fishing);
     }
 
-    const resistance = cast.fishResistance ?? getFishPullResistance(cast.fishItemId, this.gameConfig.fishing);
+    const fishItemId = cast.fishItemId ?? ITEM_IDS.FISH_MINNOW;
+    const resistance = cast.fishResistance ?? getFishPullResistance(fishItemId, this.gameConfig.fishing);
     cast.pullProgress = Math.min(100, cast.pullProgress + 24 * cast.pullingStrength / resistance);
     if (cast.pullProgress < 100) {
       return {
@@ -2300,7 +2301,7 @@ export class AuthoritativeWorldStore {
         caught: false,
         finished: false,
         progress: Math.round(cast.pullProgress),
-        notice: `The ${getItemDef(cast.fishItemId)?.name ?? 'fish'} is fighting back! Keep reeling.`,
+        notice: `The ${getItemDef(fishItemId)?.name ?? 'fish'} is fighting back! Keep reeling.`,
       };
     }
 
@@ -2308,7 +2309,7 @@ export class AuthoritativeWorldStore {
     if (typeof rodSlot.durability === 'number') {
       rodSlot.durability = Math.max(0, rodSlot.durability - 1);
     }
-    const caughtItemId = cast.fishItemId;
+    const caughtItemId = fishItemId;
     this.addInventory(account, caughtItemId, 1);
     account.stats.fishCaught = (account.stats.fishCaught ?? 0) + 1;
     const def = getItemDef(caughtItemId);
