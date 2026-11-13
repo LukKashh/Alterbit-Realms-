@@ -46,7 +46,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   const displayError = localError || errorMessage;
 
   return (
-    <div className="fixed inset-0 z-20 flex flex-col justify-between px-6 py-3 pointer-events-none overflow-y-auto">
+    <div data-menu-screen="auth" className="fixed inset-0 z-20 flex flex-col justify-between px-6 py-3 pointer-events-none overflow-y-auto">
       <div className="flex flex-col items-center gap-3 pt-2 my-auto">
         <svg
           viewBox="0 0 520 100"
