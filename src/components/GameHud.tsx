@@ -577,7 +577,7 @@ export const GameHud: React.FC<GameHudProps> = ({
             <div className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1.5 py-0.5 text-[11px] sm:text-xs font-bold text-[#ffe18c] whitespace-nowrap truncate">
               {worldOwner ? <Lock className="w-3 h-3 text-[#f2b738] shrink-0" /> : <Globe className="w-3 h-3 text-[#78c8f5] shrink-0" />}
               <span className="truncate max-w-[64px] sm:max-w-none">{worldName}</span>
-              <span className="hidden sm:inline text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/20)</span>
+              <span className="hidden sm:inline text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/{worldOwner ? 10 : 20})</span>
             </div>
 
             <span className="hidden md:inline text-[11px] font-mono-num text-[#8aa4bd] whitespace-nowrap pr-1">
@@ -1906,7 +1906,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   </span>
                   <span className="font-mono-num text-[#89d6ff]">
                     {w.ownerName ? `${w.ownerName} · ` : ''}
-                    {w.playerCount}/20
+                    {w.playerCount}/{w.ownerId ? 10 : 20}
                   </span>
                 </button>
               ))}
