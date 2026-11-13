@@ -5,7 +5,39 @@ export const DUNGEON_WIDTH = 17;
 export const DUNGEON_HEIGHT = 11;
 export const DUNGEON_PARTY_LIMIT = 4;
 
+// Provisional, centralized defaults. Keep balance tuning here until approved values are supplied.
+export const DEFAULT_DUNGEON_BALANCE = Object.freeze({
+  playerMaxHealth: 100,
+  playerBaseDamage: 8,
+  playerDamagePerLevel: 0.8,
+  playerMoveStep: 0.18,
+  playerMoveCooldownMs: 90,
+  playerAttackCooldownMs: 260,
+  playerAttackRange: 1.35,
+  enemyAttackRange: 1.05,
+  enemyBaseHealth: 18,
+  enemyHealthPerTier: 9,
+  bossBaseHealth: 90,
+  bossHealthPerTier: 34,
+  enemyBaseDamage: 3,
+  enemyDamagePerTier: 2,
+  bossBaseDamage: 9,
+  bossDamagePerTier: 3,
+  enemyCountBase: 2,
+  enemyCountTierBonus: 1,
+  enemyCountBonusCap: 3,
+  enemyAttackCooldownMs: 1100,
+  bossAttackCooldownMs: 850,
+  enemyMoveCooldownMs: 600,
+  bossMoveCooldownMs: 420,
+  disconnectGraceMs: 120000,
+  maxRunAgeMs: 7200000,
+  rawOreRewardQty: 1,
+  cooperativePartyLimit: 4,
+});
+
 export type DungeonPhase = 'active' | 'cleared' | 'completed' | 'failed';
+export type DungeonPartyMode = 'solo' | 'cooperative';
 export type DungeonAction = 'move' | 'attack' | 'next_room' | 'extract' | 'leave';
 
 export interface DungeonPlayerState {
@@ -38,6 +70,7 @@ export interface DungeonSnapshot {
   runId: string;
   code: string;
   tier: number;
+  partyMode: DungeonPartyMode;
   roomIndex: number;
   roomCount: number;
   width: number;
@@ -97,10 +130,10 @@ export function getDungeonKey(tier: number) {
 }
 
 export function getDungeonEnemyStats(tier: number, boss: boolean) {
-  const hp = 18 + tier * 9;
+  const hp = DEFAULT_DUNGEON_BALANCE.enemyBaseHealth + tier * DEFAULT_DUNGEON_BALANCE.enemyHealthPerTier;
   return {
-    hp: boss ? 90 + tier * 34 : hp,
-    damage: boss ? 9 + tier * 3 : 3 + tier * 2,
+    hp: boss ? DEFAULT_DUNGEON_BALANCE.bossBaseHealth + tier * DEFAULT_DUNGEON_BALANCE.bossHealthPerTier : hp,
+    damage: boss ? DEFAULT_DUNGEON_BALANCE.bossBaseDamage + tier * DEFAULT_DUNGEON_BALANCE.bossDamagePerTier : DEFAULT_DUNGEON_BALANCE.enemyBaseDamage + tier * DEFAULT_DUNGEON_BALANCE.enemyDamagePerTier,
     name: boss ? 'Gate Guardian ' + tier : ([
       'Cavern Slime', 'Sentinel Golem', 'Emerald Stalker', 'Divinium Warden', 'Omegazyte Overlord'
     ][Math.max(0, tier - 1)] ?? 'Cave Dweller'),
@@ -127,5 +160,5 @@ export function getDungeonOreReward(tier: number): { itemId: number; qty: number
   const configuredPool = GATE_KEYS[tier - 1]?.orePool ?? GATE_KEYS[0].orePool;
   const pool = configuredPool.map((ore) => rawOreByName[ore]).filter((itemId) => Number.isInteger(itemId));
   const safePool = pool.length ? pool : [ITEM_IDS.RAW_COPPER_ORE];
-  return [{ itemId: safePool[Math.floor(Math.random() * safePool.length)], qty: 1 }];
+  return [{ itemId: safePool[Math.floor(Math.random() * safePool.length)], qty: DEFAULT_DUNGEON_BALANCE.rawOreRewardQty }];
 }
