@@ -362,6 +362,16 @@ async function startServer() {
         return;
       }
 
+      if (msg.type === 'upgrade_fishing_rod') {
+        const res = store.handleUpgradeFishingRod(account, msg.rodInstanceId);
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
       if (msg.type === 'use_consumable') {
         const res = store.handleUseConsumable(account, msg.itemId);
         if (!res.ok) {
@@ -690,6 +700,10 @@ async function startServer() {
         const res = store.handleReelFishing(live, account);
         if (!res.ok) {
           sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        if (!res.finished) {
+          broadcastWorld(live.state.name, { type: 'fishing_progress', playerId: account.id, progress: res.progress });
           return;
         }
         broadcastWorld(live.state.name, {

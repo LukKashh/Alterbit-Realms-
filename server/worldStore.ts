@@ -74,7 +74,7 @@ import type {
   WorldSummary,
 } from '../src/game/network.ts';
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
-import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight } from '../src/game/expansion.ts';
+import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance } from '../src/game/expansion.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -143,6 +143,12 @@ interface TileDamageState {
 export interface ServerFishingCast extends FishingCastState {
   worldName: string;
   rodItemId: number;
+  rodInstanceId: string;
+  rodUpgradeLevel: 1 | 2 | 3;
+  pullingStrength: number;
+  fishItemId?: number;
+  fishResistance?: number;
+  pullProgress: number;
   biteAt: number;
   expiresAt: number;
 }
@@ -391,6 +397,11 @@ export class AuthoritativeWorldStore {
     }
     for (const slot of acc.inventory) {
       const def = getItemDef(slot.itemId);
+      if (def?.toolKind === 'rod') {
+        slot.rodInstanceId = slot.rodInstanceId || crypto.randomUUID();
+        const level = Number(slot.rodUpgradeLevel ?? 1);
+        slot.rodUpgradeLevel = (Number.isInteger(level) && level >= 1 && level <= 3 ? level : 1) as 1 | 2 | 3;
+      }
       if (def?.maxDurability && slot.maxDurability === undefined) {
         slot.maxDurability = def.maxDurability;
         slot.durability = def.maxDurability;
@@ -1075,13 +1086,14 @@ export class AuthoritativeWorldStore {
     if (qty <= 0) return false;
     const def = getItemDef(itemId);
     if (!def) return false;
-    if (def.maxDurability) {
+    if (def.maxDurability || def.toolKind === 'rod') {
       for (let i = 0; i < qty; i++) {
         account.inventory.push({
           itemId,
           qty: 1,
           durability: def.maxDurability,
           maxDurability: def.maxDurability,
+          ...(def.toolKind === 'rod' ? { rodInstanceId: crypto.randomUUID(), rodUpgradeLevel: 1 as const } : {}),
         });
       }
       return true;
@@ -1097,7 +1109,7 @@ export class AuthoritativeWorldStore {
 
   consumeInventory(account: PlayerAccount, itemId: number, qty: number): boolean {
     const def = getItemDef(itemId);
-    if (def?.maxDurability && qty >= 1) {
+    if ((def?.maxDurability || def?.toolKind === 'rod') && qty >= 1) {
       let removed = 0;
       const kept: InventorySlot[] = [];
       for (const s of account.inventory) {
@@ -2149,7 +2161,9 @@ export class AuthoritativeWorldStore {
     const playerState = live.players.get(account.id);
     if (!playerState) return { ok: false, message: 'Not in world.' };
 
-    const rodSlot = account.inventory.find((s) => s.itemId === rodItemId && s.qty >= 1);
+    const rodSlot = account.inventory
+      .filter((s) => s.itemId === rodItemId && s.qty >= 1 && (s.durability ?? 1) > 0)
+      .sort((a, b) => (b.rodUpgradeLevel ?? 1) - (a.rodUpgradeLevel ?? 1))[0];
     const rodDef = rodSlot ? getItemDef(rodSlot.itemId) : undefined;
     if (!rodSlot || rodDef?.toolKind !== 'rod') {
       return { ok: false, message: 'Select a valid fishing rod before casting.' };
@@ -2200,69 +2214,102 @@ export class AuthoritativeWorldStore {
       depthTier: pool.depthTier,
       depthLevel,
       rodItemId,
+      rodInstanceId: rodSlot.rodInstanceId ?? (rodSlot.rodInstanceId = crypto.randomUUID()),
+      rodUpgradeLevel: rodSlot.rodUpgradeLevel ?? 1,
+      pullingStrength: getFishingPullStrength(rodType, rodSlot.rodUpgradeLevel ?? 1, this.gameConfig.fishing),
+      pullProgress: 0,
       biting: false,
       startedAt: now,
       biteAt: now + delayMs,
-      expiresAt: now + delayMs + 5500,
+      expiresAt: now + delayMs + 15000,
     };
     live.activeCasts.set(account.id, cast);
     return { ok: true, cast };
+  }
+
+  handleUpgradeFishingRod(
+    account: PlayerAccount,
+    rodInstanceId: string
+  ): { ok: true; notice: string } | { ok: false; message: string } {
+    const slot = account.inventory.find((s) => s.rodInstanceId === rodInstanceId);
+    const def = slot ? getItemDef(slot.itemId) : undefined;
+    if (!slot || def?.toolKind !== 'rod' || !def.rodType) {
+      return { ok: false, message: 'That fishing rod is no longer in your inventory.' };
+    }
+    const currentLevel = slot.rodUpgradeLevel ?? 1;
+    if (currentLevel >= 3) return { ok: false, message: 'This fishing rod is already fully upgraded.' };
+    const targetLevel = (currentLevel + 1) as 1 | 2 | 3;
+    const cost = getRodUpgradeGemCost(def.rodType, targetLevel, this.gameConfig.fishing);
+    if (!Number.isFinite(cost) || cost <= 0) return { ok: false, message: 'Invalid fishing rod upgrade cost.' };
+    if (account.gems < cost) return { ok: false, message: `You need ${cost} Gems to upgrade ${def.name}.` };
+    account.gems -= cost;
+    slot.rodUpgradeLevel = targetLevel;
+    this.savePlayer(account);
+    return { ok: true, notice: `${def.name} upgraded to Level ${targetLevel} for ${cost} Gems!` };
   }
 
   handleReelFishing(
     live: LiveWorld,
     account: PlayerAccount
   ):
-    | {
-        ok: true;
-        caught: boolean;
-        caughtItemId?: number;
-        caughtName?: string;
-        depthTier?: LiquidPoolInfo['depthTier'];
-        notice: string;
-      }
+    | { ok: true; caught: boolean; finished: boolean; progress: number; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier']; notice: string }
     | { ok: false; message: string } {
     const cast = live.activeCasts.get(account.id);
-    if (!cast) {
-      return { ok: false, message: 'No active fishing cast.' };
-    }
-    live.activeCasts.delete(account.id);
-
+    if (!cast) return { ok: false, message: 'No active fishing cast.' };
     if (!cast.biting) {
-      return {
-        ok: true,
-        caught: false,
-        notice: 'Reeled in too early — wait for the ! bite alert.',
-      };
+      live.activeCasts.delete(account.id);
+      return { ok: true, caught: false, finished: true, progress: 0, notice: 'Reeled in too early — wait for the ! bite alert.' };
     }
 
     const rodSlot = account.inventory.find(
-      (s) => s.itemId === cast.rodItemId && (s.durability ?? 1) > 0
+      (s) => s.rodInstanceId === cast.rodInstanceId && s.itemId === cast.rodItemId && (s.durability ?? 1) > 0
     );
-    if (!rodSlot) return { ok: false, message: 'The fishing rod used for this cast is no longer available or has no durability.' };
-    if (rodSlot && typeof rodSlot.durability === 'number') {
+    if (!rodSlot) {
+      live.activeCasts.delete(account.id);
+      return { ok: false, message: 'The fishing rod used for this cast is no longer available or has no durability.' };
+    }
+
+    if (cast.fishItemId === undefined) {
+      if (cast.fluidType === 2 || cast.depthTier === 'acid') {
+        cast.fishItemId = ITEM_IDS.FISH_SLIMEFIN;
+      } else {
+        const depthLevel = cast.depthLevel ?? 1;
+        const candidates = [ITEM_IDS.FISH_MINNOW, ITEM_IDS.FISH_CARP, ITEM_IDS.FISH_GLACIER_TROUT]
+          .map((itemId) => {
+            const fish = getItemDef(itemId);
+            return { itemId, weight: fish?.fishDepthProfile ? getFishDepthWeight(fish.fishDepthProfile, depthLevel) : 0 };
+          })
+          .filter((candidate) => candidate.weight > 0);
+        const totalWeight = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
+        if (totalWeight > 0) {
+          let roll = Math.random() * totalWeight;
+          const selected = candidates.find((candidate) => (roll -= candidate.weight) < 0);
+          cast.fishItemId = selected?.itemId ?? candidates[candidates.length - 1].itemId;
+        } else {
+          cast.fishItemId = ITEM_IDS.FISH_MINNOW;
+        }
+      }
+      cast.fishResistance = getFishPullResistance(cast.fishItemId ?? ITEM_IDS.FISH_MINNOW, this.gameConfig.fishing);
+    }
+
+    const fishItemId = cast.fishItemId ?? ITEM_IDS.FISH_MINNOW;
+    const resistance = cast.fishResistance ?? getFishPullResistance(fishItemId, this.gameConfig.fishing);
+    cast.pullProgress = Math.min(100, cast.pullProgress + 24 * cast.pullingStrength / resistance);
+    if (cast.pullProgress < 100) {
+      return {
+        ok: true,
+        caught: false,
+        finished: false,
+        progress: Math.round(cast.pullProgress),
+        notice: `The ${getItemDef(fishItemId)?.name ?? 'fish'} is fighting back! Keep reeling.`,
+      };
+    }
+
+    live.activeCasts.delete(account.id);
+    if (typeof rodSlot.durability === 'number') {
       rodSlot.durability = Math.max(0, rodSlot.durability - 1);
     }
-
-    let caughtItemId: number = ITEM_IDS.FISH_MINNOW;
-    if (cast.fluidType === 2 || cast.depthTier === 'acid') {
-      caughtItemId = ITEM_IDS.FISH_SLIMEFIN;
-    } else {
-      const depthLevel = cast.depthLevel ?? 1;
-      const candidates = [ITEM_IDS.FISH_MINNOW, ITEM_IDS.FISH_CARP, ITEM_IDS.FISH_GLACIER_TROUT]
-        .map((itemId) => {
-          const fish = getItemDef(itemId);
-          return { itemId, weight: fish?.fishDepthProfile ? getFishDepthWeight(fish.fishDepthProfile, depthLevel) : 0 };
-        })
-        .filter((candidate) => candidate.weight > 0);
-      const totalWeight = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
-      if (totalWeight > 0) {
-        let roll = Math.random() * totalWeight;
-        const selected = candidates.find((candidate) => (roll -= candidate.weight) < 0);
-        caughtItemId = selected?.itemId ?? candidates[candidates.length - 1].itemId;
-      }
-    }
-
+    const caughtItemId = fishItemId;
     this.addInventory(account, caughtItemId, 1);
     account.stats.fishCaught = (account.stats.fishCaught ?? 0) + 1;
     const def = getItemDef(caughtItemId);
@@ -2274,6 +2321,8 @@ export class AuthoritativeWorldStore {
     return {
       ok: true,
       caught: true,
+      finished: true,
+      progress: 100,
       caughtItemId,
       caughtName: def?.name ?? 'Fish',
       depthTier: cast.depthTier,
@@ -2497,6 +2546,9 @@ export class AuthoritativeWorldStore {
         } else if (cast.biting && now >= cast.expiresAt) {
           live.activeCasts.delete(pid);
           fishingTimeouts.push({ worldName: wName, playerId: pid });
+        } else if (cast.biting && cast.pullProgress > 0) {
+          // Fish steadily regain line while the player is not actively reeling.
+          cast.pullProgress = Math.max(0, cast.pullProgress - 1.5);
         }
       }
 

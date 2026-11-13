@@ -111,6 +111,7 @@ export default function App() {
   const [exchangeSnapshot, setExchangeSnapshot] = useState<ExchangeSnapshot>(DEFAULT_EXCHANGE);
   const [fishingCast, setFishingCast] = useState<FishingCastState | null>(null);
   const [fishingBiting, setFishingBiting] = useState<boolean>(false);
+  const [fishingProgress, setFishingProgress] = useState<number>(0);
   const [hotbarItemIds, setHotbarItemIds] = useState<number[]>(EMPTY_HOTBAR);
   const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.FIST);
   const [gameConfig, setGameConfig] = useState<GameConfig>(() => cloneGameConfig(DEFAULT_GAME_CONFIG));
@@ -347,6 +348,7 @@ export default function App() {
           setMineExpiresAt(msg.world.expiresAt ?? null);
           setFishingCast(null);
           setFishingBiting(false);
+          setFishingProgress(0);
           setPlayerCount(msg.players.length);
           setChatMessages(msg.chatHistory);
           engine.loadWorld(msg.world, msg.players, msg.drops, {
@@ -453,11 +455,15 @@ export default function App() {
           setWorlds(msg.worlds);
           break;
         case 'fishing_started':
+          setFishingProgress(0);
           engine.setFishingCast(msg.cast);
           if (msg.cast.playerId === playerIdRef.current) {
             setFishingCast(msg.cast);
             setFishingBiting(msg.cast.biting);
           }
+          break;
+        case 'fishing_progress':
+          if (msg.playerId === playerIdRef.current) setFishingProgress(msg.progress);
           break;
         case 'fishing_bite':
           engine.markFishingBite(msg.playerId);
@@ -471,6 +477,7 @@ export default function App() {
           if (msg.playerId === playerIdRef.current) {
             setFishingCast(null);
             setFishingBiting(false);
+            setFishingProgress(0);
             if (msg.caughtName) {
               showToast(`Caught ${msg.caughtName}!`);
             }
@@ -893,12 +900,16 @@ export default function App() {
           exchange={exchangeSnapshot}
           fishingActive={Boolean(fishingCast)}
           fishingBiting={fishingBiting}
+          fishingProgress={fishingProgress}
           fishingDepthLevel={fishingCast?.depthLevel ?? null}
           onExitMineShaft={() => socketRef.current?.send({ type: 'exit_mine_shaft' })}
           onUseConsumable={(itemId) =>
             socketRef.current?.send({ type: 'use_consumable', itemId })
           }
           onReelFishing={() => socketRef.current?.send({ type: 'reel_fishing' })}
+          onUpgradeFishingRod={(rodInstanceId) =>
+            socketRef.current?.send({ type: 'upgrade_fishing_rod', rodInstanceId })
+          }
           onConfigureFurnace={(tx, ty, opts) =>
             socketRef.current?.send({ type: 'configure_furnace', tx, ty, ...opts })
           }

@@ -19,6 +19,10 @@ export interface InventorySlot {
   qty: number;
   durability?: number;
   maxDurability?: number;
+  /** Stable identity for an individual fishing rod instance. */
+  rodInstanceId?: string;
+  /** Persisted individual rod upgrade level (1–3). */
+  rodUpgradeLevel?: 1 | 2 | 3;
 }
 
 export interface ActiveBuff {
@@ -233,6 +237,7 @@ export type ClientMessage =
       action: 'toggle' | 'withdraw';
     }
   | { type: 'cast_fishing'; tx: number; ty: number; rodItemId: number }
+  | { type: 'upgrade_fishing_rod'; rodInstanceId: string }
   | { type: 'reel_fishing' }
   | {
       type: 'exchange_action';
@@ -348,6 +353,7 @@ export type ServerMessage =
   | { type: 'worlds_list'; worlds: WorldSummary[] }
   | { type: 'fishing_started'; cast: FishingCastState }
   | { type: 'fishing_bite'; playerId: string; bobberTx: number; bobberTy: number; depthTier: LiquidPoolInfo['depthTier'] }
+  | { type: 'fishing_progress'; playerId: string; progress: number }
   | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier'] }
   | { type: 'exchange_updated'; exchange: ExchangeSnapshot }
   | { type: 'mine_shaft_expired'; worldName: string; message: string };
