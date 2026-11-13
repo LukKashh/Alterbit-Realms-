@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { GATE_KEYS } from '../game/expansion.ts';
 import { ITEM_IDS } from '../game/catalog.ts';
 import type { InventorySlot } from '../game/network.ts';
@@ -30,10 +30,13 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const [partyCode, setPartyCode] = useState('');
-  const [notice, setNotice] = useState('');
+  const keyboardRef = useRef(new Set<string>());
+  const joystickRef = useRef({ x: 0, y: 0 });
+  const pointerIdRef = useRef<number | null>(null);
+  const [joystickKnob, setJoystickKnob] = useState({ x: 0, y: 0 });
   const worldLocks = inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
   const localPlayer = snapshot?.players.find((member) => member.id === playerId);
-  const atExit = Boolean(localPlayer && Math.hypot(localPlayer.x - (snapshot?.width ?? 17) + 2, localPlayer.y - 5) <= 0.85);
+  const atExit = Boolean(localPlayer && Math.hypot(localPlayer.x - ((snapshot?.width ?? 17) - 1.5), localPlayer.y - 5.5) <= 0.85);
   const keyCounts = useMemo(
     () => KEY_ITEM_IDS.map((id) => inventory.find((slot) => slot.itemId === id)?.qty ?? 0),
     [inventory],
@@ -48,25 +51,54 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
-      if (event.repeat) return;
       const key = event.key.toLowerCase();
-      const moves: Record<string, [number, number]> = {
-        arrowup: [0, -1], w: [0, -1],
-        arrowdown: [0, 1], s: [0, 1],
-        arrowleft: [-1, 0], a: [-1, 0],
-        arrowright: [1, 0], d: [1, 0],
-      };
-      if (moves[key]) {
+      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(key)) {
         event.preventDefault();
-        onAction('move', moves[key][0], moves[key][1]);
-      } else if (key === ' ' || key === 'j') {
+        keyboardRef.current.add(key);
+      } else if (!event.repeat && (key === ' ' || key === 'j')) {
         event.preventDefault();
         onAction('attack');
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => keyboardRef.current.delete(event.key.toLowerCase());
+    const movementTimer = window.setInterval(() => {
+      let x = joystickRef.current.x;
+      let y = joystickRef.current.y;
+      const keys = keyboardRef.current;
+      if (keys.has('arrowleft') || keys.has('a')) x -= 1;
+      if (keys.has('arrowright') || keys.has('d')) x += 1;
+      if (keys.has('arrowup') || keys.has('w')) y -= 1;
+      if (keys.has('arrowdown') || keys.has('s')) y += 1;
+      const magnitude = Math.hypot(x, y);
+      if (magnitude > 0.05) onAction('move', x / magnitude, y / magnitude);
+    }, 95);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.clearInterval(movementTimer);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      keyboardRef.current.clear();
+      joystickRef.current = { x: 0, y: 0 };
+    };
   }, [snapshot?.runId, snapshot?.phase, onAction]);
+
+  const updateJoystick = (event: React.PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const maxRadius = rect.width * 0.34;
+    let x = (event.clientX - (rect.left + rect.width / 2)) / maxRadius;
+    let y = (event.clientY - (rect.top + rect.height / 2)) / maxRadius;
+    const magnitude = Math.hypot(x, y);
+    if (magnitude > 1) { x /= magnitude; y /= magnitude; }
+    joystickRef.current = { x, y };
+    setJoystickKnob({ x: x * maxRadius, y: y * maxRadius });
+  };
+
+  const resetJoystick = () => {
+    pointerIdRef.current = null;
+    joystickRef.current = { x: 0, y: 0 };
+    setJoystickKnob({ x: 0, y: 0 });
+  };
 
   const close = () => setOpen(false);
   const leave = () => {
@@ -107,24 +139,27 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                 </div>
 
                 <div className="rounded-lg border border-[#34485c] bg-[#080f18] p-2">
-                  <div className="mx-auto w-full max-w-[680px] grid gap-[2px]" style={{ gridTemplateColumns: 'repeat(' + snapshot.width + ', minmax(0, 1fr))' }}>
-                    {snapshot.map.flatMap((line, y) => Array.from(line).map((tile, x) => {
-                      const enemy = snapshot.enemies.find((entry) => entry.hp > 0 && entry.x === x && entry.y === y);
-                      const player = snapshot.players.find((entry) => entry.hp > 0 && entry.x === x && entry.y === y);
-                      const isWall = tile === '#';
-                      const isExit = tile === '>';
-                      const isEntry = tile === '<';
-                      const symbol = enemy ? (enemy.boss ? '♛' : '☠') : player ? (player.id === playerId ? '●' : '◆') : isExit ? '▸' : isEntry ? '◂' : '';
-                      const background = isWall ? '#35414b' : enemy ? (enemy.boss ? '#6b292b' : '#563b32') : player ? (player.id === playerId ? '#1d6372' : '#315b8a') : isExit ? '#80612a' : '#182a28';
-                      return (
-                        <div key={x + ':' + y} title={enemy?.name ?? player?.name ?? ''} className="aspect-square flex items-center justify-center rounded-[2px] text-[clamp(7px,1.8vw,14px)] font-bold" style={{ background, color: enemy ? '#ffd3a0' : player ? '#e8fbff' : isExit ? '#ffe8a9' : '#82938b' }}>
-                          {symbol}
-                        </div>
-                      );
-                    }))}
+                  <div className="relative mx-auto w-full max-w-[680px]" style={{ aspectRatio: snapshot.width + ' / ' + snapshot.height }}>
+                    <div className="absolute inset-0 grid gap-[2px]" style={{ gridTemplateColumns: 'repeat(' + snapshot.width + ', minmax(0, 1fr))', gridTemplateRows: 'repeat(' + snapshot.height + ', minmax(0, 1fr))' }}>
+                      {snapshot.map.flatMap((line, y) => Array.from(line).map((tile, x) => {
+                        const isWall = tile === '#';
+                        const isExit = tile === '>';
+                        const isEntry = tile === '<';
+                        const background = isWall ? '#35414b' : isExit ? '#80612a' : '#182a28';
+                        return <div key={x + ':' + y} className="flex items-center justify-center rounded-[2px] text-[clamp(7px,1.8vw,14px)] font-bold" style={{ background, color: isExit ? '#ffe8a9' : '#82938b' }}>{isExit ? '⇢' : isEntry ? '◂' : ''}</div>;
+                      }))}
+                    </div>
+                    <div className="absolute inset-0 pointer-events-none">
+                      {snapshot.enemies.filter((enemy) => enemy.hp > 0).map((enemy) => (
+                        <div key={enemy.id} title={enemy.name} className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center rounded-full border border-[#e8a16c] bg-[#6b292b] text-[clamp(8px,2vw,15px)] text-[#ffd3a0] font-black shadow" style={{ left: (enemy.x / snapshot.width * 100) + '%', top: (enemy.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 0.8) + '%', aspectRatio: '1' }}>{enemy.boss ? '♛' : '☠'}</div>
+                      ))}
+                      {snapshot.players.filter((member) => member.hp > 0).map((member) => (
+                        <div key={member.id} title={member.name} className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center rounded-full border border-[#a6e6ff] bg-[#1d6372] text-[clamp(8px,2vw,14px)] text-white font-black shadow" style={{ left: (member.x / snapshot.width * 100) + '%', top: (member.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 0.8) + '%', aspectRatio: '1' }}>{member.id === playerId ? '●' : '◆'}</div>
+                      ))}
+                    </div>
                   </div>
                   <div className="flex flex-wrap justify-center gap-3 mt-2 text-[9px] text-[#91a4b8]">
-                    <span>● You</span><span>◆ Party</span><span>☠ Dweller</span><span>♛ Guardian</span><span>▸ Exit</span>
+                    <span>● You</span><span>◆ Party</span><span>☠ Dweller</span><span>♛ Guardian</span><span>⇢ Exit</span>
                   </div>
                 </div>
 
@@ -149,15 +184,16 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
 
                 {snapshot.phase === 'active' && (
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <span />
-                      <button type="button" onClick={() => onAction('move', 0, -1)} className="w-12 h-10 rounded border border-[#52677b] bg-[#203247] font-bold">▲</button>
-                      <span />
-                      <button type="button" onClick={() => onAction('move', -1, 0)} className="w-12 h-10 rounded border border-[#52677b] bg-[#203247] font-bold">◀</button>
-                      <button type="button" onClick={() => onAction('move', 0, 1)} className="w-12 h-10 rounded border border-[#52677b] bg-[#203247] font-bold">▼</button>
-                      <button type="button" onClick={() => onAction('move', 1, 0)} className="w-12 h-10 rounded border border-[#52677b] bg-[#203247] font-bold">▶</button>
+                    <div
+                      className="relative w-32 h-32 shrink-0 rounded-full border-2 border-[#607b91] bg-[#1a2b3b]/90 touch-none select-none"
+                      onPointerDown={(event) => { pointerIdRef.current = event.pointerId; event.currentTarget.setPointerCapture(event.pointerId); updateJoystick(event); }}
+                      onPointerMove={(event) => { if (pointerIdRef.current === event.pointerId) updateJoystick(event); }}
+                      onPointerUp={(event) => { if (pointerIdRef.current === event.pointerId) resetJoystick(); }}
+                      onPointerCancel={resetJoystick}
+                    >
+                      <div className="absolute left-1/2 top-1/2 w-12 h-12 rounded-full border-2 border-[#b9d8e9] bg-[#547a91] shadow-lg" style={{ transform: 'translate(calc(-50% + ' + joystickKnob.x + 'px), calc(-50% + ' + joystickKnob.y + 'px))' }} />
                     </div>
-                    <button type="button" onClick={() => onAction('attack')} className="w-full sm:w-auto px-8 py-4 rounded-lg border-2 border-[#e7a16c] bg-[#713d2d] hover:bg-[#8a4b36] text-sm font-black tracking-widest">ATTACK</button>
+                    <button type="button" onClick={() => onAction('attack')} className="w-full sm:w-auto px-8 py-5 rounded-lg border-2 border-[#e7a16c] bg-[#713d2d] hover:bg-[#8a4b36] text-sm font-black tracking-widest">ATTACK</button>
                     <button type="button" onClick={leave} className="px-4 py-2 rounded border border-[#7d4b4b] text-xs text-[#ffb7ae]">Leave party</button>
                   </div>
                 )}
@@ -176,7 +212,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                   </div>
                 )}
 
-                <div className="text-[9px] text-[#71879a]">Controls: WASD / arrow keys to move · Space / J to attack. Touch controls are available above.</div>
+                <div className="text-[9px] text-[#71879a]">Controls: 360° joystick or WASD / arrows to move · Space / J / Attack button to strike.</div>
               </div>
             ) : (
               <div className="p-3 sm:p-4 flex flex-col gap-3">
@@ -215,7 +251,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                     <button type="button" disabled={partyCode.length !== 6} onClick={() => onJoin(partyCode)} className="px-4 rounded bg-[#386d63] disabled:opacity-40 text-xs font-bold">Join</button>
                   </div>
                 </div>
-                {notice && <div className="text-xs text-[#f5d18a]">{notice}</div>}
+                
               </div>
             )}
           </section>
