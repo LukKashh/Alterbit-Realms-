@@ -1,5 +1,6 @@
 import type {
   AreaLockRecord,
+  ShareLockRecord,
   BfgCollectorRecord,
   FurnaceRecord,
   PlantedTree,
@@ -116,6 +117,7 @@ export interface WorldSummary {
   playerCount: number;
   ownerName: string | null;
   publicAccess: boolean;
+  ownerId?: string | null;
   worldKind?: 'standard' | 'mine_shaft';
 }
 
@@ -194,6 +196,8 @@ export type ClientMessage =
       publicAccess?: boolean;
       addEditorName?: string;
       removeEditorId?: string;
+      permissionTargetId?: string;
+      permissions?: Partial<import('./shareLocks.ts').ShareLockPermissions>;
     }
   | {
       type: 'configure_vending';
@@ -332,6 +336,7 @@ export type ServerMessage =
       plant: PlantedTree | null;
       worldLock?: WorldLockRecord | null;
       areaLock?: AreaLockRecord | null;
+      shareLock?: ShareLockRecord | null;
       vendingMachine?: VendingMachineRecord | null;
       furnace?: FurnaceRecord | null;
       bfgCollector?: BfgCollectorRecord | null;
