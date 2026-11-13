@@ -152,8 +152,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                     </div>
                     <div className="absolute inset-0 pointer-events-none">
                       {snapshot.enemies.filter((enemy) => enemy.hp > 0).map((enemy) => {
-                        const enemySprite = enemy.boss ? '/assets/dungeon/gate-guardian.svg'
-                          : enemy.kind === 'drone' ? '/assets/dungeon/station-drone.svg'
+                        const enemySprite = enemy.kind === 'drone' ? '/assets/dungeon/station-drone.svg'
                           : snapshot.tier === 1 ? '/assets/dungeon/cavern-slime.svg'
                           : snapshot.tier === 2 ? '/assets/dungeon/sentinel-golem.svg'
                           : snapshot.tier === 3 ? '/assets/dungeon/emerald-stalker.svg'
@@ -161,7 +160,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                           : '/assets/dungeon/omegazyte-overlord.svg';
                         return (
                           <div key={enemy.id} title={enemy.name} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: (enemy.x / snapshot.width * 100) + '%', top: (enemy.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 1.15) + '%', aspectRatio: '1' }}>
-                            <img src={enemySprite} alt={enemy.name} draggable={false} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />
+                            <img src={enemySprite} alt={enemy.name} draggable={false} className={'w-full h-full object-contain ' + (enemy.boss ? 'scale-125 drop-shadow-[0_0_8px_rgba(255,210,110,0.9)]' : '')} style={{ imageRendering: 'pixelated' }} />
                           </div>
                         );
                       })}
