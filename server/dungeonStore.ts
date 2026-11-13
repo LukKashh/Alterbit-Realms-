@@ -457,7 +457,7 @@ export class DungeonStore {
         const targets = connectedPlayers.filter((player) => player.hp > 0);
         if (!targets.length) break;
         const target = targets.sort((a, b) =>
-          Math.abs(a.x - enemy.x) + Math.abs(a.y - enemy.y) - (Math.abs(b.x - enemy.x) + Math.abs(b.y - enemy.y))
+          Math.hypot(a.x - enemy.x, a.y - enemy.y) - Math.hypot(b.x - enemy.x, b.y - enemy.y)
         )[0];
         const distance = Math.hypot(target.x - enemy.x, target.y - enemy.y);
         if (distance <= DEFAULT_DUNGEON_BALANCE.enemyAttackRange && now >= enemy.nextAttackAt) {
@@ -465,7 +465,7 @@ export class DungeonStore {
           enemy.nextAttackAt = now + (enemy.boss ? DEFAULT_DUNGEON_BALANCE.bossAttackCooldownMs : DEFAULT_DUNGEON_BALANCE.enemyAttackCooldownMs);
           run.message = enemy.name + ' hit ' + target.name + ' for ' + enemy.damage + '.';
           didChange = true;
-        } else if (distance > 0.9 && now >= enemy.nextMoveAt) {
+        } else if (distance > DEFAULT_DUNGEON_BALANCE.enemyAttackRange && now >= enemy.nextMoveAt) {
           const step = this.findNextStep(run, Math.floor(enemy.x), Math.floor(enemy.y), Math.floor(target.x), Math.floor(target.y));
           if (step && !Object.values(run.players).some((p) => p.hp > 0 && Math.hypot(p.x - (step.x + 0.5), p.y - (step.y + 0.5)) < 0.48) &&
               !run.enemies.some((other) => other.id !== enemy.id && other.hp > 0 && Math.hypot(other.x - (step.x + 0.5), other.y - (step.y + 0.5)) < 0.48)) {
