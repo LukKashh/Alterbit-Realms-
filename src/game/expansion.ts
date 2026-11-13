@@ -50,6 +50,10 @@ export const FISHING_RODS = [1,2,3,4,5,6].map((type)=>({
 })) as readonly {type:number;id:string;maxDepthLevel:number;upgradeLevels:readonly [1,2,3]}[];
 
 export type FishDepthProfile={minDepthLevel:number;maxDepthLevel:number;preferredDepthLevel:number};
+export function getFishingDepthLevel(poolDepth:number):number {
+ if (!Number.isFinite(poolDepth) || poolDepth <= 0) return 0;
+ return Math.min(6, Math.max(1, Math.ceil(poolDepth / 2)));
+}
 export function canRodFishAtDepth(rodType:number,depthLevel:number):boolean {
  return Number.isInteger(rodType)&&rodType>=1&&rodType<=6&&Number.isInteger(depthLevel)&&depthLevel>=1&&depthLevel<=rodType;
 }

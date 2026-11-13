@@ -74,6 +74,7 @@ import type {
   WorldSummary,
 } from '../src/game/network.ts';
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
+import { canRodFishAtDepth, getFishingDepthLevel } from '../src/game/expansion.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -141,6 +142,7 @@ interface TileDamageState {
 
 export interface ServerFishingCast extends FishingCastState {
   worldName: string;
+  rodItemId: number;
   biteAt: number;
   expiresAt: number;
 }
@@ -2150,7 +2152,7 @@ export class AuthoritativeWorldStore {
     const rodSlot = account.inventory.find((s) => s.itemId === rodItemId && s.qty >= 1);
     const rodDef = rodSlot ? getItemDef(rodSlot.itemId) : undefined;
     if (!rodSlot || rodDef?.toolKind !== 'rod') {
-      return { ok: false, message: 'Equip a Bamboo or Deep Angler Fishing Rod first.' };
+      return { ok: false, message: 'Select a valid fishing rod before casting.' };
     }
     if ((rodSlot.durability ?? 1) <= 0) {
       return { ok: false, message: `${rodDef.name} is at 0 durability! Repair it at a Stone Furnace.` };
@@ -2176,9 +2178,15 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: 'Cast your line into a Water or Acid pool!' };
     }
 
+    const depthLevel = getFishingDepthLevel(pool.depth);
+    const rodType = rodDef.rodType ?? 1;
+    if (!canRodFishAtDepth(rodType, depthLevel)) {
+      return { ok: false, message: `${rodDef.name} supports depth level ${rodType}, but this pool is depth level ${depthLevel}. Use a higher-type rod.` };
+    }
+
     const now = Date.now();
-    const isAngler = rodDef.id === ITEM_IDS.ANGLER_ROD;
-    const delayMs = isAngler
+    const isAdvancedRod = rodType >= 2;
+    const delayMs = isAdvancedRod
       ? 1800 + Math.floor(Math.random() * 1400)
       : 2600 + Math.floor(Math.random() * 1900);
 
@@ -2190,6 +2198,8 @@ export class AuthoritativeWorldStore {
       bobberTy,
       fluidType: pool.fluidType,
       depthTier: pool.depthTier,
+      depthLevel,
+      rodItemId,
       biting: false,
       startedAt: now,
       biteAt: now + delayMs,
@@ -2227,9 +2237,11 @@ export class AuthoritativeWorldStore {
     }
 
     const rodSlot = account.inventory.find(
-      (s) => getItemDef(s.itemId)?.toolKind === 'rod' && (s.durability ?? 1) > 0
+      (s) => s.itemId === cast.rodItemId && (s.durability ?? 1) > 0
     );
-    const isAngler = rodSlot?.itemId === ITEM_IDS.ANGLER_ROD;
+    if (!rodSlot) return { ok: false, message: 'The fishing rod used for this cast is no longer available or has no durability.' };
+    const rodDef = getItemDef(rodSlot.itemId);
+    const isAngler = (rodDef?.rodType ?? 1) >= 2;
     if (rodSlot && typeof rodSlot.durability === 'number') {
       rodSlot.durability = Math.max(0, rodSlot.durability - 1);
     }

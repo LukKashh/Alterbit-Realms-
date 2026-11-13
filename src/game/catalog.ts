@@ -79,6 +79,8 @@ export interface ItemDefinition {
   surfaceEffect?: 'ice' | 'bounce' | 'hazard';
   toolKind?: ToolKind;
   toolPower?: number;
+  rodType?: 1 | 2 | 3 | 4 | 5 | 6;
+  rodUpgradeLevels?: readonly [1, 2, 3];
   maxDurability?: number;
   repairMaterialId?: number;
   repairQty?: number;
@@ -116,6 +118,10 @@ export const ITEM_IDS = {
   CRYSTAL_PICKAXE: 132,
   BAMBOO_ROD: 135,
   ANGLER_ROD: 136,
+  FISHING_ROD_III: 137,
+  FISHING_ROD_IV: 138,
+  FISHING_ROD_V: 139,
+  FISHING_ROD_VI: 140,
 
   // Exclusive Mining Materials & Ingots (200..219)
   COAL_FUEL: 200,
@@ -647,7 +653,7 @@ export const CATALOG: Record<number, ItemDefinition> = {
     category: 'tool', rarity: 'common', stackLimit: 1,
     collision: 'none', breakable: false, hardness: 0,
     placeable: false, tradeable: true, gemValue: 0, xpValue: 4,
-    toolKind: 'rod', toolPower: 1, maxDurability: 80,
+    toolKind: 'rod', toolPower: 1, rodType: 1, rodUpgradeLevels: [1, 2, 3], maxDurability: 80,
     repairMaterialId: ITEM_IDS.GP_WOOD_BLOCK, repairQty: 3,
     colorPrimary: '#86bf52', colorSecondary: '#4f7a2d', colorAccent: '#e8f7b8',
   },
@@ -657,9 +663,45 @@ export const CATALOG: Record<number, ItemDefinition> = {
     category: 'tool', rarity: 'rare', stackLimit: 1,
     collision: 'none', breakable: false, hardness: 0,
     placeable: false, tradeable: true, gemValue: 0, xpValue: 10,
-    toolKind: 'rod', toolPower: 2, maxDurability: 180,
+    toolKind: 'rod', toolPower: 2, rodType: 2, rodUpgradeLevels: [1, 2, 3], maxDurability: 180,
     repairMaterialId: ITEM_IDS.IRON_INGOT, repairQty: 1,
     colorPrimary: '#38a3d8', colorSecondary: '#1d4d6e', colorAccent: '#b8f5ff',
+  },
+  [ITEM_IDS.FISHING_ROD_III]: {
+    id: ITEM_IDS.FISHING_ROD_III, key: 'fishing_rod_iii', name: 'Fishing Rod III',
+    description: 'Type III fishing rod. Supports fishing depth levels 1–3 and has three upgrade levels.',
+    category: 'tool', rarity: 'rare', stackLimit: 1,
+    collision: 'none', breakable: false, hardness: 0,
+    placeable: false, tradeable: true, gemValue: 0, xpValue: 12,
+    toolKind: 'rod', toolPower: 3, rodType: 3, rodUpgradeLevels: [1, 2, 3],
+    colorPrimary: '#55b6a2', colorSecondary: '#205f58', colorAccent: '#c7fff0',
+  },
+  [ITEM_IDS.FISHING_ROD_IV]: {
+    id: ITEM_IDS.FISHING_ROD_IV, key: 'fishing_rod_iv', name: 'Fishing Rod IV',
+    description: 'Type IV fishing rod. Supports fishing depth levels 1–4 and has three upgrade levels.',
+    category: 'tool', rarity: 'epic', stackLimit: 1,
+    collision: 'none', breakable: false, hardness: 0,
+    placeable: false, tradeable: true, gemValue: 0, xpValue: 14,
+    toolKind: 'rod', toolPower: 4, rodType: 4, rodUpgradeLevels: [1, 2, 3],
+    colorPrimary: '#8a78d8', colorSecondary: '#40356f', colorAccent: '#e3dcff',
+  },
+  [ITEM_IDS.FISHING_ROD_V]: {
+    id: ITEM_IDS.FISHING_ROD_V, key: 'fishing_rod_v', name: 'Fishing Rod V',
+    description: 'Type V fishing rod. Supports fishing depth levels 1–5 and has three upgrade levels.',
+    category: 'tool', rarity: 'epic', stackLimit: 1,
+    collision: 'none', breakable: false, hardness: 0,
+    placeable: false, tradeable: true, gemValue: 0, xpValue: 16,
+    toolKind: 'rod', toolPower: 5, rodType: 5, rodUpgradeLevels: [1, 2, 3],
+    colorPrimary: '#d28b45', colorSecondary: '#70451f', colorAccent: '#ffe1a6',
+  },
+  [ITEM_IDS.FISHING_ROD_VI]: {
+    id: ITEM_IDS.FISHING_ROD_VI, key: 'fishing_rod_vi', name: 'Fishing Rod VI',
+    description: 'Type VI fishing rod. Supports fishing depth levels 1–6 and has three upgrade levels.',
+    category: 'tool', rarity: 'epic', stackLimit: 1,
+    collision: 'none', breakable: false, hardness: 0,
+    placeable: false, tradeable: true, gemValue: 0, xpValue: 18,
+    toolKind: 'rod', toolPower: 6, rodType: 6, rodUpgradeLevels: [1, 2, 3],
+    colorPrimary: '#e6e8f2', colorSecondary: '#68738c', colorAccent: '#ffffff',
   },
   [ITEM_IDS.COAL_FUEL]: {
     id: ITEM_IDS.COAL_FUEL, key: 'coal_fuel', name: 'Coal Fuel',
