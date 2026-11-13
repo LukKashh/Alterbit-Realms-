@@ -90,7 +90,14 @@ export class DungeonStore {
   }
 
   getAccountRef(playerId: string): PlayerAccount | undefined {
-    return this.accountRefs.get(playerId);
+    const cached = this.accountRefs.get(playerId);
+    if (cached) return cached;
+    const run = [...this.runs.values()].find((entry) => entry.players[playerId]);
+    const player = run?.players[playerId];
+    if (!player) return undefined;
+    const account = this.playerStore.getOrCreatePlayer(playerId, player.name);
+    this.accountRefs.set(playerId, account);
+    return account;
   }
 
   buyGateKey(account: PlayerAccount, tier: number): DungeonActionResult {
