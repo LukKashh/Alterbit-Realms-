@@ -923,6 +923,14 @@ export class AuthoritativeWorldStore {
             this.createDrop(live, plant.seedId, 1, tx, ty, spawnedDrops.length)
           );
         }
+        if (targetDef?.bonusHarvestDrops) {
+          for (const bonus of targetDef.bonusHarvestDrops) {
+            if (Math.random() <= bonus.chance) {
+              const qty = bonus.minQty + Math.floor(Math.random() * (bonus.maxQty - bonus.minQty + 1));
+              if (qty > 0) spawnedDrops.push(this.createDrop(live, bonus.itemId, qty, tx, ty, spawnedDrops.length));
+            }
+          }
+        }
         gemsGained = 2 + Math.floor(Math.random() * 4);
         xpGained += 4;
       } else {

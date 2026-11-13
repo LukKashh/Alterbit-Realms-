@@ -395,6 +395,8 @@ test('GrowPixel seeds expose explicit provisional farming metadata without claim
   for (const seedId of GROWPIXEL_COLLECTION_IDS.seeds) {
     const seed = getItemDef(seedId);
     assert.ok(seed?.treeHarvestYield);
+    assert.equal(seed?.treeHarvestYield?.minBlocks, 2);
+    assert.equal(seed?.treeHarvestYield?.maxBlocks, 3);
     assert.equal(seed?.treeHarvestYieldVerified, false);
     assert.equal(seed?.economyValue, null);
   }

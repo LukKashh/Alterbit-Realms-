@@ -54,6 +54,7 @@ export interface ItemDefinition {
   treeHarvestYield?: { minBlocks: number; maxBlocks: number; seedChance: number };
   treeHarvestYieldVerified?: boolean;
   bonusHarvestDrops?: DropEntry[];
+  bonusHarvestDropsVerified?: boolean;
   referenceNote?: string;
   economyValue?: number | null;
   spliceIngredients?: [number, number];
@@ -1630,7 +1631,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_LAVA,
     growthTimeMs: 31000, growPixelRarity: 1, seedDropChance: null,
-    economyValue: null, colorPrimary: '#d64a24', colorSecondary: '#782b1b', colorAccent: '#ff9a42',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#d64a24', colorSecondary: '#782b1b', colorAccent: '#ff9a42',
   },
   [ITEM_IDS.GP_SEED_CAVE_BACKGROUND]: {
     id: ITEM_IDS.GP_SEED_CAVE_BACKGROUND, key: 'gp_seed_cave_background', name: "Cave Background Seed",
@@ -1639,7 +1640,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_CAVE_BACKGROUND,
     growthTimeMs: 31000, growPixelRarity: 1, seedDropChance: null,
-    economyValue: null, colorPrimary: '#49372f', colorSecondary: '#2e241f', colorAccent: '#765846',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#49372f', colorSecondary: '#2e241f', colorAccent: '#765846',
   },
   [ITEM_IDS.GP_SEED_SAND]: {
     id: ITEM_IDS.GP_SEED_SAND, key: 'gp_seed_sand', name: "Sand Seed",
@@ -1648,7 +1649,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_SAND,
     growthTimeMs: 31000, growPixelRarity: 1, seedDropChance: null,
-    economyValue: null, colorPrimary: '#d9c17b', colorSecondary: '#a88d4d', colorAccent: '#f3e1a5',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#d9c17b', colorSecondary: '#a88d4d', colorAccent: '#f3e1a5',
   },
   [ITEM_IDS.GP_SEED_DOOR]: {
     id: ITEM_IDS.GP_SEED_DOOR, key: 'gp_seed_door', name: "Door Seed",
@@ -1657,7 +1658,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_DOOR,
     growthTimeMs: 68000, growPixelRarity: 2, seedDropChance: null,
-    economyValue: null, colorPrimary: '#a76b3e', colorSecondary: '#694126', colorAccent: '#d99a62',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#a76b3e', colorSecondary: '#694126', colorAccent: '#d99a62',
   },
   [ITEM_IDS.GP_SEED_GLASS_PANE]: {
     id: ITEM_IDS.GP_SEED_GLASS_PANE, key: 'gp_seed_glass_pane', name: "Glass Pane Seed",
@@ -1666,7 +1667,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_GLASS_PANE,
     growthTimeMs: 68000, growPixelRarity: 2, seedDropChance: null,
-    economyValue: null, colorPrimary: '#a5e7f4', colorSecondary: '#5599b1', colorAccent: '#e8ffff',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#a5e7f4', colorSecondary: '#5599b1', colorAccent: '#e8ffff',
   },
   [ITEM_IDS.GP_SEED_GRASS]: {
     id: ITEM_IDS.GP_SEED_GRASS, key: 'gp_seed_grass', name: "Grass Seed",
@@ -1675,7 +1676,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_GRASS,
     growthTimeMs: 68000, growPixelRarity: 2, seedDropChance: null,
-    economyValue: null, colorPrimary: '#4caa45', colorSecondary: '#2f7434', colorAccent: '#8add64',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#4caa45', colorSecondary: '#2f7434', colorAccent: '#8add64',
   },
   [ITEM_IDS.GP_SEED_LAVA_ROCK]: {
     id: ITEM_IDS.GP_SEED_LAVA_ROCK, key: 'gp_seed_lava_rock', name: "Lava Rock Seed",
@@ -1684,7 +1685,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_LAVA_ROCK,
     growthTimeMs: 68000, growPixelRarity: 2, seedDropChance: null,
-    economyValue: null, colorPrimary: '#8e3927', colorSecondary: '#4e241f', colorAccent: '#e66a3e',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#8e3927', colorSecondary: '#4e241f', colorAccent: '#e66a3e',
   },
   [ITEM_IDS.GP_SEED_SIGN]: {
     id: ITEM_IDS.GP_SEED_SIGN, key: 'gp_seed_sign', name: "Sign Seed",
@@ -1693,7 +1694,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_SIGN,
     growthTimeMs: 68000, growPixelRarity: 2, seedDropChance: null,
-    economyValue: null, colorPrimary: '#b47c45', colorSecondary: '#6d4829', colorAccent: '#e1b67a',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#b47c45', colorSecondary: '#6d4829', colorAccent: '#e1b67a',
   },
   [ITEM_IDS.GP_SEED_WOOD_BLOCK]: {
     id: ITEM_IDS.GP_SEED_WOOD_BLOCK, key: 'gp_seed_wood_block', name: "Wood Block Seed",
@@ -1702,7 +1703,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_WOOD_BLOCK,
     growthTimeMs: 68000, growPixelRarity: 2, seedDropChance: null,
-    economyValue: null, colorPrimary: '#9c6538', colorSecondary: '#624025', colorAccent: '#d39a60',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#9c6538', colorSecondary: '#624025', colorAccent: '#d39a60',
   },
   [ITEM_IDS.GP_SEED_BRICKS]: {
     id: ITEM_IDS.GP_SEED_BRICKS, key: 'gp_seed_bricks', name: "Bricks Seed",
@@ -1711,7 +1712,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_BRICKS,
     growthTimeMs: 117000, growPixelRarity: 3, seedDropChance: null,
-    economyValue: null, colorPrimary: '#a65c4c', colorSecondary: '#683a35', colorAccent: '#d58c79',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#a65c4c', colorSecondary: '#683a35', colorAccent: '#d58c79',
   },
   [ITEM_IDS.GP_SEED_CRAPPY_SIGN]: {
     id: ITEM_IDS.GP_SEED_CRAPPY_SIGN, key: 'gp_seed_crappy_sign', name: "Crappy Sign Seed",
@@ -1720,7 +1721,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_CRAPPY_SIGN,
     growthTimeMs: 117000, growPixelRarity: 3, seedDropChance: null,
-    economyValue: null, colorPrimary: '#8d653d', colorSecondary: '#5c432b', colorAccent: '#c79b61',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#8d653d', colorSecondary: '#5c432b', colorAccent: '#c79b61',
   },
   [ITEM_IDS.GP_SEED_DAISY]: {
     id: ITEM_IDS.GP_SEED_DAISY, key: 'gp_seed_daisy', name: "Daisy Seed",
@@ -1729,7 +1730,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_DAISY,
     growthTimeMs: 117000, growPixelRarity: 3, seedDropChance: null,
-    economyValue: null, colorPrimary: '#f2df56', colorSecondary: '#b89a2d', colorAccent: '#fff6a3',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#f2df56', colorSecondary: '#b89a2d', colorAccent: '#fff6a3',
   },
   [ITEM_IDS.GP_SEED_MUSHROOM]: {
     id: ITEM_IDS.GP_SEED_MUSHROOM, key: 'gp_seed_mushroom', name: "Mushroom Seed",
@@ -1738,7 +1739,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_MUSHROOM,
     growthTimeMs: 117000, growPixelRarity: 3, seedDropChance: null,
-    economyValue: null, colorPrimary: '#c35c4c', colorSecondary: '#713d39', colorAccent: '#f2b5a4',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#c35c4c', colorSecondary: '#713d39', colorAccent: '#f2b5a4',
   },
   [ITEM_IDS.GP_SEED_ROSE]: {
     id: ITEM_IDS.GP_SEED_ROSE, key: 'gp_seed_rose', name: "Rose Seed",
@@ -1747,7 +1748,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_ROSE,
     growthTimeMs: 117000, growPixelRarity: 3, seedDropChance: null,
-    economyValue: null, colorPrimary: '#c83d62', colorSecondary: '#76253f', colorAccent: '#ff9bb3',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#c83d62', colorSecondary: '#76253f', colorAccent: '#ff9bb3',
   },
   [ITEM_IDS.GP_SEED_WHEAT]: {
     id: ITEM_IDS.GP_SEED_WHEAT, key: 'gp_seed_wheat', name: "Wheat Seed",
@@ -1756,7 +1757,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_WHEAT,
     growthTimeMs: 117000, growPixelRarity: 3, seedDropChance: null,
-    economyValue: null, colorPrimary: '#d9b84c', colorSecondary: '#8d7130', colorAccent: '#f5e29a',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#d9b84c', colorSecondary: '#8d7130', colorAccent: '#f5e29a',
   },
   [ITEM_IDS.GP_SEED_WOODEN_PLATFORM]: {
     id: ITEM_IDS.GP_SEED_WOODEN_PLATFORM, key: 'gp_seed_wooden_platform', name: "Wooden Platform Seed",
@@ -1765,7 +1766,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_WOODEN_PLATFORM,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#b77b45', colorSecondary: '#704723', colorAccent: '#e0ad70',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#b77b45', colorSecondary: '#704723', colorAccent: '#e0ad70',
   },
   [ITEM_IDS.GP_SEED_BLACK_BLOCK]: {
     id: ITEM_IDS.GP_SEED_BLACK_BLOCK, key: 'gp_seed_black_block', name: "Black Block Seed",
@@ -1774,7 +1775,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_BLACK_BLOCK,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#34343c', colorSecondary: '#17171d', colorAccent: '#666675',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#34343c', colorSecondary: '#17171d', colorAccent: '#666675',
   },
   [ITEM_IDS.GP_SEED_BROWN_BLOCK]: {
     id: ITEM_IDS.GP_SEED_BROWN_BLOCK, key: 'gp_seed_brown_block', name: "Brown Block Seed",
@@ -1783,7 +1784,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_BROWN_BLOCK,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#815239', colorSecondary: '#4f3024', colorAccent: '#bd8964',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#815239', colorSecondary: '#4f3024', colorAccent: '#bd8964',
   },
   [ITEM_IDS.GP_SEED_GREY_BLOCK]: {
     id: ITEM_IDS.GP_SEED_GREY_BLOCK, key: 'gp_seed_grey_block', name: "Grey Block Seed",
@@ -1792,7 +1793,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_GREY_BLOCK,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#89909a', colorSecondary: '#535b65', colorAccent: '#c1c7ce',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#89909a', colorSecondary: '#535b65', colorAccent: '#c1c7ce',
   },
   [ITEM_IDS.GP_SEED_RED_BLOCK]: {
     id: ITEM_IDS.GP_SEED_RED_BLOCK, key: 'gp_seed_red_block', name: "Red Block Seed",
@@ -1801,7 +1802,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_RED_BLOCK,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#c43e43', colorSecondary: '#76252b', colorAccent: '#ff8588',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#c43e43', colorSecondary: '#76252b', colorAccent: '#ff8588',
   },
   [ITEM_IDS.GP_SEED_AQUA_BLOCK]: {
     id: ITEM_IDS.GP_SEED_AQUA_BLOCK, key: 'gp_seed_aqua_block', name: "Aqua Block Seed",
@@ -1810,7 +1811,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_AQUA_BLOCK,
     growthTimeMs: 275000, growPixelRarity: 5, seedDropChance: null,
-    economyValue: null, colorPrimary: '#42c9c5', colorSecondary: '#237a83', colorAccent: '#a1fff2',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#42c9c5', colorSecondary: '#237a83', colorAccent: '#a1fff2',
   },
   [ITEM_IDS.GP_SEED_GREEN_BLOCK]: {
     id: ITEM_IDS.GP_SEED_GREEN_BLOCK, key: 'gp_seed_green_block', name: "Green Block Seed",
@@ -1819,7 +1820,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_GREEN_BLOCK,
     growthTimeMs: 275000, growPixelRarity: 5, seedDropChance: null,
-    economyValue: null, colorPrimary: '#4eaa50', colorSecondary: '#286b35', colorAccent: '#a1e878',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#4eaa50', colorSecondary: '#286b35', colorAccent: '#a1e878',
   },
   [ITEM_IDS.GP_SEED_WHITE_BLOCK]: {
     id: ITEM_IDS.GP_SEED_WHITE_BLOCK, key: 'gp_seed_white_block', name: "White Block Seed",
@@ -1828,7 +1829,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_WHITE_BLOCK,
     growthTimeMs: 396000, growPixelRarity: 6, seedDropChance: null,
-    economyValue: null, colorPrimary: '#e8e8e0', colorSecondary: '#a6a69d', colorAccent: '#ffffff',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#e8e8e0', colorSecondary: '#a6a69d', colorAccent: '#ffffff',
   },
   [ITEM_IDS.GP_SEED_WINDOW]: {
     id: ITEM_IDS.GP_SEED_WINDOW, key: 'gp_seed_window', name: "Window Seed",
@@ -1837,7 +1838,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_WINDOW,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#a5e7f4', colorSecondary: '#5599b1', colorAccent: '#e8ffff',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#a5e7f4', colorSecondary: '#5599b1', colorAccent: '#e8ffff',
   },
   [ITEM_IDS.GP_SEED_YELLOW_BLOCK]: {
     id: ITEM_IDS.GP_SEED_YELLOW_BLOCK, key: 'gp_seed_yellow_block', name: "Yellow Block Seed",
@@ -1846,7 +1847,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_YELLOW_BLOCK,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#e5c747', colorSecondary: '#a58626', colorAccent: '#fff19a',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#e5c747', colorSecondary: '#a58626', colorAccent: '#fff19a',
   },
   [ITEM_IDS.GP_SEED_GLASS_BLOCK]: {
     id: ITEM_IDS.GP_SEED_GLASS_BLOCK, key: 'gp_seed_glass_block', name: "Glass Block Seed",
@@ -1855,7 +1856,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_GLASS_BLOCK,
     growthTimeMs: 553000, growPixelRarity: 7, seedDropChance: null,
-    economyValue: null, colorPrimary: '#8bd8e9', colorSecondary: '#3e879c', colorAccent: '#e4ffff',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#8bd8e9', colorSecondary: '#3e879c', colorAccent: '#e4ffff',
   },
   [ITEM_IDS.GP_SEED_TOILET]: {
     id: ITEM_IDS.GP_SEED_TOILET, key: 'gp_seed_toilet', name: "Toilet Seed",
@@ -1864,7 +1865,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_TOILET,
     growthTimeMs: 396000, growPixelRarity: 6, seedDropChance: null,
-    economyValue: null, colorPrimary: '#e8e9e7', colorSecondary: '#9fa4a7', colorAccent: '#ffffff',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#e8e9e7', colorSecondary: '#9fa4a7', colorAccent: '#ffffff',
   },
   [ITEM_IDS.GP_SEED_RED_BRICKS]: {
     id: ITEM_IDS.GP_SEED_RED_BRICKS, key: 'gp_seed_red_bricks', name: "Red Bricks Seed",
@@ -1873,7 +1874,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_RED_BRICKS,
     growthTimeMs: 553000, growPixelRarity: 7, seedDropChance: null,
-    economyValue: null, colorPrimary: '#a94740', colorSecondary: '#682b2a', colorAccent: '#e17c6f',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#a94740', colorSecondary: '#682b2a', colorAccent: '#e17c6f',
   },
   [ITEM_IDS.GP_SEED_DEATH_SPIKES]: {
     id: ITEM_IDS.GP_SEED_DEATH_SPIKES, key: 'gp_seed_death_spikes', name: "Death Spikes Seed",
@@ -1882,7 +1883,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_DEATH_SPIKES,
     growthTimeMs: 752000, growPixelRarity: 8, seedDropChance: null,
-    economyValue: null, colorPrimary: '#55515c', colorSecondary: '#25232b', colorAccent: '#ff6464',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#55515c', colorSecondary: '#25232b', colorAccent: '#ff6464',
   },
   [ITEM_IDS.GP_SEED_DUNGEON_DOOR]: {
     id: ITEM_IDS.GP_SEED_DUNGEON_DOOR, key: 'gp_seed_dungeon_door', name: "Dungeon Door Seed",
@@ -1891,7 +1892,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_DUNGEON_DOOR,
     growthTimeMs: 752000, growPixelRarity: 8, seedDropChance: null,
-    economyValue: null, colorPrimary: '#665247', colorSecondary: '#342a27', colorAccent: '#b48c6e',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#665247', colorSecondary: '#342a27', colorAccent: '#b48c6e',
   },
   [ITEM_IDS.GP_SEED_BUSH]: {
     id: ITEM_IDS.GP_SEED_BUSH, key: 'gp_seed_bush', name: "Bush Seed",
@@ -1900,7 +1901,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_BUSH,
     growthTimeMs: 999000, growPixelRarity: 9, seedDropChance: null,
-    economyValue: null, colorPrimary: '#3e9148', colorSecondary: '#235a32', colorAccent: '#8bd66c',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, bonusHarvestDrops: [{ itemId: ITEM_IDS.GP_HEDGE, chance: 0.2, minQty: 1, maxQty: 1 }], bonusHarvestDropsVerified: false, colorPrimary: '#3e9148', colorSecondary: '#235a32', colorAccent: '#8bd66c',
   },
   [ITEM_IDS.GP_SEED_HEDGE]: {
     id: ITEM_IDS.GP_SEED_HEDGE, key: 'gp_seed_hedge', name: "Hedge Seed",
@@ -1909,7 +1910,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_HEDGE,
     growthTimeMs: 999000, growPixelRarity: 9, seedDropChance: null,
-    economyValue: null, colorPrimary: '#347c3e', colorSecondary: '#1d4e2b', colorAccent: '#74bd5c',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#347c3e', colorSecondary: '#1d4e2b', colorAccent: '#74bd5c',
   },
   [ITEM_IDS.GP_SEED_ORANGE_BLOCK]: {
     id: ITEM_IDS.GP_SEED_ORANGE_BLOCK, key: 'gp_seed_orange_block', name: "Orange Block Seed",
@@ -1918,7 +1919,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_ORANGE_BLOCK,
     growthTimeMs: 999000, growPixelRarity: 9, seedDropChance: null,
-    economyValue: null, colorPrimary: '#e68a32', colorSecondary: '#985020', colorAccent: '#ffc16c',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#e68a32', colorSecondary: '#985020', colorAccent: '#ffc16c',
   },
   [ITEM_IDS.GP_SEED_BLUE_BLOCK]: {
     id: ITEM_IDS.GP_SEED_BLUE_BLOCK, key: 'gp_seed_blue_block', name: "Blue Block Seed",
@@ -1927,7 +1928,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 4, producesTileId: ITEM_IDS.GP_BLUE_BLOCK,
     growthTimeMs: 3825000, growPixelRarity: 15, seedDropChance: null,
-    economyValue: null, colorPrimary: '#438ad5', colorSecondary: '#254b8b', colorAccent: '#a6d8ff',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#438ad5', colorSecondary: '#254b8b', colorAccent: '#a6d8ff',
   },
   [ITEM_IDS.GP_SEED_POPPY]: {
     id: ITEM_IDS.GP_SEED_POPPY, key: 'gp_seed_poppy', name: "Poppy Seed",
@@ -1936,7 +1937,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_POPPY,
     growthTimeMs: 396000, growPixelRarity: 6, seedDropChance: null,
-    economyValue: null, colorPrimary: '#e34b63', colorSecondary: '#87283f', colorAccent: '#ff9cab',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#e34b63', colorSecondary: '#87283f', colorAccent: '#ff9cab',
   },
   [ITEM_IDS.GP_SEED_WOODEN_BACKGROUND]: {
     id: ITEM_IDS.GP_SEED_WOODEN_BACKGROUND, key: 'gp_seed_wooden_background', name: "Wooden Background Seed",
@@ -1945,7 +1946,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_WOODEN_BACKGROUND,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#795332', colorSecondary: '#4b321f', colorAccent: '#bd8b59',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#795332', colorSecondary: '#4b321f', colorAccent: '#bd8b59',
   },
   [ITEM_IDS.GP_SEED_ROCK_BACKGROUND]: {
     id: ITEM_IDS.GP_SEED_ROCK_BACKGROUND, key: 'gp_seed_rock_background', name: "Rock Background Seed",
@@ -1954,7 +1955,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_ROCK_BACKGROUND,
     growthTimeMs: 117000, growPixelRarity: 3, seedDropChance: null,
-    economyValue: null, colorPrimary: '#555d68', colorSecondary: '#303640', colorAccent: '#8994a4',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#555d68', colorSecondary: '#303640', colorAccent: '#8994a4',
   },
   [ITEM_IDS.GP_SEED_POINTY_SIGN]: {
     id: ITEM_IDS.GP_SEED_POINTY_SIGN, key: 'gp_seed_pointy_sign', name: "Pointy Sign Seed",
@@ -1963,7 +1964,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_POINTY_SIGN,
     growthTimeMs: 184000, growPixelRarity: 4, seedDropChance: null,
-    economyValue: null, colorPrimary: '#b47c45', colorSecondary: '#6d4829', colorAccent: '#e1b67a',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#b47c45', colorSecondary: '#6d4829', colorAccent: '#e1b67a',
   },
   [ITEM_IDS.GP_SEED_DANGER_SIGN]: {
     id: ITEM_IDS.GP_SEED_DANGER_SIGN, key: 'gp_seed_danger_sign', name: "Danger Sign Seed",
@@ -1972,7 +1973,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 2, producesTileId: ITEM_IDS.GP_DANGER_SIGN,
     growthTimeMs: 275000, growPixelRarity: 5, seedDropChance: null,
-    economyValue: null, colorPrimary: '#d45a37', colorSecondary: '#7d3025', colorAccent: '#ffb15f',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#d45a37', colorSecondary: '#7d3025', colorAccent: '#ffb15f',
   },
   [ITEM_IDS.GP_SEED_BLUEBERRY]: {
     id: ITEM_IDS.GP_SEED_BLUEBERRY, key: 'gp_seed_blueberry', name: "Blueberry Seed",
@@ -1981,7 +1982,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 3, producesTileId: ITEM_IDS.GP_BLUEBERRY,
     growthTimeMs: 2088000, growPixelRarity: 12, seedDropChance: null,
-    economyValue: null, colorPrimary: '#3d68b8', colorSecondary: '#263c75', colorAccent: '#91b6ff',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#3d68b8', colorSecondary: '#263c75', colorAccent: '#91b6ff',
   }
 });
 
