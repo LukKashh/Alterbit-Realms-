@@ -10,7 +10,7 @@ interface DungeonOverlayProps {
   gems: number;
   inventory: InventorySlot[];
   snapshot: DungeonSnapshot | null;
-  onBuyKey: (tier: number) => void;
+  onBuyKey: (tier: number, payment: 'gems' | 'world_locks') => void;
   onCreate: (tier: number) => void;
   onJoin: (code: string) => void;
   onAction: (action: DungeonAction, dx?: number, dy?: number) => void;
@@ -80,7 +80,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
         onClick={() => setOpen(true)}
         className="fixed z-40 left-3 top-3 px-3 py-2 rounded-md border-2 border-[#9c8050] bg-[#182332]/95 text-[#ffe3a2] text-[11px] font-bold shadow-lg hover:bg-[#26384b]"
       >
-        {snapshot ? 'EXPEDITION · ' + snapshot.phase.toUpperCase() : 'DUNGEON GATE'}
+        {snapshot ? 'EXPEDITION · ' + snapshot.phase.toUpperCase() : 'STATION COMMANDER'}
       </button>
 
       {open && (
@@ -180,13 +180,14 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
               <div className="p-3 sm:p-4 flex flex-col gap-3">
                 <div className="rounded-lg border border-[#3c5368] bg-[#0b1520] p-3">
                   <div className="text-sm font-bold text-[#f5d18a]">Open an expedition</div>
-                  <div className="text-[10px] text-[#91a4b8] mt-1">Purchase a Gate Key with Gems and World Locks. The key is consumed when you create a run.</div>
+                  <div className="text-[10px] text-[#91a4b8] mt-1">Choose one payment method: Gems OR World Locks. A purchased key is consumed when you activate its gate.</div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {GATE_KEYS.map((key, index) => {
                     const owned = keyCounts[index] ?? 0;
                     const canUnlock = level >= key.minLevel;
-                    const canBuy = canUnlock && gems >= key.gemPrice && worldLocks >= key.worldLockPrice;
+                    const canBuyGems = canUnlock && gems >= key.gemPrice;
+                    const canBuyLocks = canUnlock && worldLocks >= key.worldLockPrice;
                     return (
                       <div key={key.id} className="rounded-lg border border-[#3a4d60] bg-[#0b1520] p-3 flex flex-col gap-2">
                         <div className="flex items-center justify-between gap-2">
@@ -195,10 +196,11 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                         </div>
                         <div className="text-[10px] text-[#a9bbca]">Level {key.minLevel} · {key.rooms} rooms</div>
                         <div className="text-[10px] text-[#a9bbca]">{key.enemyFamily}</div>
-                        <div className="text-[10px] text-[#d9c7a3]">{key.gemPrice} Gems + {key.worldLockPrice} World Lock(s)</div>
-                        <div className="flex gap-2 mt-auto">
-                          <button type="button" disabled={!canBuy} onClick={() => onBuyKey(key.tier)} className="flex-1 py-2 rounded bg-[#314f68] disabled:opacity-40 text-[10px] font-bold">Buy Key</button>
-                          <button type="button" disabled={owned <= 0 || !canUnlock} onClick={() => onCreate(key.tier)} className="flex-1 py-2 rounded bg-[#9a7332] disabled:opacity-40 text-[10px] font-black text-[#1a1208]">Create Run</button>
+                        <div className="text-[10px] text-[#d9c7a3]">Choose: {key.gemPrice} Gems OR {key.worldLockPrice} World Lock(s)</div>
+                        <div className="grid grid-cols-2 gap-2 mt-auto">
+                          <button type="button" disabled={!canBuyGems} onClick={() => onBuyKey(key.tier, 'gems')} className="py-2 rounded bg-[#314f68] disabled:opacity-40 text-[10px] font-bold">Buy · {key.gemPrice} Gems</button>
+                          <button type="button" disabled={!canBuyLocks} onClick={() => onBuyKey(key.tier, 'world_locks')} className="py-2 rounded bg-[#425b42] disabled:opacity-40 text-[10px] font-bold">Buy · {key.worldLockPrice} WL</button>
+                          <button type="button" disabled={owned <= 0 || !canUnlock} onClick={() => onCreate(key.tier)} className="col-span-2 py-2 rounded bg-[#9a7332] disabled:opacity-40 text-[10px] font-black text-[#1a1208]">Activate Gate · {owned} Key(s)</button>
                         </div>
                       </div>
                     );
