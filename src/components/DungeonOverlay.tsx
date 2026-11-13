@@ -350,7 +350,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             onClick={onClose}
             className="px-3 py-1.5 rounded border border-[#46678a] bg-[#16283c] hover:bg-[#213c57] font-pixel text-[10px] text-[#fff8e8] cursor-pointer"
           >
-            {snapshot ? 'WORLD MENU' : 'DOWN'}
+            {snapshot ? 'WORLD MENU' : 'BACK'}
           </button>
         </div>
       </header>
@@ -412,7 +412,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                     UP
                   </span>
                   <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
-                    BACK
+                    DOWN
                   </span>
                   <span className="absolute left-2 top-1/2 -translate-y-1/2 font-pixel text-[10px] text-[#ffe18c]">
                     ◀
@@ -480,7 +480,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
               )}
             </div>
 
-            {/* Right: 1st-Person Melee Strike & Leave */}
+            {/* Right: Melee Strike & Leave */}
             {(snapshot.phase === 'active' || snapshot.phase === 'cleared') && (
               <div className="pointer-events-auto flex flex-col items-end gap-2">
                 <button
@@ -520,7 +520,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                     3D Adventure Dungeon Gates
                   </div>
                   <div className="text-[11px] text-[#9cb5cc] mt-0.5">
-                    Preview each tier in 1st-person 3D behind this deck. Unlock Gate Keys with Gems or World Locks.
+                    Preview each tier in the third-person dungeon view behind this deck. Unlock Gate Keys with Gems or World Locks.
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
