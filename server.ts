@@ -427,7 +427,7 @@ async function startServer() {
           sendTo(ws, { type: 'dungeon_error', message: 'Dungeon controls are only available while stationed at STATION.' });
           return;
         }
-        const result = dungeonStore.act(account, msg.action, msg.dx ?? 0, msg.dy ?? 0);
+        const result = dungeonStore.act(account, msg.action, msg.dx ?? 0, msg.dy ?? 0, Date.now(), msg.attackId);
         if (!result.ok) {
           sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Dungeon action failed.' });
           return;
