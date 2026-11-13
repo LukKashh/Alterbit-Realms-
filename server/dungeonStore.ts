@@ -129,6 +129,7 @@ export class DungeonStore {
     this.accountRefs.set(account.id, account);
     if (!key || !keyItemId) return { ok: false, message: 'Unknown Gate Key tier.' };
     if (account.level < key.minLevel) return { ok: false, message: 'Explorer level ' + key.minLevel + ' is required.' };
+    if (this.findRun(account.id)) return { ok: false, message: 'You are already assigned to an active dungeon party.' };
     const keySlot = account.inventory.find((slot) => slot.itemId === keyItemId && slot.qty > 0);
     if (!keySlot || !this.playerStore.consumeInventory(account, keyItemId, 1)) {
       return { ok: false, message: 'You need a ' + key.id.replace(/_/g, ' ') + ' to open this dungeon.' };
@@ -161,6 +162,8 @@ export class DungeonStore {
     if (!/^[A-Z0-9]{6}$/.test(code)) return { ok: false, message: 'Enter a valid six-character party code.' };
     const run = [...this.runs.values()].find((entry) => entry.code === code);
     if (!run || run.phase !== 'active' && run.phase !== 'cleared') return { ok: false, message: 'That dungeon party is no longer available.' };
+    const currentRun = this.findRun(account.id);
+    if (currentRun && currentRun.runId !== run.runId) return { ok: false, message: 'Leave your current dungeon party before joining another.' };
     if (run.players[account.id]) {
       run.players[account.id].connected = true;
       run.players[account.id].lastSeenAt = now;
@@ -234,8 +237,8 @@ export class DungeonStore {
       const enemyStats = getDungeonEnemyStats(tier, isBossRoom);
       enemies.push({
         id: 'enemy_' + roomIndex + '_' + i + '_' + Math.floor(random() * 1e8),
-        name: enemyStats.name,
-        kind: isBossRoom ? 'boss' : 'dweller',
+        name: isBossRoom ? enemyStats.name : (tier === 1 && i % 2 === 1 ? 'Station Drone' : enemyStats.name),
+        kind: isBossRoom ? 'boss' : (tier === 1 && i % 2 === 1 ? 'drone' : 'dweller'),
         x, y,
         hp: enemyStats.hp, maxHp: enemyStats.hp, damage: enemyStats.damage,
         boss: isBossRoom, nextAttackAt: now + 700, nextMoveAt: now + 350,
