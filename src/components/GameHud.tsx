@@ -202,7 +202,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   // Inspector local form state
   const [editorInput, setEditorInput] = useState('');
   const [signDraft, setSignDraft] = useState('');
-  const [vmItemId, setVmItemId] = useState<number>(ITEM_IDS.RICH_SOIL);
+  const [vmItemId, setVmItemId] = useState<number>(ITEM_IDS.GP_DIRT);
   const [vmStockQty, setVmStockQty] = useState<number>(5);
   const [vmPriceItemId, setVmPriceItemId] = useState<number>(ITEM_IDS.SMALL_LOCK);
   const [vmPriceQty, setVmPriceQty] = useState<number>(1);
