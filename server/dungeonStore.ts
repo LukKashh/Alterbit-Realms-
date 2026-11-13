@@ -413,11 +413,26 @@ export class DungeonStore {
 
   tick(now = Date.now()): DungeonSnapshot[] {
     const changed: DungeonSnapshot[] = [];
-    for (const run of this.runs.values()) {
+    let cleanupChanged = false;
+    for (const [runId, run] of this.runs.entries()) {
+      if ((run.phase === 'completed' || run.phase === 'failed') && run.completedAt && now - run.completedAt > 60_000) {
+        this.runs.delete(runId);
+        cleanupChanged = true;
+        continue;
+      }
       if (run.phase !== 'active') continue;
       if (now - run.createdAt > MAX_RUN_AGE_MS) {
         run.phase = 'failed';
+        run.completedAt = now;
         run.message = 'The expedition expired before completion.';
+        run.updatedAt = now;
+        changed.push(this.snapshot(run));
+        continue;
+      }
+      if (Object.values(run.players).length > 0 && Object.values(run.players).every((player) => player.hp <= 0)) {
+        run.phase = 'failed';
+        run.completedAt = now;
+        run.message = 'The entire party was defeated. No rewards were granted.';
         run.updatedAt = now;
         changed.push(this.snapshot(run));
         continue;
@@ -427,6 +442,7 @@ export class DungeonStore {
         const anyRecentlyConnected = Object.values(run.players).some((player) => now - player.lastSeenAt < DISCONNECT_GRACE_MS);
         if (!anyRecentlyConnected) {
           run.phase = 'failed';
+          run.completedAt = now;
           run.message = 'The party abandoned the expedition. No rewards were granted.';
           run.updatedAt = now;
           changed.push(this.snapshot(run));
@@ -462,6 +478,7 @@ export class DungeonStore {
       }
       if (Object.values(run.players).every((player) => player.hp <= 0)) {
         run.phase = 'failed';
+        run.completedAt = now;
         run.message = 'The entire party was defeated. No rewards were granted.';
         didChange = true;
       }
@@ -473,7 +490,7 @@ export class DungeonStore {
         }
       }
     }
-    if (changed.length) this.persist();
+    if (changed.length || cleanupChanged) this.persist();
     return changed;
   }
 
