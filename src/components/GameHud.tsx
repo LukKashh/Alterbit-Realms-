@@ -91,6 +91,7 @@ interface GameHudProps {
   worlds: WorldSummary[];
   onRefreshWorlds: () => void;
   onJoinWorld: (name: string) => void;
+  onCreateWorld: (name: string, terraBlast: boolean) => void;
   onToggleFavoriteWorld: (worldName: string) => void;
   chatMessages: ChatMessage[];
   onSendChat: (text: string) => void;
@@ -105,7 +106,12 @@ interface GameHudProps {
   onConfigureLock: (
     tx: number,
     ty: number,
-    opts: { publicAccess?: boolean; addEditorName?: string; removeEditorId?: string }
+    opts: {
+      addEditorName?: string;
+      removeEditorId?: string;
+      permissionTargetId?: string;
+      permissions?: Partial<import('../game/shareLocks.ts').ShareLockPermissions>;
+    }
   ) => void;
   onConfigureVending: (
     tx: number,
@@ -332,6 +338,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   worlds,
   onRefreshWorlds,
   onJoinWorld,
+  onCreateWorld,
   onToggleFavoriteWorld,
   chatMessages,
   onSendChat,
@@ -370,6 +377,8 @@ export const GameHud: React.FC<GameHudProps> = ({
 }) => {
   const [activePanel, setActivePanel] = useState<ActivePanel>('none');
   const [worldInput, setWorldInput] = useState('');
+  const [newWorldName, setNewWorldName] = useState('');
+  const [useTerraBlast, setUseTerraBlast] = useState(false);
   const [worldTab, setWorldTab] = useState<'public' | 'favorites' | 'recent'>('public');
   const [chatInput, setChatInput] = useState('');
   const [spliceA, setSpliceA] = useState<number | null>(null);
@@ -405,7 +414,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [signDraft, setSignDraft] = useState('');
   const [vmItemId, setVmItemId] = useState<number>(ITEM_IDS.GP_DIRT);
   const [vmStockQty, setVmStockQty] = useState<number>(5);
-  const [vmPriceItemId, setVmPriceItemId] = useState<number>(ITEM_IDS.SMALL_LOCK);
+  const [vmPriceItemId, setVmPriceItemId] = useState<number>(ITEM_IDS.GP_RED_BRICKS);
   const [vmPriceQty, setVmPriceQty] = useState<number>(1);
 
   useEffect(() => {
@@ -484,8 +493,9 @@ export const GameHud: React.FC<GameHudProps> = ({
   const getQty = (itemId: number) => inventory.find((s) => s.itemId === itemId)?.qty ?? 0;
   const isCurrentWorldFav = favoriteWorlds.includes(worldName);
 
-  const activeLock = inspectInfo?.worldLock ?? inspectInfo?.areaLock ?? null;
+  const activeLock = inspectInfo?.shareLock ?? null;
   const isLockOwner = activeLock?.ownerId === playerId;
+  const myRealms = worlds.filter((world) => world.ownerId === playerId);
 
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-2.5">
@@ -567,7 +577,7 @@ export const GameHud: React.FC<GameHudProps> = ({
             <div className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1.5 py-0.5 text-[11px] sm:text-xs font-bold text-[#ffe18c] whitespace-nowrap truncate">
               {worldOwner ? <Lock className="w-3 h-3 text-[#f2b738] shrink-0" /> : <Globe className="w-3 h-3 text-[#78c8f5] shrink-0" />}
               <span className="truncate max-w-[64px] sm:max-w-none">{worldName}</span>
-              <span className="hidden sm:inline text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/20)</span>
+              <span className="hidden sm:inline text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/{worldOwner ? 10 : 20})</span>
             </div>
 
             <span className="hidden md:inline text-[11px] font-mono-num text-[#8aa4bd] whitespace-nowrap pr-1">
@@ -701,95 +711,102 @@ export const GameHud: React.FC<GameHudProps> = ({
               {inspectInfo.lockInfo && <span className="text-[#ffe18c] font-semibold">{inspectInfo.lockInfo}</span>}
             </div>
 
-            {/* Lock Permissions Panel */}
+            {/* Share Lock Permissions Panel */}
             {activeLock && (
               <div className="border-t border-[#28425e] pt-2 flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#ffe18c]">
-                    {inspectInfo.worldLock ? 'World Lock Settings' : 'Area Lock (7×7) Settings'}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-[#8cf7ee]">
+                    {getItemDef(activeLock.itemId)?.name ?? 'Share Lock'} · {activeLock.width}×{activeLock.height}
                   </span>
-                  <span className="text-[11px] text-[#89d6ff]">Owner: {activeLock.ownerName}</span>
+                  <span className="text-[10px] text-[#89d6ff]">Owner: {activeLock.ownerName}</span>
                 </div>
-
-                {inspectInfo.worldLock && (
-                  <div className="flex items-center justify-between bg-[#09131d] border border-[#263c52] rounded px-2 py-1.5">
-                    <span className="text-[11px] text-[#d5e4f2]">
-                      Entry: {inspectInfo.worldLock.publicAccess !== false ? 'Public Visits' : 'Builders Only'}
-                    </span>
-                    {isLockOwner && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onConfigureLock(inspectInfo.tx, inspectInfo.ty, {
-                            publicAccess: inspectInfo.worldLock?.publicAccess === false,
-                          })
-                        }
-                        className="px-2 py-0.5 rounded bg-[#213b57] hover:bg-[#2c4f75] text-[11px] font-bold text-[#ffe18c] cursor-pointer"
-                      >
-                        Toggle
-                      </button>
-                    )}
-                  </div>
-                )}
-
+                <p className="text-[10px] text-[#9cb5cc]">Access is limited to this claimed rectangle. Permissions can be changed independently.</p>
                 <div className="flex flex-col gap-1">
-                  <span className="text-[11px] font-semibold text-[#9cb5cc]">
-                    Authorized Builders ({activeLock.editors.length}):
-                  </span>
-                  {activeLock.editors.length === 0 ? (
-                    <span className="text-[11px] text-[#6d8ba8]">Only {activeLock.ownerName} can build here.</span>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {activeLock.editors.map((edId) => (
-                        <div
-                          key={edId}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#142538] border border-[#2d4863] text-[11px]"
-                        >
-                          <span>{activeLock.editorNames?.[edId] ?? edId}</span>
-                          {isLockOwner && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onConfigureLock(inspectInfo.tx, inspectInfo.ty, { removeEditorId: edId })
-                              }
-                              className="text-[#ff9b9b] hover:text-white font-bold ml-1 cursor-pointer"
-                            >
-                              ×
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                  {Object.entries(activeLock.access ?? {}).length === 0 ? (
+                    <span className="text-[11px] text-[#6d8ba8]">No players have been granted access.</span>
+                  ) : Object.entries(activeLock.access ?? {}).map(([targetId, grant]) => (
+                    <div key={targetId} className="rounded bg-[#09131d] border border-[#263c52] p-2 flex flex-col gap-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-[#eaf2fa]">{grant.playerName}</span>
+                        {isLockOwner && <button type="button" onClick={() => onConfigureLock(inspectInfo.tx, inspectInfo.ty, { removeEditorId: targetId })} className="text-[#ff9b9b] font-bold cursor-pointer">Revoke</button>}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {(['build', 'break', 'interact'] as const).map((permission) => (
+                          <button key={permission} type="button" disabled={!isLockOwner}
+                            onClick={() => onConfigureLock(inspectInfo.tx, inspectInfo.ty, { permissionTargetId: targetId, permissions: { [permission]: !grant.permissions[permission] } })}
+                            className={`px-1 py-1 rounded border text-[10px] font-bold capitalize ${grant.permissions[permission] ? 'bg-[#174a37] border-[#4ec46a] text-[#b7ffd7]' : 'bg-[#3b1b1f] border-[#80333a] text-[#ffb0b0]'} ${isLockOwner ? 'cursor-pointer' : 'cursor-default'}`}>
+                            {permission}: {grant.permissions[permission] ? 'On' : 'Off'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-
                 {isLockOwner && (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (editorInput.trim()) {
-                        onConfigureLock(inspectInfo.tx, inspectInfo.ty, {
-                          addEditorName: editorInput.trim(),
-                        });
-                        setEditorInput('');
-                      }
-                    }}
-                    className="flex gap-1.5"
-                  >
-                    <input
-                      type="text"
-                      value={editorInput}
-                      onChange={(e) => setEditorInput(e.target.value)}
-                      placeholder="Add builder by name..."
-                      className="flex-1 px-2 py-1 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white"
-                    />
-                    <button
-                      type="submit"
-                      className="px-2.5 py-1 rounded bg-[#4aa64d] text-[#081709] font-bold text-xs cursor-pointer"
-                    >
-                      Grant
-                    </button>
+                  <form onSubmit={(e) => { e.preventDefault(); if (editorInput.trim()) { onConfigureLock(inspectInfo.tx, inspectInfo.ty, { addEditorName: editorInput.trim() }); setEditorInput(''); } }} className="flex gap-1.5">
+                    <input type="text" value={editorInput} onChange={(e) => setEditorInput(e.target.value)} placeholder="Grant access by username..." className="flex-1 min-w-0 px-2 py-1 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white" />
+                    <button type="submit" className="px-2.5 py-1 rounded bg-[#4aa64d] text-[#081709] font-bold text-xs cursor-pointer">Grant</button>
                   </form>
+                )}
+              </div>
+            )}
+
+            {/* Nexus Landlord: personal realm management */}
+            {inspectInfo.isLandlord && worldName === 'NEXUS' && (
+              <div className="border-t border-[#28425e] pt-2 flex flex-col gap-2">
+                <div>
+                  <h3 className="font-pixel text-xs text-[#ffe18c]">LANDLORD · REALM STEWARD</h3>
+                  <p className="text-[11px] text-[#9cb5cc]">Manage the realms you own or conjure a new private realm.</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#8cf7ee]">My Realms ({myRealms.length})</span>
+                  <button type="button" onClick={onRefreshWorlds} className="text-[10px] text-[#89d6ff] font-bold cursor-pointer">Refresh</button>
+                </div>
+                {myRealms.length === 0 ? (
+                  <span className="text-[11px] text-[#6d8ba8]">You do not own any realms yet.</span>
+                ) : myRealms.map((realm) => (
+                  <button key={realm.name} type="button" onClick={() => onJoinWorld(realm.name)}
+                    className="flex items-center justify-between rounded bg-[#142538] border border-[#2d4863] p-2 text-left cursor-pointer">
+                    <span className="font-bold text-[#f7f4eb]">{realm.name}</span>
+                    <span className="text-[10px] text-[#8cf7ee]">{realm.playerCount}/10 · Enter</span>
+                  </button>
+                ))}
+                <form onSubmit={(e) => { e.preventDefault(); if (newWorldName.trim()) { onCreateWorld(newWorldName.trim(), useTerraBlast); setNewWorldName(''); setUseTerraBlast(false); } }}
+                  className="border-t border-[#28425e] pt-2 flex flex-col gap-1.5">
+                  <label className="text-[11px] font-bold text-[#ffe18c]">Conjure up a Fresh one</label>
+                  <input value={newWorldName} onChange={(e) => setNewWorldName(e.target.value.toUpperCase())}
+                    maxLength={20} placeholder="Choose a unique realm name"
+                    className="w-full px-2 py-1.5 rounded bg-[#08101a] border border-[#2d4863] text-xs text-white uppercase" />
+                  {getQty(ITEM_IDS.WORLD_BLAST) > 0 && (
+                    <label className="flex items-center gap-2 text-[11px] text-[#d8c3ff]">
+                      <input type="checkbox" checked={useTerraBlast} onChange={(e) => setUseTerraBlast(e.target.checked)} />
+                      Use World Blast · {getQty(ITEM_IDS.WORLD_BLAST)} available
+                    </label>
+                  )}
+                  <button type="submit" disabled={!newWorldName.trim() || (useTerraBlast && getQty(ITEM_IDS.WORLD_BLAST) < 1)}
+                    className="py-2 rounded bg-[#4aa64d] hover:bg-[#57ba5a] disabled:opacity-40 text-[#081709] font-bold text-xs cursor-pointer">
+                    Create Private Realm
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* WorldCore: owner-only realm manager */}
+            {inspectInfo.isWorldCore && inspectInfo.worldLock && (
+              <div className="border-t border-[#28425e] pt-2 flex flex-col gap-2">
+                {inspectInfo.worldLock.ownerId === playerId ? (
+                  <>
+                    <h3 className="font-pixel text-xs text-[#ffe18c]">WORLD MANAGER PANEL</h3>
+                    <p className="text-[11px] text-[#9cb5cc]">You own {worldName}. WorldCore secures this entire realm to your account.</p>
+                    <div className="rounded bg-[#09131d] border border-[#263c52] p-2 text-[11px] text-[#d5e4f2]">
+                      <div>Owner: {inspectInfo.worldLock.ownerName}</div>
+                      <div>Players: {playerCount}/10</div>
+                      <div>Access: Private · Share Locks grant access to selected areas</div>
+                    </div>
+                    <span className="text-[10px] text-[#6d8ba8]">Share Lock permissions are managed by inspecting each Share Lock.</span>
+                  </>
+                ) : (
+                  <span className="text-[11px] text-[#ffcf8b]">Only this realm's owner can access its Manager Panel.</span>
                 )}
               </div>
             )}
@@ -867,8 +884,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                         onChange={(e) => setVmPriceItemId(Number(e.target.value))}
                         className="px-1.5 py-1 rounded bg-[#08101a] border border-[#2d4863] text-[11px] text-white"
                       >
-                        <option value={ITEM_IDS.SMALL_LOCK}>Price in: Area Lock</option>
-                        <option value={ITEM_IDS.WORLD_LOCK}>Price in: World Lock</option>
                         <option value={ITEM_IDS.GP_RED_BRICKS}>Price in: Red Bricks</option>
                       </select>
                       <input
@@ -1891,7 +1906,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   </span>
                   <span className="font-mono-num text-[#89d6ff]">
                     {w.ownerName ? `${w.ownerName} · ` : ''}
-                    {w.playerCount}/20
+                    {w.playerCount}/{w.ownerId ? 10 : 20}
                   </span>
                 </button>
               ))}

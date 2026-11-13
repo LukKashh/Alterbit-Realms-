@@ -49,11 +49,9 @@ import {
 import {
   generateMineShaft,
   generateWorld,
-  type AreaLockRecord,
   type BfgCollectorRecord,
   type FurnaceRecord,
   type VendingMachineRecord,
-  type WorldLockRecord,
   type WorldState,
 } from '../src/game/worldGen.ts';
 import type {
@@ -74,7 +72,9 @@ import type {
   WorldSummary,
 } from '../src/game/network.ts';
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
-import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance } from '../src/game/expansion.ts';
+import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec } from '../src/game/shareLocks.ts';
+import type { ShareLockPermissions } from '../src/game/shareLocks.ts';
+import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance, isSystemWorld } from '../src/game/expansion.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -178,6 +178,7 @@ const CONFIG_FILE = path.join(DATA_DIR, 'game-config.json');
 const EXCHANGE_FILE = path.join(DATA_DIR, 'exchange.json');
 
 const SHIRT_PALETTE = ['#3f8fd9', '#d95b43', '#49a863', '#c99334', '#8e63c9', '#38a3a5'];
+const MAX_OWNED_WORLD_PLAYERS = 10;
 
 const DEFAULT_STATS: Record<PlayerStatKey, number> = {
   blocksBroken: 0,
@@ -827,13 +828,44 @@ export class AuthoritativeWorldStore {
     state.height = state.height || 60;
     state.worldKind = state.worldKind ?? 'standard';
     state.areaLocks = state.areaLocks ?? {};
+    state.shareLocks = state.shareLocks ?? {};
     state.vendingMachines = state.vendingMachines ?? {};
     state.furnaces = state.furnaces ?? {};
     state.bfgCollectors = state.bfgCollectors ?? {};
     state.signs = state.signs ?? {};
     ensureFluidArrays(state);
+
+    // Retire old physical lock blocks and convert existing ownership anchors to WorldCore.
+    for (const oldLock of Object.values(state.areaLocks)) {
+      const oldIndex = tileIndexIn(state, oldLock.x, oldLock.y);
+      if (state.fg[oldIndex] === ITEM_IDS.SMALL_LOCK) state.fg[oldIndex] = ITEM_IDS.AIR;
+    }
+    state.areaLocks = {};
+    for (const machine of Object.values(state.vendingMachines)) {
+      if (machine.priceItemId === ITEM_IDS.WORLD_LOCK || machine.priceItemId === ITEM_IDS.SMALL_LOCK) {
+        machine.priceItemId = ITEM_IDS.GP_RED_BRICKS;
+      }
+    }
+
     if (state.worldLock) {
-      state.worldLock.editorNames = state.worldLock.editorNames ?? {};
+      const oldIndex = tileIndexIn(state, state.worldLock.x, state.worldLock.y);
+      if (state.fg[oldIndex] === ITEM_IDS.WORLD_LOCK) state.fg[oldIndex] = ITEM_IDS.AIR;
+      const coreX = state.spawnX;
+      const coreY = Math.min(state.height - 7, state.spawnY + 1);
+      const coreIndex = tileIndexIn(state, coreX, coreY);
+      state.fg[coreIndex] = ITEM_IDS.WORLD_CORE;
+      state.worldLock.x = coreX;
+      state.worldLock.y = coreY;
+      state.worldLock.lockItemId = ITEM_IDS.WORLD_CORE;
+      state.worldLock.publicAccess = false;
+      state.worldLock.editors = [];
+      state.worldLock.editorNames = {};
+    }
+    if (state.name === 'NEXUS') {
+      const landlordX = Math.min(state.width - 4, state.spawnX + 4);
+      const landlordY = state.spawnY;
+      const landlordIndex = tileIndexIn(state, landlordX, landlordY);
+      state.fg[landlordIndex] = ITEM_IDS.LANDLORD_NPC;
     }
     return state;
   }
@@ -890,8 +922,8 @@ export class AuthoritativeWorldStore {
       }
     } else {
       state = generateWorld(name);
-      fs.writeFileSync(filePath, JSON.stringify(state), 'utf8');
     }
+    fs.writeFileSync(filePath, JSON.stringify(state), 'utf8');
 
     const live: LiveWorld = {
       state,
@@ -914,6 +946,71 @@ export class AuthoritativeWorldStore {
     };
     this.worlds.set(name, live);
     return live;
+  }
+
+
+  createOwnedWorld(
+    account: PlayerAccount,
+    rawName: string,
+    terraBlast = false
+  ): { ok: true; worldName: string; notice: string } | { ok: false; message: string } {
+    const validation = validateWorldName(rawName);
+    if (!validation.ok) return { ok: false, message: validation.reason ?? 'Invalid world name.' };
+    const name = validation.normalized;
+    const reserved = new Set(['START', 'TRADE', 'FARM']);
+    if (isSystemWorld(name) || reserved.has(name)) {
+      return { ok: false, message: 'That name is reserved for a system world.' };
+    }
+    const filePath = path.join(WORLDS_DIR, `${name}.json`);
+    if (this.worlds.has(name) || fs.existsSync(filePath)) {
+      return { ok: false, message: 'That realm name is already taken. Choose another name.' };
+    }
+    if (terraBlast && !this.consumeInventory(account, ITEM_IDS.WORLD_BLAST, 1)) {
+      return { ok: false, message: 'You need a World Blast to Terra Blast this realm.' };
+    }
+
+    const state = generateWorld(name, terraBlast);
+    const coreX = state.spawnX;
+    const coreY = Math.min(state.height - 7, state.spawnY + 1);
+    const coreIndex = tileIndexIn(state, coreX, coreY);
+    state.fg[coreIndex] = ITEM_IDS.WORLD_CORE;
+    state.worldLock = {
+      x: coreX,
+      y: coreY,
+      lockItemId: ITEM_IDS.WORLD_CORE,
+      ownerId: account.id,
+      ownerName: account.name,
+      editors: [],
+      editorNames: {},
+      publicAccess: false,
+    };
+    state.revision += 1;
+
+    const live: LiveWorld = {
+      state,
+      players: new Map(),
+      drops: new Map(),
+      damage: new Map(),
+      fluidFrontier: this.seedInitialFluidFrontier(state),
+      activeCasts: new Map(),
+      chatHistory: [{
+        id: `sys_${Date.now()}`,
+        senderId: 'system',
+        senderName: 'Alterbit Realms',
+        text: `Welcome to ${name}. This realm belongs to ${account.name}. Use WorldCore to manage it.`,
+        timestamp: Date.now(),
+        system: true,
+      }],
+      dirty: false,
+    };
+    this.worlds.set(name, live);
+    this.saveWorld(live);
+    if (terraBlast) this.savePlayer(account);
+    return {
+      ok: true,
+      worldName: name,
+      notice: terraBlast ? `Terra Blasted realm ${name} created. World Blast consumed.` : `Realm ${name} created and secured to your account.`,
+    };
   }
 
   saveWorld(live: LiveWorld) {
@@ -942,6 +1039,7 @@ export class AuthoritativeWorldStore {
         name: live.state.name,
         playerCount: live.players.size,
         ownerName: live.state.worldLock?.ownerName ?? null,
+        ownerId: live.state.worldLock?.ownerId ?? null,
         publicAccess: live.state.worldLock ? live.state.worldLock.publicAccess : true,
         worldKind: live.state.worldKind ?? 'standard',
       });
@@ -987,10 +1085,16 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: enterCheck.reason ?? 'World access is restricted.' };
     }
 
-    if (live.players.size >= MAX_WORLD_PLAYERS && !live.players.has(account.id)) {
+    const ownerId = live.state.worldLock?.ownerId;
+    const playerLimit = ownerId ? MAX_OWNED_WORLD_PLAYERS : MAX_WORLD_PLAYERS;
+    const ownerAlreadyPresent = ownerId ? live.players.has(ownerId) : true;
+    const visitorLimit = ownerId && !ownerAlreadyPresent && account.id !== ownerId
+      ? playerLimit - 1
+      : playerLimit;
+    if (live.players.size >= visitorLimit && !live.players.has(account.id)) {
       return {
         ok: false,
-        message: `World ${v.normalized} is full (${MAX_WORLD_PLAYERS}/${MAX_WORLD_PLAYERS}).`,
+        message: `World ${v.normalized} is full (${playerLimit}/${playerLimit}).`,
       };
     }
 
@@ -1305,8 +1409,8 @@ export class AuthoritativeWorldStore {
         account.stats.oresMined = (account.stats.oresMined ?? 0) + 1;
       }
 
-      if (prevFg === ITEM_IDS.WORLD_LOCK) {
-        live.state.worldLock = null;
+      if (getShareLockSpec(prevFg) && live.state.shareLocks) {
+        delete live.state.shareLocks[key];
       }
       if (prevFg === ITEM_IDS.SMALL_LOCK && live.state.areaLocks) {
         delete live.state.areaLocks[key];
@@ -1524,32 +1628,23 @@ export class AuthoritativeWorldStore {
       account.stats.blocksPlaced = (account.stats.blocksPlaced ?? 0) + 1;
       this.enqueueFluidNeighbors(live, tx, ty);
 
-      if (itemId === ITEM_IDS.WORLD_LOCK) {
-        live.state.worldLock = {
+      const shareSpec = getShareLockSpec(itemId);
+      if (shareSpec) {
+        live.state.shareLocks = live.state.shareLocks ?? {};
+        live.state.shareLocks[key] = {
           x: tx,
           y: ty,
-          lockItemId: itemId,
+          itemId,
+          width: shareSpec.width,
+          height: shareSpec.height,
           ownerId: account.id,
           ownerName: account.name,
-          editors: [],
-          editorNames: {},
-          publicAccess: true,
+          access: {},
         };
         account.stats.locksPlaced = (account.stats.locksPlaced ?? 0) + 1;
-        notice = 'World claimed with World Lock! Wrench the lock to manage editors.';
-      } else if (itemId === ITEM_IDS.SMALL_LOCK) {
-        live.state.areaLocks = live.state.areaLocks ?? {};
-        live.state.areaLocks[key] = {
-          x: tx,
-          y: ty,
-          radius: 3,
-          ownerId: account.id,
-          ownerName: account.name,
-          editors: [],
-          editorNames: {},
-        };
-        account.stats.locksPlaced = (account.stats.locksPlaced ?? 0) + 1;
-        notice = '7×7 Area Lock placed! Wrench the lock to manage builders.';
+        notice = `${shareSpec.name} placed · ${shareSpec.width}×${shareSpec.height} area claimed.`;
+      } else if (itemId === ITEM_IDS.WORLD_LOCK || itemId === ITEM_IDS.SMALL_LOCK) {
+        return { ok: false, reason: 'Legacy locks are retired. Use a Share Lock instead.' };
       } else if (itemId === ITEM_IDS.VENDING_MACHINE) {
         live.state.vendingMachines = live.state.vendingMachines ?? {};
         live.state.vendingMachines[key] = {
@@ -1693,64 +1788,40 @@ export class AuthoritativeWorldStore {
     account: PlayerAccount,
     tx: number,
     ty: number,
-    opts: { publicAccess?: boolean; addEditorName?: string; removeEditorId?: string }
-  ):
-    | { ok: true; worldLock?: WorldLockRecord | null; areaLock?: AreaLockRecord | null; notice: string }
-    | { ok: false; message: string } {
+    opts: {
+      addEditorName?: string;
+      removeEditorId?: string;
+      permissionTargetId?: string;
+      permissions?: Partial<ShareLockPermissions>;
+    }
+  ): { ok: true; shareLock: import('../src/game/worldGen.ts').ShareLockRecord; notice: string } | { ok: false; message: string } {
     const key = `${tx},${ty}`;
-    const wl = live.state.worldLock;
-    const al = live.state.areaLocks?.[key];
-
-    if (wl && wl.x === tx && wl.y === ty) {
-      if (wl.ownerId !== account.id) {
-        return { ok: false, message: 'Only the World Lock owner can change permissions.' };
-      }
-      wl.editorNames = wl.editorNames ?? {};
-      if (typeof opts.publicAccess === 'boolean') {
-        wl.publicAccess = opts.publicAccess;
-      }
-      if (opts.addEditorName) {
-        const target = this.findPlayerByNameOrId(opts.addEditorName);
-        const targetId = target ? target.id : opts.addEditorName.trim();
-        const targetName = target ? target.name : opts.addEditorName.trim();
-        if (targetId && targetId !== account.id && !wl.editors.includes(targetId)) {
-          wl.editors.push(targetId);
-          wl.editorNames[targetId] = targetName;
-        }
-      }
-      if (opts.removeEditorId) {
-        wl.editors = wl.editors.filter((id) => id !== opts.removeEditorId);
-        delete wl.editorNames[opts.removeEditorId];
-      }
-      live.state.revision += 1;
-      this.saveWorld(live);
-      return { ok: true, worldLock: wl, notice: 'World Lock permissions updated.' };
+    const lock = live.state.shareLocks?.[key];
+    if (!lock) return { ok: false, message: 'No Share Lock found at that tile.' };
+    if (lock.ownerId !== account.id) {
+      return { ok: false, message: 'Only the world owner can manage Share Lock access.' };
     }
 
-    if (al) {
-      if (al.ownerId !== account.id) {
-        return { ok: false, message: 'Only the Area Lock owner can change permissions.' };
-      }
-      al.editorNames = al.editorNames ?? {};
-      if (opts.addEditorName) {
-        const target = this.findPlayerByNameOrId(opts.addEditorName);
-        const targetId = target ? target.id : opts.addEditorName.trim();
-        const targetName = target ? target.name : opts.addEditorName.trim();
-        if (targetId && targetId !== account.id && !al.editors.includes(targetId)) {
-          al.editors.push(targetId);
-          al.editorNames[targetId] = targetName;
-        }
-      }
-      if (opts.removeEditorId) {
-        al.editors = al.editors.filter((id) => id !== opts.removeEditorId);
-        delete al.editorNames[opts.removeEditorId];
-      }
-      live.state.revision += 1;
-      this.saveWorld(live);
-      return { ok: true, areaLock: al, notice: 'Area Lock permissions updated.' };
+    lock.access = lock.access ?? {};
+    if (opts.addEditorName) {
+      const target = this.findPlayerByNameOrId(opts.addEditorName);
+      if (!target) return { ok: false, message: 'Player not found. Check the exact username.' };
+      if (target.id === account.id) return { ok: false, message: 'You already own this area.' };
+      lock.access[target.id] = {
+        playerName: target.name,
+        permissions: { ...DEFAULT_SHARE_LOCK_PERMISSIONS },
+      };
+    }
+    if (opts.removeEditorId) delete lock.access[opts.removeEditorId];
+    if (opts.permissionTargetId && opts.permissions) {
+      const existing = lock.access[opts.permissionTargetId];
+      if (!existing) return { ok: false, message: 'That player does not have access to this Share Lock.' };
+      existing.permissions = { ...DEFAULT_SHARE_LOCK_PERMISSIONS, ...existing.permissions, ...opts.permissions };
     }
 
-    return { ok: false, message: 'No configurable lock found at that tile.' };
+    live.state.revision += 1;
+    this.saveWorld(live);
+    return { ok: true, shareLock: lock, notice: 'Share Lock access updated.' };
   }
 
   handleConfigureVending(
@@ -1792,7 +1863,7 @@ export class AuthoritativeWorldStore {
     // Stocking machine
     const itemId = Number(opts.stockItemId ?? 0);
     const qty = Math.max(1, Math.floor(Number(opts.stockQty ?? 1)));
-    const priceItemId = Number(opts.priceItemId ?? ITEM_IDS.SMALL_LOCK);
+    const priceItemId = Number(opts.priceItemId ?? ITEM_IDS.GP_RED_BRICKS);
     const priceQty = Math.max(1, Math.floor(Number(opts.priceQty ?? 1)));
 
     const itemDef = getItemDef(itemId);
@@ -1802,6 +1873,9 @@ export class AuthoritativeWorldStore {
     }
     if (!priceDef || !priceDef.tradeable) {
       return { ok: false, message: 'Invalid payment item.' };
+    }
+    if (priceItemId === ITEM_IDS.WORLD_LOCK || priceItemId === ITEM_IDS.SMALL_LOCK) {
+      return { ok: false, message: 'Legacy lock items can no longer be used as vending prices.' };
     }
     if (vm.stockQty > 0 && (vm.stockItemId !== itemId || vm.priceItemId !== priceItemId)) {
       return { ok: false, message: 'Withdraw existing listing before changing item type.' };
@@ -1837,6 +1911,9 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: 'Duplicate transaction ignored.' };
     }
     const key = `${tx},${ty}`;
+    if (!hasEditPermission(live.state, buyer.id, tx, ty, 'interact')) {
+      return { ok: false, message: 'You do not have permission to use this Vending Machine.' };
+    }
     const vm = live.state.vendingMachines?.[key];
     if (!vm || vm.stockQty <= 0 || vm.stockItemId <= 0) {
       return { ok: false, message: 'This Vending Machine is out of stock.' };
@@ -1900,7 +1977,7 @@ export class AuthoritativeWorldStore {
     ty: number,
     rawText: string
   ): { ok: true; text: string; notice: string } | { ok: false; message: string } {
-    if (!hasEditPermission(live.state, account.id, tx, ty)) {
+    if (!hasEditPermission(live.state, account.id, tx, ty, 'interact')) {
       return { ok: false, message: 'You do not have permission to edit this sign.' };
     }
     const idx = tileIndexIn(live.state, tx, ty);
@@ -1922,7 +1999,7 @@ export class AuthoritativeWorldStore {
     ty: number,
     opts: { action: 'craft' | 'collect' | 'repair'; recipeId?: string; toolItemId?: number }
   ): { ok: true; furnace: FurnaceRecord; notice: string } | { ok: false; message: string } {
-    if (!hasEditPermission(live.state, account.id, tx, ty)) {
+    if (!hasEditPermission(live.state, account.id, tx, ty, 'interact')) {
       return { ok: false, message: 'Protected by Lock.' };
     }
     const key = `${tx},${ty}`;
@@ -2052,8 +2129,10 @@ export class AuthoritativeWorldStore {
     const key = `${tx},${ty}`;
     const bfg = live.state.bfgCollectors?.[key];
     if (!bfg) return { ok: false, message: 'BFG Auto-Collector not found.' };
-    if (bfg.ownerId !== account.id && live.state.worldLock?.ownerId !== account.id) {
-      return { ok: false, message: 'Only the BFG owner or World Lock owner can access this unit.' };
+    const isBfgOwner = bfg.ownerId === account.id || live.state.worldLock?.ownerId === account.id;
+    const hasSharedInteract = Boolean(live.state.worldLock && hasEditPermission(live.state, account.id, tx, ty, 'interact'));
+    if (!isBfgOwner && !hasSharedInteract) {
+      return { ok: false, message: 'You do not have permission to interact with this BFG Collector.' };
     }
 
     if (opts.action === 'toggle') {

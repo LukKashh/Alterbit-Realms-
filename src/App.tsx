@@ -20,7 +20,7 @@ import type { EquippedWearables } from './game/pixelArt.ts';
 import { soundEngine } from './game/audio.ts';
 import { TitleScreen } from './components/TitleScreen.tsx';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
-import { WorldHub } from './components/WorldHub.tsx';
+import { ModeSelection } from './components/ModeSelection.tsx';
 import { GameHud } from './components/GameHud.tsx';
 import { DungeonOverlay } from './components/DungeonOverlay.tsx';
 import { testFirestoreConnection } from './lib/firebase.ts';
@@ -428,6 +428,7 @@ export default function App() {
             msg.plant,
             msg.worldLock,
             msg.areaLock,
+            msg.shareLock,
             msg.vendingMachine,
             msg.signText,
             msg.fluidType,
@@ -795,51 +796,13 @@ export default function App() {
       )}
 
       {appState === 'hub' && (
-        <WorldHub
-          playerId={playerId}
+        <ModeSelection
           playerName={playerName}
-          email={email}
-          role={role}
-          gems={gems}
-          xp={xp}
           level={level}
-          inventory={inventory}
-          equipped={equipped}
-          stats={stats}
-          claimedAchievements={claimedAchievements}
-          friends={friends}
-          favoriteWorlds={favoriteWorlds}
-          recentWorlds={recentWorlds}
-          worlds={worlds}
-          gameConfig={gameConfig}
-          unclaimedWl={unclaimedWl}
-          exchange={exchangeSnapshot}
-          toastMessage={toastMessage}
-          onRefreshWorlds={() => {
-            void fetchWorldsList();
-            socketRef.current?.send({ type: 'list_worlds' });
-          }}
-          onEnterWorld={handleEnterWorld}
-          onBuyGemStore={(listingId) =>
-            socketRef.current?.send({ type: 'buy_gem_store', listingId, txId: makeTxId() })
-          }
-          onEquipWearable={(itemId) => socketRef.current?.send({ type: 'equip_wearable', itemId })}
-          onClaimAchievement={(achievementId) =>
-            socketRef.current?.send({ type: 'claim_achievement', achievementId })
-          }
-          onSaveGameConfig={(cfg) =>
-            socketRef.current?.send({ type: 'update_game_config', config: cfg })
-          }
-          onAdminAction={(opts) => socketRef.current?.send({ type: 'admin_action', ...opts })}
-          onExchangeAction={(opts) =>
-            socketRef.current?.send({
-              type: 'exchange_action',
-              ...opts,
-              txId: opts.action === 'buy' || opts.action === 'post' ? makeTxId() : undefined,
-            })
-          }
+          gems={gems}
           connected={connected}
           onReconnectNow={() => socketRef.current?.reconnectNow()}
+          onEnterWorld={handleEnterWorld}
           onOpenDungeons={() => {
             soundEngine.uiClick();
             setDungeonOpen(true);
@@ -905,6 +868,7 @@ export default function App() {
           worlds={worlds}
           onRefreshWorlds={() => socketRef.current?.send({ type: 'list_worlds' })}
           onJoinWorld={(name) => handleEnterWorld(name)}
+          onCreateWorld={(name, terraBlast) => socketRef.current?.send({ type: 'create_world', worldName: name, terraBlast })}
           onToggleFavoriteWorld={(name) =>
             socketRef.current?.send({ type: 'toggle_favorite_world', worldName: name })
           }

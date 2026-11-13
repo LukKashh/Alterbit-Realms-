@@ -1,5 +1,6 @@
 import type {
   AreaLockRecord,
+  ShareLockRecord,
   BfgCollectorRecord,
   FurnaceRecord,
   PlantedTree,
@@ -116,6 +117,7 @@ export interface WorldSummary {
   playerCount: number;
   ownerName: string | null;
   publicAccess: boolean;
+  ownerId?: string | null;
   worldKind?: 'standard' | 'mine_shaft';
 }
 
@@ -165,6 +167,7 @@ export type ClientMessage =
   | { type: 'hello'; token?: string; playerId?: string; playerName?: string }
   | { type: 'ping'; clientTime: number }
   | { type: 'join_world'; worldName: string; resumePosition?: ResumePosition }
+  | { type: 'create_world'; worldName: string; terraBlast?: boolean }
   | { type: 'leave_world' }
   | { type: 'dungeon_buy_key'; tier: number; payment: 'gems' | 'world_locks'; txId: string }
   | { type: 'dungeon_create'; tier: number; partyMode: 'solo' | 'cooperative' }
@@ -194,6 +197,8 @@ export type ClientMessage =
       publicAccess?: boolean;
       addEditorName?: string;
       removeEditorId?: string;
+      permissionTargetId?: string;
+      permissions?: Partial<import('./shareLocks.ts').ShareLockPermissions>;
     }
   | {
       type: 'configure_vending';
@@ -332,6 +337,7 @@ export type ServerMessage =
       plant: PlantedTree | null;
       worldLock?: WorldLockRecord | null;
       areaLock?: AreaLockRecord | null;
+      shareLock?: ShareLockRecord | null;
       vendingMachine?: VendingMachineRecord | null;
       furnace?: FurnaceRecord | null;
       bfgCollector?: BfgCollectorRecord | null;
