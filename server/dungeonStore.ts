@@ -128,18 +128,32 @@ export class DungeonStore {
     if (payment !== 'gems' && payment !== 'world_locks') {
       return { ok: false, message: 'Choose Gems or World Locks as the payment method.' };
     }
+    const previousGems = account.gems;
+    const previousInventory = account.inventory.map((slot) => ({ ...slot }));
+    const previousTxIds = [...account.processedTxIds];
     if (!this.playerStore.addInventory(account, itemId, 1)) {
       return { ok: false, message: 'Could not add the Gate Key to your inventory.' };
     }
     if (payment === 'gems') {
       account.gems -= key.gemPrice;
     } else if (!this.playerStore.consumeInventory(account, ITEM_IDS.WORLD_LOCK, key.worldLockPrice)) {
-      this.playerStore.consumeInventory(account, itemId, 1);
+      account.inventory = previousInventory;
       return { ok: false, message: 'Could not consume the selected World Locks.' };
     }
     account.processedTxIds.push(requestId);
     if (account.processedTxIds.length > 500) account.processedTxIds = account.processedTxIds.slice(-500);
-    this.playerStore.savePlayer(account);
+    try {
+      this.playerStore.savePlayer(account);
+    } catch (error) {
+      account.gems = previousGems;
+      account.inventory = previousInventory;
+      account.processedTxIds = previousTxIds;
+      try { this.playerStore.savePlayer(account); } catch (rollbackError) {
+        console.error('Gate Key purchase rollback failed:', rollbackError);
+      }
+      console.error('Gate Key purchase persistence failed:', error);
+      return { ok: false, message: 'Purchase could not be saved. No currency was charged.' };
+    }
     return { ok: true, message: 'Purchased ' + key.id.replace(/_/g, ' ').toUpperCase() + ' using ' + (payment === 'gems' ? 'Gems' : 'World Locks') + '.' };
   }
 
