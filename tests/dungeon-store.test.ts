@@ -142,3 +142,23 @@ test('extraction requires the final cleared room and returns the configured XP a
     assert.equal(h.store.act(account, 'extract', 0, 0, Date.now() + 2000).ok, false);
   } finally { h.cleanup(); }
 });
+
+
+test('cleared rooms still allow players to walk to the unlocked exit', () => {
+  const h = createHarness();
+  try {
+    const account = h.makeAccount('cleared-mover');
+    h.store.buyGateKey(account, 1, 'gems', 'cleared-move-key');
+    const created = h.store.createRun(account, 1, 'solo');
+    const runs = (h.store as unknown as { runs: Map<string, any> }).runs;
+    const run = runs.get(created.snapshot!.runId);
+    run.phase = 'cleared';
+    run.enemies = [];
+
+    const beforeX = run.players[account.id].x;
+    const moved = h.store.act(account, 'move', 1, 0, Date.now() + 1000);
+    assert.equal(moved.ok, true);
+    const after = moved.snapshot!.players.find((player) => player.id === account.id)!;
+    assert.ok(after.x > beforeX, 'player should move after the room is cleared');
+  } finally { h.cleanup(); }
+});
