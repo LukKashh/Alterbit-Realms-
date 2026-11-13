@@ -834,8 +834,27 @@ export class AuthoritativeWorldStore {
     state.bfgCollectors = state.bfgCollectors ?? {};
     state.signs = state.signs ?? {};
     ensureFluidArrays(state);
+
+    // Retire old physical lock blocks and convert existing ownership anchors to WorldCore.
+    for (const oldLock of Object.values(state.areaLocks)) {
+      const oldIndex = tileIndexIn(state, oldLock.x, oldLock.y);
+      if (state.fg[oldIndex] === ITEM_IDS.SMALL_LOCK) state.fg[oldIndex] = ITEM_IDS.AIR;
+    }
+    state.areaLocks = {};
+
     if (state.worldLock) {
-      state.worldLock.editorNames = state.worldLock.editorNames ?? {};
+      const oldIndex = tileIndexIn(state, state.worldLock.x, state.worldLock.y);
+      if (state.fg[oldIndex] === ITEM_IDS.WORLD_LOCK) state.fg[oldIndex] = ITEM_IDS.AIR;
+      const coreX = state.spawnX;
+      const coreY = Math.min(state.height - 7, state.spawnY + 1);
+      const coreIndex = tileIndexIn(state, coreX, coreY);
+      state.fg[coreIndex] = ITEM_IDS.WORLD_CORE;
+      state.worldLock.x = coreX;
+      state.worldLock.y = coreY;
+      state.worldLock.lockItemId = ITEM_IDS.WORLD_CORE;
+      state.worldLock.publicAccess = false;
+      state.worldLock.editors = [];
+      state.worldLock.editorNames = {};
     }
     return state;
   }
@@ -892,8 +911,8 @@ export class AuthoritativeWorldStore {
       }
     } else {
       state = generateWorld(name);
-      fs.writeFileSync(filePath, JSON.stringify(state), 'utf8');
     }
+    fs.writeFileSync(filePath, JSON.stringify(state), 'utf8');
 
     const live: LiveWorld = {
       state,
