@@ -455,6 +455,7 @@ export default function App() {
           setWorlds(msg.worlds);
           break;
         case 'fishing_started':
+          setFishingProgress(0);
           engine.setFishingCast(msg.cast);
           if (msg.cast.playerId === playerIdRef.current) {
             setFishingCast(msg.cast);
