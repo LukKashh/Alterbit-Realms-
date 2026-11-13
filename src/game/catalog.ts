@@ -306,6 +306,20 @@ export const ITEM_IDS = {
   GATE_KEY_III: 812,
   GATE_KEY_IV: 813,
   GATE_KEY_V: 814,
+
+  // Raw expedition ore rewards (830..841)
+  RAW_COAL_ORE: 830,
+  RAW_COPPER_ORE: 831,
+  RAW_IRON_ORE: 832,
+  RAW_SILVER_ORE: 833,
+  RAW_GOLD_ORE: 834,
+  RAW_DIAMOND_ORE: 835,
+  RAW_RUBIDRITE_ORE: 836,
+  RAW_EMERALDAZYTE_ORE: 837,
+  RAW_OBSIDIUM_ORE: 838,
+  RAW_DIVINIUM_ORE: 839,
+  RAW_MYTHRILYTE_ORE: 840,
+  RAW_OMEGAZYTE_ORE: 841,
 } as const;
 
 export const CATALOG: Record<number, ItemDefinition> = {
@@ -2277,6 +2291,67 @@ export const CATALOG: Record<number, ItemDefinition> = {
     category: 'material', rarity: 'epic', stackLimit: 20,
     collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: false,
     gemValue: 0, xpValue: 0, colorPrimary: '#d28c3b', colorSecondary: '#75451e', colorAccent: '#ffe0a0',
+  },
+
+  [ITEM_IDS.RAW_COAL_ORE]: {
+    id: ITEM_IDS.RAW_COAL_ORE, key: 'raw_coal_ore', name: 'Raw Coal Ore', description: 'Unrefined Coal recovered from dungeon deposits.',
+    category: 'material', rarity: 'common', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#555b63', colorSecondary: '#292e35', colorAccent: '#9aa3ad',
+  },
+  [ITEM_IDS.RAW_COPPER_ORE]: {
+    id: ITEM_IDS.RAW_COPPER_ORE, key: 'raw_copper_ore', name: 'Raw Copper Ore', description: 'Unrefined Copper recovered from dungeon deposits.',
+    category: 'material', rarity: 'common', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#b87545', colorSecondary: '#75452f', colorAccent: '#e8b17a',
+  },
+  [ITEM_IDS.RAW_IRON_ORE]: {
+    id: ITEM_IDS.RAW_IRON_ORE, key: 'raw_iron_ore', name: 'Raw Iron Ore', description: 'Unrefined Iron recovered from dungeon deposits.',
+    category: 'material', rarity: 'common', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#8c949b', colorSecondary: '#4d555e', colorAccent: '#d2d9df',
+  },
+  [ITEM_IDS.RAW_SILVER_ORE]: {
+    id: ITEM_IDS.RAW_SILVER_ORE, key: 'raw_silver_ore', name: 'Raw Silver Ore', description: 'Unrefined Silver recovered from dungeon deposits.',
+    category: 'material', rarity: 'uncommon', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#a9bac5', colorSecondary: '#647987', colorAccent: '#eef7ff',
+  },
+  [ITEM_IDS.RAW_GOLD_ORE]: {
+    id: ITEM_IDS.RAW_GOLD_ORE, key: 'raw_gold_ore', name: 'Raw Gold Ore', description: 'Unrefined Gold recovered from dungeon deposits.',
+    category: 'material', rarity: 'uncommon', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#d2a33d', colorSecondary: '#806020', colorAccent: '#ffe89a',
+  },
+  [ITEM_IDS.RAW_DIAMOND_ORE]: {
+    id: ITEM_IDS.RAW_DIAMOND_ORE, key: 'raw_diamond_ore', name: 'Raw Diamond Ore', description: 'Unrefined Diamond recovered from dungeon deposits.',
+    category: 'material', rarity: 'rare', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#5ec9d7', colorSecondary: '#276e85', colorAccent: '#c4fbff',
+  },
+  [ITEM_IDS.RAW_RUBIDRITE_ORE]: {
+    id: ITEM_IDS.RAW_RUBIDRITE_ORE, key: 'raw_rubidrite_ore', name: 'Raw Rubidrite Ore', description: 'Unrefined Rubidrite recovered from dungeon deposits.',
+    category: 'material', rarity: 'rare', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#bd4e6a', colorSecondary: '#70283d', colorAccent: '#ffb1c6',
+  },
+  [ITEM_IDS.RAW_EMERALDAZYTE_ORE]: {
+    id: ITEM_IDS.RAW_EMERALDAZYTE_ORE, key: 'raw_emeraldazyte_ore', name: 'Raw Emeraldazyte Ore', description: 'Unrefined Emeraldazyte recovered from dungeon deposits.',
+    category: 'material', rarity: 'rare', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#36a978', colorSecondary: '#1e6147', colorAccent: '#9affc7',
+  },
+  [ITEM_IDS.RAW_OBSIDIUM_ORE]: {
+    id: ITEM_IDS.RAW_OBSIDIUM_ORE, key: 'raw_obsidium_ore', name: 'Raw Obsidium Ore', description: 'Unrefined Obsidium recovered from dungeon deposits.',
+    category: 'material', rarity: 'epic', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#665a88', colorSecondary: '#30283f', colorAccent: '#c7b4ff',
+  },
+  [ITEM_IDS.RAW_DIVINIUM_ORE]: {
+    id: ITEM_IDS.RAW_DIVINIUM_ORE, key: 'raw_divinium_ore', name: 'Raw Divinium Ore', description: 'Unrefined Divinium recovered from dungeon deposits.',
+    category: 'material', rarity: 'epic', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#4d8fc0', colorSecondary: '#294d78', colorAccent: '#b1e1ff',
+  },
+  [ITEM_IDS.RAW_MYTHRILYTE_ORE]: {
+    id: ITEM_IDS.RAW_MYTHRILYTE_ORE, key: 'raw_mythrilyte_ore', name: 'Raw Mythrilyte Ore', description: 'Unrefined Mythrilyte recovered from dungeon deposits.',
+    category: 'material', rarity: 'epic', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#9b74c9', colorSecondary: '#51366e', colorAccent: '#e2c9ff',
+  },
+  [ITEM_IDS.RAW_OMEGAZYTE_ORE]: {
+    id: ITEM_IDS.RAW_OMEGAZYTE_ORE, key: 'raw_omegazyte_ore', name: 'Raw Omegazyte Ore', description: 'Unrefined Omegazyte recovered from dungeon deposits.',
+    category: 'material', rarity: 'epic', stackLimit: 999, collision: 'none', breakable: false, hardness: 0, placeable: false, tradeable: true, gemValue: 0, xpValue: 0,
+    colorPrimary: '#d17c39', colorSecondary: '#79411d', colorAccent: '#ffe0a5',
   },
 
 };
