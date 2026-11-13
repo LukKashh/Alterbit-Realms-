@@ -9,7 +9,8 @@ import {
   WORLD_WIDTH,
 } from './constants.ts';
 import { getItemDef, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
-import type { AreaLockRecord, PlantedTree, WorldState } from './worldGen.ts';
+import type { AreaLockRecord, PlantedTree, WorldState, ShareLockRecord } from './worldGen.ts';
+import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec, rectanglesOverlap, type ShareLockPermissionKey } from './shareLocks.ts';
 import { isSystemWorld } from './expansion.ts';
 
 export interface PlayerContext {
@@ -104,27 +105,48 @@ export function hasAreaLockConflict(world: WorldState, tx: number, ty: number, r
   return false;
 }
 
-export function hasEditPermission(world: WorldState, playerId: string, tx?: number, ty?: number): boolean {
-  if (typeof tx === 'number' && typeof ty === 'number') {
-    const areaLock = getCoveringAreaLock(world, tx, ty);
-    if (areaLock) {
-      return areaLock.ownerId === playerId || areaLock.editors.includes(playerId);
+export function getCoveringShareLock(world: WorldState, tx: number, ty: number): ShareLockRecord | null {
+  for (const lock of Object.values(world.shareLocks ?? {})) {
+    if (tx >= lock.x && tx < lock.x + lock.width && ty >= lock.y && ty < lock.y + lock.height) {
+      return lock;
     }
   }
-  if (!world.worldLock) return true;
-  if (world.worldLock.ownerId === playerId) return true;
-  if (world.worldLock.editors.includes(playerId)) return true;
-  return false;
+  return null;
+}
+
+export function hasShareLockConflict(
+  world: WorldState, x: number, y: number, width: number, height: number
+): boolean {
+  return Object.values(world.shareLocks ?? {}).some((lock) =>
+    rectanglesOverlap(x, y, width, height, lock.x, lock.y, lock.width, lock.height)
+  );
+}
+
+export function hasEditPermission(
+  world: WorldState,
+  playerId: string,
+  tx?: number,
+  ty?: number,
+  permission: ShareLockPermissionKey = 'build'
+): boolean {
+  if (world.worldLock?.ownerId === playerId) return true;
+  if (world.worldLock?.editors?.includes(playerId)) return true;
+  if (typeof tx === 'number' && typeof ty === 'number') {
+    const lock = getCoveringShareLock(world, tx, ty);
+    if (lock) {
+      const access = lock.access?.[playerId];
+      return Boolean(access?.permissions?.[permission] ?? DEFAULT_SHARE_LOCK_PERMISSIONS[permission]);
+    }
+  }
+  return !world.worldLock;
 }
 
 export function canEnterWorld(world: WorldState, playerId: string): { ok: boolean; reason?: string } {
-  if (!world.worldLock || world.worldLock.publicAccess) {
-    return { ok: true };
-  }
-  if (world.worldLock.ownerId === playerId || world.worldLock.editors.includes(playerId)) {
-    return { ok: true };
-  }
-  return { ok: false, reason: `World ${world.name} is restricted by its owner (${world.worldLock.ownerName}).` };
+  if (!world.worldLock || world.worldLock.publicAccess || world.worldLock.ownerId === playerId ||
+      world.worldLock.editors?.includes(playerId)) return { ok: true };
+  const hasShareAccess = Object.values(world.shareLocks ?? {}).some((lock) => Boolean(lock.access?.[playerId]));
+  if (hasShareAccess) return { ok: true };
+  return { ok: false, reason: `World ${world.name} is private. Ask its owner for Share Lock access.` };
 }
 
 export function canBreakTile(
@@ -138,7 +160,7 @@ export function canBreakTile(
   if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of world bounds.' };
   if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Bedrock is indestructible.' };
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
-  if (!hasEditPermission(world, player.id, tx, ty)) {
+  if (!hasEditPermission(world, player.id, tx, ty, 'break')) {
     return { ok: false, reason: 'Protected by Lock.' };
   }
 
@@ -232,7 +254,7 @@ export function canPlaceTile(
   if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of bounds.' };
   if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Cannot build on bedrock.' };
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
-  if (!hasEditPermission(world, player.id, tx, ty)) {
+  if (!hasEditPermission(world, player.id, tx, ty, 'build')) {
     return { ok: false, reason: 'Protected by Lock.' };
   }
 
@@ -287,24 +309,25 @@ export function canPlaceTile(
     return { ok: false, reason: 'Locks and machines cannot be placed inside Mining Shafts.' };
   }
 
-  if (itemId === ITEM_IDS.WORLD_LOCK && world.worldLock) {
-    return { ok: false, reason: 'This world already has a World Lock.' };
+  if (itemId === ITEM_IDS.WORLD_LOCK || itemId === ITEM_IDS.SMALL_LOCK) {
+    return { ok: false, reason: 'Legacy locks have been retired. Use a Share Lock in a world you own.' };
   }
 
-  if (itemId === ITEM_IDS.SMALL_LOCK) {
-    if (world.worldLock && world.worldLock.ownerId !== player.id) {
-      return { ok: false, reason: 'Cannot place an Area Lock in a world locked by another player.' };
+  const shareSpec = getShareLockSpec(itemId);
+  if (shareSpec) {
+    if (world.worldLock?.ownerId !== player.id) {
+      return { ok: false, reason: 'Share Locks can only be placed in a world you own.' };
     }
-    if (hasAreaLockConflict(world, tx, ty, def.lockRadius ?? 3)) {
-      return { ok: false, reason: 'Overlaps with an existing Area Lock.' };
+    if (tx + shareSpec.width > worldWidth(world) || ty + shareSpec.height > worldHeight(world) - BEDROCK_ROWS) {
+      return { ok: false, reason: 'The Share Lock area must fit inside the buildable world.' };
+    }
+    if (hasShareLockConflict(world, tx, ty, shareSpec.width, shareSpec.height)) {
+      return { ok: false, reason: 'Share Lock areas cannot overlap.' };
     }
   }
 
   if (itemId === ITEM_IDS.BFG_COLLECTOR) {
-    const areaLock = getCoveringAreaLock(world, tx, ty);
-    const hasProtection =
-      (world.worldLock && (world.worldLock.ownerId === player.id || world.worldLock.editors.includes(player.id))) ||
-      (areaLock && (areaLock.ownerId === player.id || areaLock.editors.includes(player.id)));
+    const hasProtection = hasEditPermission(world, player.id, tx, ty, 'interact');
     if (!hasProtection) {
       return { ok: false, reason: 'BFG Collector must be placed inside your World Lock or Area Lock.' };
     }
