@@ -41,3 +41,14 @@ test('catalog exposes six rod types with three upgrade levels each',()=>{
  assert.deepEqual(ids.map(id=>getItemDef(id)?.rodType),[1,2,3,4,5,6]);
  assert.ok(ids.every(id=>getItemDef(id)?.rodUpgradeLevels?.join(',')==='1,2,3'));
 });
+
+test('existing fish species have overlapping depth bands and distinct preferred depths',()=>{
+ const minnow=getItemDef(ITEM_IDS.FISH_MINNOW)?.fishDepthProfile;
+ const carp=getItemDef(ITEM_IDS.FISH_CARP)?.fishDepthProfile;
+ const trout=getItemDef(ITEM_IDS.FISH_GLACIER_TROUT)?.fishDepthProfile;
+ assert.deepEqual(minnow,{minDepthLevel:1,maxDepthLevel:2,preferredDepthLevel:1});
+ assert.deepEqual(carp,{minDepthLevel:2,maxDepthLevel:4,preferredDepthLevel:3});
+ assert.deepEqual(trout,{minDepthLevel:5,maxDepthLevel:6,preferredDepthLevel:6});
+ assert.ok(getFishDepthWeight(minnow!,2)>0 && getFishDepthWeight(carp!,2)>0);
+ assert.equal(getFishDepthWeight(trout!,4),0);
+});
