@@ -146,7 +146,9 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                         const isWall = tile === '#';
                         const isExit = tile === '>';
                         const isEntry = tile === '<';
-                        const background = isWall ? '#35414b' : isExit ? (snapshot.phase === 'active' ? '#4c422e' : '#80612a') : '#182a28';
+                        const wallColors = ['#48524d', '#56616a', '#285a46', '#38516d', '#563d57'];
+                        const floorColors = ['#1a2b25', '#26323b', '#14382c', '#1b2b43', '#332337'];
+                        const background = isWall ? wallColors[snapshot.tier - 1] : isExit ? (snapshot.phase === 'active' ? '#4c422e' : '#80612a') : floorColors[snapshot.tier - 1];
                         return <div key={x + ':' + y} className="flex items-center justify-center rounded-[2px] text-[clamp(7px,1.8vw,14px)] font-bold" style={{ background, color: isExit ? '#ffe8a9' : '#82938b' }}>{isExit ? <img src="/assets/dungeon/extraction-portal.svg" alt="Extraction portal" className={'w-full h-full object-contain ' + (snapshot.phase === 'active' ? 'opacity-40' : 'opacity-100')} style={{ imageRendering: 'pixelated' }} /> : isEntry ? '◂' : ''}</div>;
                       }))}
                     </div>
