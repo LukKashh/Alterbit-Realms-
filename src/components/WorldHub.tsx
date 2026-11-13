@@ -92,6 +92,7 @@ export const WorldHub: React.FC<WorldHubProps> = ({
   return (
     <div
       data-testid="world-hub"
+      data-menu-screen="hub"
       className="fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#07101a]/70"
     >
       <div className="w-full max-w-4xl h-[88vh] max-h-[640px] bg-[#0f1d2c]/96 border-2 border-[#3b5978] rounded-lg shadow-[0_10px_0_rgba(6,12,20,0.9)] flex flex-col overflow-hidden">
