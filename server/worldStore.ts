@@ -49,11 +49,9 @@ import {
 import {
   generateMineShaft,
   generateWorld,
-  type AreaLockRecord,
   type BfgCollectorRecord,
   type FurnaceRecord,
   type VendingMachineRecord,
-  type WorldLockRecord,
   type WorldState,
 } from '../src/game/worldGen.ts';
 import type {
@@ -945,6 +943,7 @@ export class AuthoritativeWorldStore {
         name: live.state.name,
         playerCount: live.players.size,
         ownerName: live.state.worldLock?.ownerName ?? null,
+        ownerId: live.state.worldLock?.ownerId ?? null,
         publicAccess: live.state.worldLock ? live.state.worldLock.publicAccess : true,
         worldKind: live.state.worldKind ?? 'standard',
       });
