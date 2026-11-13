@@ -167,6 +167,7 @@ export type ClientMessage =
   | { type: 'hello'; token?: string; playerId?: string; playerName?: string }
   | { type: 'ping'; clientTime: number }
   | { type: 'join_world'; worldName: string; resumePosition?: ResumePosition }
+  | { type: 'create_world'; worldName: string; terraBlast?: boolean }
   | { type: 'leave_world' }
   | { type: 'dungeon_buy_key'; tier: number; payment: 'gems' | 'world_locks'; txId: string }
   | { type: 'dungeon_create'; tier: number; partyMode: 'solo' | 'cooperative' }
