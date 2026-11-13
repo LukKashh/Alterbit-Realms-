@@ -35,6 +35,7 @@ export interface FishingCastState {
   bobberTy: number;
   fluidType: 1 | 2;
   depthTier: LiquidPoolInfo['depthTier'];
+  depthLevel?: number;
   biting: boolean;
   startedAt: number;
 }
