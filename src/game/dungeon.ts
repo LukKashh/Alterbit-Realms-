@@ -107,7 +107,7 @@ export function createDungeonMap(tier: number, roomIndex: number, seed: number):
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  const grid = Array.from({ length: DUNGEON_HEIGHT }, (_, y) =>
+  const grid: string[][] = Array.from({ length: DUNGEON_HEIGHT }, (_, y) =>
     Array.from({ length: DUNGEON_WIDTH }, (_, x) =>
       x === 0 || y === 0 || x === DUNGEON_WIDTH - 1 || y === DUNGEON_HEIGHT - 1 ? '#' : '.'
     )
