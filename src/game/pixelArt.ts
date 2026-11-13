@@ -1347,9 +1347,9 @@ export function getPlayerSprite(
     if (normPose === 'walk1' || normPose === 'walk3') bobY = -1;
     if (normPose === 'jump') bobY = -1;
     if (normPose === 'fall') bobY = 1;
-    if (normPose === 'punch1' || normPose === 'punch2' || normPose === 'punch3') {
+    if (normPose === 'punch1' || normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine1' || normPose === 'mine2' || normPose === 'mine3') {
       leanX = 1;
-      squint = normPose === 'punch2' || normPose === 'punch3';
+      squint = normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3';
     }
     if (normPose === 'place') leanX = 1;
 
