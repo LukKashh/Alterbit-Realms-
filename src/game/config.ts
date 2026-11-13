@@ -36,13 +36,40 @@ export interface ItemConfigOverride {
   bonusHarvestDrops?: DropEntry[];
 }
 
+export interface FishingMechanicsConfig {
+  /** Gem costs to advance a rod to upgrade levels 1, 2 and 3, indexed by rod type 1–6. */
+  upgradeGemCostsByRodType: [number, number, number][];
+  /** Pulling multiplier for upgrade levels 1, 2 and 3. */
+  pullingMultiplierByUpgrade: [number, number, number];
+  /** Resistance multiplier keyed by fish item ID. */
+  fishResistanceByItemId: Record<number, number>;
+}
+
 export interface GameConfig {
   mechanics: GameMechanicsConfig;
+  fishing: FishingMechanicsConfig;
   itemOverrides: Record<number, ItemConfigOverride>;
   storeListings?: GemStoreListing[];
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
+  fishing: {
+    upgradeGemCostsByRodType: [
+      [0, 100, 250],
+      [0, 200, 500],
+      [0, 350, 850],
+      [0, 550, 1350],
+      [0, 800, 2000],
+      [0, 1100, 2750],
+    ],
+    pullingMultiplierByUpgrade: [1, 1.35, 1.75],
+    fishResistanceByItemId: {
+      220: 0.7,
+      221: 1,
+      222: 1.4,
+      223: 1.2,
+    },
+  },
   mechanics: {
     viewScale: DEFAULT_VIEW_SCALE,
     reachTiles: MAX_REACH_TILES,
@@ -68,6 +95,42 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
     const n = Number(val);
     if (!Number.isFinite(n)) return fallback;
     return Math.min(max, Math.max(min, n));
+  };
+
+  const rawFishing = raw?.fishing;
+  const defaultFishing = DEFAULT_GAME_CONFIG.fishing;
+  const upgradeGemCostsByRodType = Array.from({ length: 6 }, (_, index) => {
+    const source = rawFishing?.upgradeGemCostsByRodType?.[index];
+    const fallback = defaultFishing.upgradeGemCostsByRodType[index];
+    const values = [0, 1, 2].map((slot) =>
+      Math.round(clamp(source?.[slot], fallback[slot], 0, 1000000))
+    );
+    values[0] = 0;
+    return values as [number, number, number];
+  });
+  const pullingValues = [0, 1, 2].map((slot) =>
+    clamp(
+      rawFishing?.pullingMultiplierByUpgrade?.[slot],
+      defaultFishing.pullingMultiplierByUpgrade[slot],
+      0.25,
+      5
+    )
+  );
+  pullingValues[0] = 1;
+  const fishResistanceByItemId: Record<number, number> = {};
+  for (const [key, fallback] of Object.entries(defaultFishing.fishResistanceByItemId)) {
+    const itemId = Number(key);
+    fishResistanceByItemId[itemId] = clamp(
+      rawFishing?.fishResistanceByItemId?.[itemId],
+      fallback,
+      0.1,
+      5
+    );
+  }
+  const fishing: FishingMechanicsConfig = {
+    upgradeGemCostsByRodType,
+    pullingMultiplierByUpgrade: pullingValues as [number, number, number],
+    fishResistanceByItemId,
   };
 
   const mechanics: GameMechanicsConfig = {
@@ -162,7 +225,7 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
     }
   }
 
-  return { mechanics, itemOverrides, storeListings: storeListings ?? [...GEM_STORE_LISTINGS] };
+  return { mechanics, fishing, itemOverrides, storeListings: storeListings ?? [...GEM_STORE_LISTINGS] };
 }
 
 export function getEffectiveItemDef(
