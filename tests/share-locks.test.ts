@@ -23,7 +23,10 @@ test('Share Lock grants access only inside its rectangle and respects individual
       x: 10, y: 10, itemId: 150, width: 3, height: 2,
       ownerId: 'owner', ownerName: 'Owner',
       access: {
-        builder: { playerName: 'Builder', permissions: { ...DEFAULT_SHARE_LOCK_PERMISSIONS, break: false } },
+        builder: {
+          playerName: 'Builder',
+          permissions: { ...DEFAULT_SHARE_LOCK_PERMISSIONS, break: false, interact: false },
+        },
       },
     },
   };
