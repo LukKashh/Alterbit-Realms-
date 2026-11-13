@@ -93,7 +93,7 @@ export interface EngineCallbacks {
   onPunchTile?: (tx: number, ty: number, toolItemId?: number) => void;
   onPlaceTile?: (tx: number, ty: number, itemId: number) => void;
   onPickupDrop?: (dropId: string) => void;
-  onInspectTile?: (info: TileInspectInfo) => void;
+  onInspectTile?: (info: TileInspectInfo | null) => void;
   onCoordsChange?: (tx: number, ty: number) => void;
   onCastFishing?: (tx: number, ty: number, rodItemId: number) => void;
   onReelFishing?: () => void;
@@ -155,6 +155,8 @@ export class BlockgroveEngine {
   private lastSyncSent = 0;
   private lastCoordTx = -1;
   private lastCoordTy = -1;
+  private lastPlantInspectKey: string | null = null;
+  private lastPlantInspectAt = 0;
   private titlePanTime = 0;
   private gameConfig: GameConfig = cloneGameConfig(DEFAULT_GAME_CONFIG);
   private viewScale = DEFAULT_VIEW_SCALE;
@@ -840,7 +842,7 @@ export class BlockgroveEngine {
     this.performTileInteraction(tx, ty);
   }
 
-  public emitInspectAt(tx: number, ty: number) {
+  public emitInspectAt(tx: number, ty: number, quiet = false) {
     if (!inBoundsWorld(this.world, tx, ty)) return;
     const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
@@ -852,7 +854,9 @@ export class BlockgroveEngine {
     if (plant) {
       const g = getPlantGrowthState(plant, Date.now());
       const seedDef = getItemDef(plant.seedId);
-      plantInfo = `${seedDef?.name ?? 'Seed'} (${g.stage} · ${Math.round(g.progress * 100)}%)`;
+      const remaining = Math.max(0, Math.ceil(g.remainingMs / 1000));
+      const timeLabel = remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`;
+      plantInfo = `${seedDef?.name ?? 'Seed'} · ${g.stage} · ${Math.round(g.progress * 100)}% · ${g.stage === 'mature' ? 'Ready to harvest' : timeLabel + ' remaining'}`;
     }
 
     const coveringAreaLock = getCoveringAreaLock(this.world, tx, ty);
@@ -863,7 +867,7 @@ export class BlockgroveEngine {
         ? `World Lock by ${this.world.worldLock.ownerName}`
         : 'Unlocked Area';
 
-    soundEngine.uiClick();
+    if (!quiet) soundEngine.uiClick();
     this.callbacks.onInspectTile?.({
       tx,
       ty,
@@ -1133,6 +1137,17 @@ export class BlockgroveEngine {
       this.lastCoordTx = ptx;
       this.lastCoordTy = pty;
       this.callbacks.onCoordsChange?.(ptx, pty);
+    }
+    const standingPlantKey = `${ptx},${pty}`;
+    if (this.world.plants[standingPlantKey]) {
+      if (this.lastPlantInspectKey !== standingPlantKey || nowMs - this.lastPlantInspectAt >= 500) {
+        this.lastPlantInspectKey = standingPlantKey;
+        this.lastPlantInspectAt = nowMs;
+        this.emitInspectAt(ptx, pty, true);
+      }
+    } else if (this.lastPlantInspectKey !== null) {
+      this.lastPlantInspectKey = null;
+      this.callbacks.onInspectTile?.(null);
     }
 
     const rDamp = 1 - Math.exp(-16 * dt);
