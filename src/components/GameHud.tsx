@@ -349,6 +349,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   exchange,
   fishingActive,
   fishingBiting,
+  fishingDepthLevel,
   onExitMineShaft,
   onUseConsumable,
   onReelFishing,
