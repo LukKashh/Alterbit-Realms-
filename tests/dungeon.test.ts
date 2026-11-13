@@ -57,7 +57,7 @@ test('enemy scaling and ore rewards stay within safe configured bounds', () => {
     assert.ok(normal.damage > 0 && boss.damage > normal.damage);
     const reward = getDungeonOreReward(tier);
     assert.equal(reward.length, 1);
-    assert.ok(reward[0].qty >= 1 && reward[0].qty <= 4);
-    assert.ok([201, 202, 203, 204].includes(reward[0].itemId));
+    assert.equal(reward[0].qty, 1);
+    assert.ok(reward[0].itemId >= 830 && reward[0].itemId <= 841);
   }
 });
