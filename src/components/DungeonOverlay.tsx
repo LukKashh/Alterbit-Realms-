@@ -146,8 +146,8 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                         const isWall = tile === '#';
                         const isExit = tile === '>';
                         const isEntry = tile === '<';
-                        const background = isWall ? '#35414b' : isExit ? '#80612a' : '#182a28';
-                        return <div key={x + ':' + y} className="flex items-center justify-center rounded-[2px] text-[clamp(7px,1.8vw,14px)] font-bold" style={{ background, color: isExit ? '#ffe8a9' : '#82938b' }}>{isExit ? <img src="/assets/dungeon/extraction-portal.svg" alt="Extraction portal" className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} /> : isEntry ? '◂' : ''}</div>;
+                        const background = isWall ? '#35414b' : isExit ? (snapshot.phase === 'active' ? '#4c422e' : '#80612a') : '#182a28';
+                        return <div key={x + ':' + y} className="flex items-center justify-center rounded-[2px] text-[clamp(7px,1.8vw,14px)] font-bold" style={{ background, color: isExit ? '#ffe8a9' : '#82938b' }}>{isExit ? <img src="/assets/dungeon/extraction-portal.svg" alt="Extraction portal" className={'w-full h-full object-contain ' + (snapshot.phase === 'active' ? 'opacity-40' : 'opacity-100')} style={{ imageRendering: 'pixelated' }} /> : isEntry ? '◂' : ''}</div>;
                       }))}
                     </div>
                     <div className="absolute inset-0 pointer-events-none">
