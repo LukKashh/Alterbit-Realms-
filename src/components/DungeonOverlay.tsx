@@ -226,7 +226,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
         const dy = Math.sin(yawRef.current) * dir;
         onAction('move', dx, dy);
       }
-    }, 90);
+    }, 110);
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
