@@ -172,6 +172,9 @@ export function canBreakTile(
   const idx = tileIndexIn(world, tx, ty);
   const fgId = world.fg[idx];
   if (fgId !== ITEM_IDS.AIR) {
+    if (fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.LANDLORD_NPC) {
+      return { ok: false, reason: 'This special world object cannot be broken.' };
+    }
     if (fgId === ITEM_IDS.WORLD_LOCK || fgId === ITEM_IDS.SMALL_LOCK) {
       return { ok: false, reason: 'Legacy lock items have been retired.' };
     }
@@ -261,6 +264,9 @@ export function canPlaceTile(
     return { ok: false, reason: 'Protected by Lock.' };
   }
 
+  if (itemId === ITEM_IDS.WORLD_CORE || itemId === ITEM_IDS.LANDLORD_NPC) {
+    return { ok: false, reason: 'This special world object cannot be placed.' };
+  }
   const def = getItemDef(itemId);
   if (!def || !def.placeable) return { ok: false, reason: 'Item cannot be placed.' };
 
