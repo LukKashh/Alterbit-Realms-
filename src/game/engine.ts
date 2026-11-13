@@ -148,6 +148,7 @@ export class BlockgroveEngine {
   private mouseInCanvas = false;
   private mouseDown = false;
   private activePointerId: number | null = null;
+  private activePointers = new Set<number>();
   private punchTimer = 0;
   private punchAnimTimer = 0;
   private placeAnimTimer = 0;
@@ -274,6 +275,7 @@ export class BlockgroveEngine {
     this.keysHeld.clear();
     this.mouseDown = false;
     this.activePointerId = null;
+    this.activePointers.clear();
     this.jumpJustPressed = false;
     this.touchState = { left: false, right: false, down: false, jumpHeld: false, punchHeld: false };
     this.punchStick = { active: false, dx: 0, dy: 0 };
@@ -313,17 +315,20 @@ export class BlockgroveEngine {
   }
 
   private onPointerMove = (e: PointerEvent) => {
-    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
-    this.updatePointerCoords(e.clientX, e.clientY);
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId && e.pointerType === 'mouse') return;
+    if (e.pointerType === 'mouse' || e.pointerId === this.activePointerId) this.updatePointerCoords(e.clientX, e.clientY);
   };
 
   private onPointerDown = (e: PointerEvent) => {
     if (this.mode !== 'playing') return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
-    this.activePointerId = e.pointerId;
-    this.updatePointerCoords(e.clientX, e.clientY);
-    this.mouseDown = true;
+    if (e.pointerType === 'mouse') {
+      if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+      this.activePointerId = e.pointerId;
+      this.updatePointerCoords(e.clientX, e.clientY);
+      this.mouseDown = true;
+    }
+    this.activePointers.add(e.pointerId);
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -333,9 +338,11 @@ export class BlockgroveEngine {
   };
 
   private onPointerUp = (e: PointerEvent) => {
-    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
-    this.mouseDown = false;
-    this.activePointerId = null;
+    this.activePointers.delete(e.pointerId);
+    if (this.activePointerId === e.pointerId) {
+      this.mouseDown = false;
+      this.activePointerId = null;
+    }
   };
 
   public setTouchMove(dir: 'left' | 'right' | 'down', active: boolean) {
@@ -1501,46 +1508,32 @@ export class BlockgroveEngine {
     const shadeLeaf = def?.colorSecondary ?? '#286b35';
     const highlight = def?.colorAccent ?? '#b8f58c';
 
+    const sway = Math.round(Math.sin(nowMs * 0.0025 + plant.x * 0.7) * (stage === 'mature' ? 2 : 1));
+    const growthScale = stage === 'planted' ? 0 : stage === 'sprout' ? 0.28 : stage === 'young' ? 0.48 : stage === 'developing' ? 0.76 : 1;
+    const canopyW = Math.round(14 + growthScale * 26);
+    const canopyH = Math.round(8 + growthScale * 20);
+    const canopyX = sx + Math.round((48 - canopyW) / 2) + sway;
+    const canopyY = sy + 38 - canopyH - Math.round(growthScale * 10);
     if (stage === 'planted') {
-      ctx.fillStyle = '#151b26';
-      ctx.fillRect(sx + 14, sy + 36, 20, 12);
-      ctx.fillStyle = '#6b4222';
-      ctx.fillRect(sx + 16, sy + 38, 16, 8);
-      ctx.fillStyle = leafColor;
-      ctx.fillRect(sx + 20, sy + 28, 8, 10);
-      ctx.fillStyle = highlight;
-      ctx.fillRect(sx + 20, sy + 28, 4, 6);
-    } else if (stage === 'sprout') {
-      ctx.fillStyle = '#151b26';
-      ctx.fillRect(sx + 20, sy + 22, 8, 26);
-      ctx.fillStyle = '#6b4222';
-      ctx.fillRect(sx + 22, sy + 24, 4, 24);
-      ctx.fillStyle = '#151b26';
-      ctx.fillRect(sx + 10, sy + 12, 28, 16);
-      ctx.fillStyle = shadeLeaf;
-      ctx.fillRect(sx + 12, sy + 14, 24, 12);
-      ctx.fillStyle = leafColor;
-      ctx.fillRect(sx + 12, sy + 14, 20, 9);
-      ctx.fillStyle = highlight;
-      ctx.fillRect(sx + 14, sy + 15, 10, 5);
-    } else {
-      // Mature lush tree proportioned cleanly to 48px tiles
-      ctx.fillStyle = '#151b26';
-      ctx.fillRect(sx + 18, sy + 14, 12, 34);
-      ctx.fillStyle = '#6b4222';
-      ctx.fillRect(sx + 20, sy + 16, 8, 32);
-      ctx.fillStyle = '#a36836';
-      ctx.fillRect(sx + 20, sy + 16, 3, 30);
-
-      ctx.fillStyle = '#151b26';
-      ctx.fillRect(sx + 4, sy - 8, 40, 28);
-      ctx.fillStyle = shadeLeaf;
-      ctx.fillRect(sx + 6, sy - 6, 36, 24);
-      ctx.fillStyle = leafColor;
-      ctx.fillRect(sx + 6, sy - 6, 32, 18);
-      ctx.fillStyle = highlight;
-      ctx.fillRect(sx + 10, sy - 3, 12, 8);
-      ctx.fillRect(sx + 26, sy + 4, 8, 6);
+      ctx.fillStyle = '#151b26'; ctx.fillRect(sx + 14, sy + 36, 20, 12);
+      ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + 16, sy + 38, 16, 8);
+      ctx.fillStyle = leafColor; ctx.fillRect(sx + 20, sy + 28, 8, 10);
+      ctx.fillStyle = highlight; ctx.fillRect(sx + 20, sy + 28, 4, 6);
+      return;
+    }
+    const trunkH = Math.round(9 + growthScale * 25);
+    const trunkW = Math.round(3 + growthScale * 7);
+    ctx.fillStyle = '#151b26'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2), sy + 48 - trunkH, trunkW + 2, trunkH);
+    ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2) + 1, sy + 48 - trunkH + 1, trunkW, trunkH - 1);
+    ctx.fillStyle = '#a36836'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2) + 1, sy + 48 - trunkH + 2, 2, trunkH - 3);
+    ctx.fillStyle = '#151b26'; ctx.fillRect(canopyX - 2, canopyY - 2, canopyW + 4, canopyH + 4);
+    ctx.fillStyle = shadeLeaf; ctx.fillRect(canopyX, canopyY, canopyW, canopyH);
+    ctx.fillStyle = leafColor; ctx.fillRect(canopyX + 2, canopyY + 1, canopyW - 4, Math.max(3, canopyH - 5));
+    ctx.fillStyle = highlight; ctx.fillRect(canopyX + 4, canopyY + 2, Math.max(3, Math.floor(canopyW * 0.32)), Math.max(2, Math.floor(canopyH * 0.28)));
+    if (stage === 'mature') {
+      const glint = 0.35 + 0.25 * Math.sin(nowMs * 0.004 + plant.x);
+      ctx.fillStyle = `rgba(235,255,188,${glint})`;
+      ctx.fillRect(canopyX + canopyW - 8, canopyY + 4, 3, 3);
     }
   }
 
@@ -1630,7 +1623,7 @@ export class BlockgroveEngine {
     let pose: PlayerPose = (`idle${Math.floor(nowMs / 280) % 4}` as PlayerPose) || 'idle0';
     if (punching) {
       const pFrame = Math.min(3, Math.max(0, Math.floor(punchProgress * 4)));
-      pose = (`punch${pFrame}` as PlayerPose) || 'punch2';
+      pose = (`mine${pFrame}` as PlayerPose) || 'mine2';
     } else if (placing) {
       pose = 'place';
     } else if (!grounded) {
