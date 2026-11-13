@@ -913,11 +913,12 @@ export class AuthoritativeWorldStore {
       delete live.state.plants[key];
       if (growth.stage === 'mature' && targetDef?.producesTileId) {
         account.stats.treesHarvested = (account.stats.treesHarvested ?? 0) + 1;
-        const yieldQty = 2 + Math.floor(Math.random() * 2);
+        const harvestYield = targetDef?.treeHarvestYield ?? { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 };
+        const yieldQty = harvestYield.minBlocks + Math.floor(Math.random() * (harvestYield.maxBlocks - harvestYield.minBlocks + 1));
         spawnedDrops.push(
           this.createDrop(live, targetDef.producesTileId, yieldQty, tx, ty, spawnedDrops.length)
         );
-        if (Math.random() < 0.65) {
+        if (Math.random() < harvestYield.seedChance) {
           spawnedDrops.push(
             this.createDrop(live, plant.seedId, 1, tx, ty, spawnedDrops.length)
           );

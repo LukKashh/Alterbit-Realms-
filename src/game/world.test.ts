@@ -389,3 +389,16 @@ test('GrowPixel collection has 42 placeables, 42 matching seeds, and complete sp
   assert.equal(resolveSplice(ITEM_IDS.GP_SEED_BUSH, ITEM_IDS.GP_SEED_MUSHROOM), ITEM_IDS.GP_SEED_BLUEBERRY);
   assert.equal(resolveSplice(ITEM_IDS.GP_SEED_HEDGE, ITEM_IDS.GP_SEED_ROCK), null);
 });
+
+
+test('GrowPixel seeds expose explicit provisional farming metadata without claiming wiki verification', () => {
+  for (const seedId of GROWPIXEL_COLLECTION_IDS.seeds) {
+    const seed = getItemDef(seedId);
+    assert.ok(seed?.treeHarvestYield);
+    assert.equal(seed?.treeHarvestYieldVerified, false);
+    assert.equal(seed?.economyValue, null);
+  }
+  const dirt = getItemDef(ITEM_IDS.GP_DIRT);
+  assert.equal(dirt?.seedDropChance, 0.2);
+  assert.equal(dirt?.seedDropChanceVerified, false);
+});

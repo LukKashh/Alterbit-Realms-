@@ -50,6 +50,11 @@ export interface ItemDefinition {
   hardnessVerified?: boolean;
   seedDropChance?: number | null;
   seedDropChanceVerified?: boolean;
+  gemValueVerified?: boolean;
+  treeHarvestYield?: { minBlocks: number; maxBlocks: number; seedChance: number };
+  treeHarvestYieldVerified?: boolean;
+  bonusHarvestDrops?: DropEntry[];
+  referenceNote?: string;
   economyValue?: number | null;
   spliceIngredients?: [number, number];
 }
@@ -1104,7 +1109,7 @@ Object.assign(CATALOG, {
     placeable: true, tradeable: true, gemValue: 1, xpValue: 1,
     seedId: ITEM_IDS.GP_SEED_DIRT, drops: [{ itemId: 500, chance: 1, minQty: 1, maxQty: 1 }, { itemId: 600, chance: 0.2, minQty: 1, maxQty: 1 }],
     growPixelRarity: 1, hardnessVerified: true,
-    seedDropChance: 0.2, seedDropChanceVerified: false, economyValue: null,
+    seedDropChance: 0.2, seedDropChanceVerified: false, gemValueVerified: false, economyValue: null,
     
     colorPrimary: '#8b5a35', colorSecondary: '#5b3925', colorAccent: '#bd895c',
   },
@@ -1607,7 +1612,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_DIRT,
     growthTimeMs: 31000, growPixelRarity: 1, seedDropChance: null,
-    economyValue: null, colorPrimary: '#8b5a35', colorSecondary: '#5b3925', colorAccent: '#bd895c',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#8b5a35', colorSecondary: '#5b3925', colorAccent: '#bd895c',
   },
   [ITEM_IDS.GP_SEED_ROCK]: {
     id: ITEM_IDS.GP_SEED_ROCK, key: 'gp_seed_rock', name: "Rock Seed",
@@ -1616,7 +1621,7 @@ Object.assign(CATALOG, {
     collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true,
     gemValue: 0, xpValue: 1, producesTileId: ITEM_IDS.GP_ROCK,
     growthTimeMs: 31000, growPixelRarity: 1, seedDropChance: null,
-    economyValue: null, colorPrimary: '#737b86', colorSecondary: '#454b55', colorAccent: '#aab3bf',
+    economyValue: null, treeHarvestYield: { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 }, treeHarvestYieldVerified: false, colorPrimary: '#737b86', colorSecondary: '#454b55', colorAccent: '#aab3bf',
   },
   [ITEM_IDS.GP_SEED_LAVA]: {
     id: ITEM_IDS.GP_SEED_LAVA, key: 'gp_seed_lava', name: "Lava Seed",
