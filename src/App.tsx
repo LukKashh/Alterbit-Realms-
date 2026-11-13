@@ -13,6 +13,7 @@ import {
   type UserRole,
   type WorldSummary,
 } from './game/network.ts';
+import type { DungeonSnapshot } from './game/dungeon.ts';
 import { getItemDef, ITEM_IDS, type PlayerStatKey } from './game/catalog.ts';
 import { cloneGameConfig, DEFAULT_GAME_CONFIG, type GameConfig } from './game/config.ts';
 import type { EquippedWearables } from './game/pixelArt.ts';
@@ -21,6 +22,7 @@ import { TitleScreen } from './components/TitleScreen.tsx';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
 import { WorldHub } from './components/WorldHub.tsx';
 import { GameHud } from './components/GameHud.tsx';
+import { DungeonOverlay } from './components/DungeonOverlay.tsx';
 import { testFirestoreConnection } from './lib/firebase.ts';
 import {
   publishWorldPresence,
@@ -114,6 +116,7 @@ export default function App() {
   const [fishingProgress, setFishingProgress] = useState<number>(0);
   const [fishingLineTension, setFishingLineTension] = useState<number>(0.15);
   const [fishingFightPattern, setFishingFightPattern] = useState<'darting' | 'surging' | 'deep_run' | 'erratic'>('darting');
+  const [dungeonSnapshot, setDungeonSnapshot] = useState<DungeonSnapshot | null>(null);
   const [hotbarItemIds, setHotbarItemIds] = useState<number[]>(EMPTY_HOTBAR);
   const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.FIST);
   const [gameConfig, setGameConfig] = useState<GameConfig>(() => cloneGameConfig(DEFAULT_GAME_CONFIG));
@@ -216,6 +219,17 @@ export default function App() {
     }
   }, [appState]);
 
+  // Freeze the sandbox character while the independent top-down dungeon instance is active.
+  useEffect(() => {
+    if (dungeonSnapshot && (dungeonSnapshot.phase === 'active' || dungeonSnapshot.phase === 'cleared')) {
+      engineRef.current?.setMode('paused');
+    } else if (appState === 'playing') {
+      engineRef.current?.setMode('playing');
+    } else if (appState === 'paused') {
+      engineRef.current?.setMode('paused');
+    }
+  }, [dungeonSnapshot?.runId, dungeonSnapshot?.phase, appState]);
+
   const fetchWorldsList = useCallback(async () => {
     try {
       const res = await fetch('/api/worlds');
@@ -284,6 +298,7 @@ export default function App() {
     const unsubMsg = socket.onMessage((msg) => {
       switch (msg.type) {
         case 'welcome':
+          socket.send({ type: 'dungeon_resume' });
           applyUserProfile({
             playerId: msg.playerId,
             playerName: msg.playerName,
@@ -369,6 +384,13 @@ export default function App() {
             engine.syncPresenceAndDrops(msg.players, msg.drops, msg.revision);
             setPlayerCount(msg.players.length);
           }
+          break;
+        case 'dungeon_state':
+          setDungeonSnapshot(msg.snapshot);
+          break;
+        case 'dungeon_error':
+          if (msg.message.toLowerCase().includes('left the expedition')) setDungeonSnapshot(null);
+          showToast(msg.message);
           break;
         case 'world_error':
           if (modeRef.current === 'loading') {
@@ -683,6 +705,7 @@ export default function App() {
   // Global keyboard shortcuts (hotbar 1-6, Pause Esc/P, Mute M)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (dungeonSnapshot) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -708,7 +731,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSelectItem, hotbarItemIds]);
+  }, [handleSelectItem, hotbarItemIds, dungeonSnapshot]);
 
   // Live Firestore world presence heartbeat & subscription when in a world
   useEffect(() => {
@@ -939,6 +962,20 @@ export default function App() {
           }
         />
       )}
+
+      {(appState === 'hub' || appState === 'playing' || appState === 'paused') && (
+        <DungeonOverlay
+          playerId={playerId}
+          level={level}
+          gems={gems}
+          inventory={inventory}
+          snapshot={dungeonSnapshot}
+          onBuyKey={(tier) => socketRef.current?.send({ type: 'dungeon_buy_key', tier })}
+          onCreate={(tier) => socketRef.current?.send({ type: 'dungeon_create', tier })}
+          onJoin={(code) => socketRef.current?.send({ type: 'dungeon_join', code })}
+          onAction={(action, dx, dy) => socketRef.current?.send({ type: 'dungeon_action', action, dx, dy })}
+          onDismiss={() => setDungeonSnapshot(null)}
+        />
+      )}
     </main>
   );
-}
