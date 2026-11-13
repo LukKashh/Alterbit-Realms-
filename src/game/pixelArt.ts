@@ -23,6 +23,10 @@ export type PlayerPose =
   | 'punch1'
   | 'punch2'
   | 'punch3'
+  | 'mine0'
+  | 'mine1'
+  | 'mine2'
+  | 'mine3'
   | 'place';
 
 export interface EquippedWearables {
@@ -1458,6 +1462,18 @@ export function getPlayerSprite(
       p2(ctx, tx + 17, ty + 2, P.eyeWhite, 2, 1);
       p2(ctx, tx + 17, ty + 4, P.eyeWhite, 1, 1);
       p2(ctx, tx + 18, ty + 5, P.eyeWhite, 1, 1);
+    } else if (normPose === 'mine2' || normPose === 'mine3') {
+      // Raise the mining tool overhead before bringing it down.
+      drawTemplateArmAngled(ctx, tx + 4, ty + 1, 3, -7, false);
+      const toolX = tx + 8;
+      const toolY = ty - 8;
+      p2(ctx, toolX, toolY, P.ink, 2, 7);
+      p2(ctx, toolX - 3, toolY, '#a9c4d5', 8, 2);
+      p2(ctx, toolX - 2, toolY - 1, '#e7f4fa', 5, 1);
+      if (normPose === 'mine3') {
+        p2(ctx, toolX + 6, toolY - 3, '#fff1a6', 2, 1);
+        p2(ctx, toolX + 8, toolY - 1, '#fff1a6', 1, 2);
+      }
     } else if (normPose === 'place') {
       // Extending arm forward-upward to set a block
       drawTemplateArmAngled(ctx, tx + 4, ty + 2, 7, -3, false);
