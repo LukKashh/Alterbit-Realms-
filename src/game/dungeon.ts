@@ -103,14 +103,22 @@ export function getDungeonEnemyStats(tier: number, boss: boolean) {
 export function getDungeonOreReward(tier: number): { itemId: number; qty: number }[] {
   // The source blueprint defines each Gate Key's ore pool but leaves exact reward quantities open.
   // These bounded defaults are intentionally conservative until the economy is tuned.
-  const orePools: Record<number, number[]> = {
-    1: [ITEM_IDS.COPPER_FRAGMENT, ITEM_IDS.IRON_FRAGMENT],
-    2: [ITEM_IDS.IRON_FRAGMENT, ITEM_IDS.CRYSTAL_FRAGMENT, ITEM_IDS.OBSIDIAN_FRAGMENT],
-    3: [ITEM_IDS.CRYSTAL_FRAGMENT, ITEM_IDS.OBSIDIAN_FRAGMENT],
-    4: [ITEM_IDS.OBSIDIAN_FRAGMENT],
-    5: [ITEM_IDS.OBSIDIAN_FRAGMENT],
+  const fragmentByOre: Record<string, number> = {
+    copper: ITEM_IDS.COPPER_FRAGMENT,
+    iron: ITEM_IDS.IRON_FRAGMENT,
+    silver: ITEM_IDS.IRON_FRAGMENT,
+    gold: ITEM_IDS.CRYSTAL_FRAGMENT,
+    diamond: ITEM_IDS.CRYSTAL_FRAGMENT,
+    rubidrite: ITEM_IDS.OBSIDIAN_FRAGMENT,
+    emeraldazyte: ITEM_IDS.OBSIDIAN_FRAGMENT,
+    obsidium: ITEM_IDS.OBSIDIAN_FRAGMENT,
+    divinium: ITEM_IDS.OBSIDIAN_FRAGMENT,
+    mythrilyte: ITEM_IDS.OBSIDIAN_FRAGMENT,
+    omegazyte: ITEM_IDS.OBSIDIAN_FRAGMENT,
   };
-  const pool = orePools[tier] ?? orePools[1];
-  const itemId = pool[Math.floor(Math.random() * pool.length)];
+  const configuredPool = GATE_KEYS[tier - 1]?.orePool ?? GATE_KEYS[0].orePool;
+  const pool = configuredPool.map((ore) => fragmentByOre[ore]).filter((itemId) => Number.isInteger(itemId));
+  const safePool = pool.length ? pool : [ITEM_IDS.COPPER_FRAGMENT];
+  const itemId = safePool[Math.floor(Math.random() * safePool.length)];
   return [{ itemId, qty: Math.max(1, Math.min(4, Math.ceil(tier / 2))) }];
 }
