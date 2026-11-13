@@ -783,6 +783,7 @@ export const CATALOG: Record<number, ItemDefinition> = {
     category: 'material', rarity: 'common', stackLimit: 200,
     collision: 'none', breakable: false, hardness: 0,
     placeable: false, tradeable: true, gemValue: 0, xpValue: 2,
+    fishDepthProfile: { minDepthLevel: 1, maxDepthLevel: 2, preferredDepthLevel: 1 },
     colorPrimary: '#8cd4e8', colorSecondary: '#407f99', colorAccent: '#e8fbff',
   },
   [ITEM_IDS.FISH_CARP]: {
