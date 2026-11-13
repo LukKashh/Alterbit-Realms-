@@ -21,6 +21,17 @@ export interface WorldLockRecord {
   publicAccess: boolean;
 }
 
+export interface ShareLockRecord {
+  x: number;
+  y: number;
+  itemId: number;
+  width: number;
+  height: number;
+  ownerId: string;
+  ownerName: string;
+  access: Record<string, { playerName: string; permissions: import('./shareLocks.ts').ShareLockPermissions }>;
+}
+
 export interface AreaLockRecord {
   x: number;
   y: number;
@@ -78,6 +89,9 @@ export interface WorldState {
   fluidLevel?: number[]; // 0..4
   plants: Record<string, PlantedTree>; // key: `${x},${y}`
   worldLock: WorldLockRecord | null;
+  /** New rectangular area-sharing claims. */
+  shareLocks?: Record<string, ShareLockRecord>; // key: `${x},${y}`
+  /** Legacy data retained only for safe migration; no longer grants access. */
   areaLocks?: Record<string, AreaLockRecord>; // key: `${x},${y}`
   vendingMachines?: Record<string, VendingMachineRecord>; // key: `${x},${y}`
   furnaces?: Record<string, FurnaceRecord>; // key: `${x},${y}`
@@ -280,6 +294,7 @@ export function generateWorld(worldName: string): WorldState {
     plants: {},
     worldLock: null,
     areaLocks: {},
+    shareLocks: {},
     vendingMachines: {},
     furnaces: {},
     bfgCollectors: {},
