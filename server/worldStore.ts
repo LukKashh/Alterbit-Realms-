@@ -1109,7 +1109,7 @@ export class AuthoritativeWorldStore {
 
   consumeInventory(account: PlayerAccount, itemId: number, qty: number): boolean {
     const def = getItemDef(itemId);
-    if (def?.maxDurability && qty >= 1) {
+    if ((def?.maxDurability || def?.toolKind === 'rod') && qty >= 1) {
       let removed = 0;
       const kept: InventorySlot[] = [];
       for (const s of account.inventory) {
