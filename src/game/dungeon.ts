@@ -67,6 +67,7 @@ export interface DungeonEnemyState {
 }
 
 export interface DungeonSnapshot {
+  worldKind: 'adventure_dungeon';
   runId: string;
   code: string;
   tier: number;
