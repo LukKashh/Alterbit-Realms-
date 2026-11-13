@@ -10,6 +10,7 @@ import {
 } from './constants.ts';
 import { getItemDef, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
 import type { AreaLockRecord, PlantedTree, WorldState } from './worldGen.ts';
+import { isSystemWorld } from './expansion.ts';
 
 export interface PlayerContext {
   id: string;
@@ -133,6 +134,7 @@ export function canBreakTile(
   ty: number,
   reachTiles = MAX_REACH_TILES
 ): { ok: boolean; layer?: 'fg' | 'bg' | 'plant' | 'fluid'; reason?: string } {
+  if (isSystemWorld(world.name)) return { ok: false, reason: 'System worlds are indestructible.' };
   if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of world bounds.' };
   if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Bedrock is indestructible.' };
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
@@ -226,6 +228,7 @@ export function canPlaceTile(
   ty: number,
   reachTiles = MAX_REACH_TILES
 ): { ok: boolean; layer?: 'fg' | 'bg' | 'seed' | 'fluid'; reason?: string } {
+  if (isSystemWorld(world.name)) return { ok: false, reason: 'System worlds do not allow block placement.' };
   if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of bounds.' };
   if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Cannot build on bedrock.' };
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
