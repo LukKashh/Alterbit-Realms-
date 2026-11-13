@@ -149,6 +149,11 @@ export interface ServerFishingCast extends FishingCastState {
   fishItemId?: number;
   fishResistance?: number;
   pullProgress: number;
+  lineTension: number;
+  bobberOffset: number;
+  fightPattern?: 'darting' | 'surging' | 'deep_run' | 'erratic';
+  fightStartedAt: number;
+  lastFightUpdateAt: number;
   biteAt: number;
   expiresAt: number;
 }
@@ -2218,6 +2223,10 @@ export class AuthoritativeWorldStore {
       rodUpgradeLevel: rodSlot.rodUpgradeLevel ?? 1,
       pullingStrength: getFishingPullStrength(rodType, rodSlot.rodUpgradeLevel ?? 1, this.gameConfig.fishing),
       pullProgress: 0,
+      lineTension: 0.15,
+      bobberOffset: 0,
+      fightStartedAt: now,
+      lastFightUpdateAt: now,
       biting: false,
       startedAt: now,
       biteAt: now + delayMs,
@@ -2294,7 +2303,8 @@ export class AuthoritativeWorldStore {
 
     const fishItemId = cast.fishItemId ?? ITEM_IDS.FISH_MINNOW;
     const resistance = cast.fishResistance ?? getFishPullResistance(fishItemId, this.gameConfig.fishing);
-    cast.pullProgress = Math.min(100, cast.pullProgress + 24 * cast.pullingStrength / resistance);
+    const timingMultiplier = cast.lineTension > 0.82 ? 0.45 : cast.lineTension < 0.38 ? 1.25 : 0.85;
+    cast.pullProgress = Math.min(100, cast.pullProgress + 20 * timingMultiplier * cast.pullingStrength / resistance);
     if (cast.pullProgress < 100) {
       return {
         ok: true,
@@ -2513,12 +2523,14 @@ export class AuthoritativeWorldStore {
     fluidUpdates: Array<{ worldName: string; deltas: FluidDelta[] }>;
     fishingBites: Array<{ worldName: string; cast: ServerFishingCast }>;
     fishingTimeouts: Array<{ worldName: string; playerId: string }>;
+    fishingStates: Array<{ worldName: string; cast: ServerFishingCast }>;
     completedFurnaces: Array<{ worldName: string; tx: number; ty: number }>;
     expiredMines: Array<{ worldName: string; playerIds: string[] }>;
   } {
     const fluidUpdates: Array<{ worldName: string; deltas: FluidDelta[] }> = [];
     const fishingBites: Array<{ worldName: string; cast: ServerFishingCast }> = [];
     const fishingTimeouts: Array<{ worldName: string; playerId: string }> = [];
+    const fishingStates: Array<{ worldName: string; cast: ServerFishingCast }> = [];
     const completedFurnaces: Array<{ worldName: string; tx: number; ty: number }> = [];
     const expiredMines: Array<{ worldName: string; playerIds: string[] }> = [];
 
@@ -2546,9 +2558,26 @@ export class AuthoritativeWorldStore {
         } else if (cast.biting && now >= cast.expiresAt) {
           live.activeCasts.delete(pid);
           fishingTimeouts.push({ worldName: wName, playerId: pid });
-        } else if (cast.biting && cast.pullProgress > 0) {
-          // Fish steadily regain line while the player is not actively reeling.
-          cast.pullProgress = Math.max(0, cast.pullProgress - 1.5);
+        } else if (cast.biting) {
+          if (cast.pullProgress > 0) cast.pullProgress = Math.max(0, cast.pullProgress - 1.5);
+          const fishId = cast.fishItemId;
+          if (fishId !== undefined && !cast.fightPattern) {
+            cast.fightPattern = fishId === ITEM_IDS.FISH_MINNOW ? 'darting'
+              : fishId === ITEM_IDS.FISH_CARP ? 'surging'
+              : fishId === ITEM_IDS.FISH_GLACIER_TROUT ? 'deep_run' : 'erratic';
+          }
+          const pattern = cast.fightPattern ?? 'darting';
+          const elapsed = now - cast.fightStartedAt;
+          const period = pattern === 'darting' ? 900 : pattern === 'surging' ? 1900 : pattern === 'deep_run' ? 2600 : 1250;
+          const wave = Math.sin((elapsed / period) * Math.PI * 2);
+          const secondary = Math.sin((elapsed / (period * 0.47)) * Math.PI * 2);
+          const amplitude = pattern === 'deep_run' ? 9 : pattern === 'surging' ? 7 : pattern === 'erratic' ? 11 : 5;
+          cast.lineTension = Math.max(0.08, Math.min(1, 0.52 + wave * 0.32 + (pattern === 'erratic' ? secondary * 0.16 : 0)));
+          cast.bobberOffset = Math.round(wave * amplitude + (pattern === 'erratic' ? secondary * 3 : 0));
+          if (now - cast.lastFightUpdateAt >= 500) {
+            cast.lastFightUpdateAt = now;
+            fishingStates.push({ worldName: wName, cast });
+          }
         }
       }
 
@@ -2571,7 +2600,7 @@ export class AuthoritativeWorldStore {
       }
     }
 
-    return { fluidUpdates, fishingBites, fishingTimeouts, completedFurnaces, expiredMines };
+    return { fluidUpdates, fishingBites, fishingTimeouts, fishingStates, completedFurnaces, expiredMines };
   }
 
   tickBfgCollectors(now: number): Array<{
