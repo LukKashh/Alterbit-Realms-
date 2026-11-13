@@ -81,6 +81,8 @@ export interface TileInspectInfo {
   worldLock?: WorldLockRecord | null;
   areaLock?: AreaLockRecord | null;
   shareLock?: ShareLockRecord | null;
+  isLandlord?: boolean;
+  isWorldCore?: boolean;
   vendingMachine?: VendingMachineRecord | null;
   furnace?: FurnaceRecord | null;
   bfgCollector?: BfgCollectorRecord | null;
@@ -845,7 +847,9 @@ export class BlockgroveEngine {
             fgId === ITEM_IDS.SMALL_LOCK ||
             fgId === ITEM_IDS.STONE_FURNACE ||
             fgId === ITEM_IDS.BFG_COLLECTOR ||
-            fgId === ITEM_IDS.EXCHANGE_TERMINAL
+            fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
+            fgId === ITEM_IDS.LANDLORD_NPC ||
+            fgId === ITEM_IDS.WORLD_CORE
           ) {
             return { tx, ty };
           }
@@ -957,9 +961,11 @@ export class BlockgroveEngine {
       bgName: bgDef?.name ?? 'Open Sky',
       plantInfo,
       lockInfo,
-      worldLock: fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
+      worldLock: fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
       areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : coveringAreaLock,
       shareLock: this.world.shareLocks?.[key] ?? null,
+      isLandlord: fgId === ITEM_IDS.LANDLORD_NPC,
+      isWorldCore: fgId === ITEM_IDS.WORLD_CORE,
       vendingMachine: fgId === ITEM_IDS.VENDING_MACHINE ? (this.world.vendingMachines?.[key] ?? null) : null,
       furnace: fgId === ITEM_IDS.STONE_FURNACE ? (this.world.furnaces?.[key] ?? null) : null,
       bfgCollector: fgId === ITEM_IDS.BFG_COLLECTOR ? (this.world.bfgCollectors?.[key] ?? null) : null,
@@ -1026,7 +1032,9 @@ export class BlockgroveEngine {
           fgId === ITEM_IDS.SMALL_LOCK ||
           fgId === ITEM_IDS.STONE_FURNACE ||
           fgId === ITEM_IDS.BFG_COLLECTOR ||
-          fgId === ITEM_IDS.EXCHANGE_TERMINAL
+          fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
+          fgId === ITEM_IDS.LANDLORD_NPC ||
+          fgId === ITEM_IDS.WORLD_CORE
         ) {
           this.emitInspectAt(tx, ty);
         }
