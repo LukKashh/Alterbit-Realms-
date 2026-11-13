@@ -373,12 +373,10 @@ export class BlockgroveEngine {
     const fgId = this.world.fg[idx];
     const fgTransparent =
       fgId === ITEM_IDS.AIR ||
-      fgId === ITEM_IDS.SUNLIT_GLASS ||
-      fgId === ITEM_IDS.CLOUD_PLATFORM ||
-      fgId === ITEM_IDS.OAK_TRUNK ||
-      fgId === ITEM_IDS.MEADOW_LEAVES ||
+      fgId === ITEM_IDS.GP_GLASS_PANE ||
+      fgId === ITEM_IDS.GP_WINDOW ||
+      fgId === ITEM_IDS.GP_WOODEN_PLATFORM ||
       fgId === ITEM_IDS.ENTRANCE_PORTAL ||
-      fgId === ITEM_IDS.LANTERN_LIGHT ||
       fgId === ITEM_IDS.SIGN_POST ||
       fgId === ITEM_IDS.SMALL_LOCK;
 
