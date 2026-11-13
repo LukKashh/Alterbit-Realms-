@@ -150,12 +150,12 @@ export class DungeonStore {
     if (!key || !keyItemId) return { ok: false, message: 'Unknown Gate Key tier.' };
     if (account.level < key.minLevel) return { ok: false, message: 'Explorer level ' + key.minLevel + ' is required.' };
     if (this.findRun(account.id)) return { ok: false, message: 'You are already assigned to an active dungeon party.' };
+    if (partyMode !== 'solo' && partyMode !== 'cooperative') return { ok: false, message: 'Choose Solo or Cooperative mode.' };
     const keySlot = account.inventory.find((slot) => slot.itemId === keyItemId && slot.qty > 0);
     if (!keySlot || !this.playerStore.consumeInventory(account, keyItemId, 1)) {
       return { ok: false, message: 'You need a ' + key.id.replace(/_/g, ' ') + ' to open this dungeon.' };
     }
 
-    if (partyMode !== 'solo' && partyMode !== 'cooperative') return { ok: false, message: 'Choose Solo or Cooperative mode.' };
     const seed = crypto.randomBytes(4).readUInt32BE(0);
     const runId = crypto.randomUUID();
     const code = this.makeCode();
@@ -172,8 +172,18 @@ export class DungeonStore {
       lastTickAt: now, lastBroadcastAt: now, createdAt: now, updatedAt: now,
     };
     this.runs.set(runId, run);
-    this.playerStore.savePlayer(account);
-    this.persist();
+    try {
+      this.playerStore.savePlayer(account);
+      this.persist();
+    } catch (error) {
+      this.runs.delete(runId);
+      this.playerStore.addInventory(account, keyItemId, 1);
+      try { this.playerStore.savePlayer(account); this.persist(); } catch (rollbackError) {
+        console.error('Dungeon entry rollback failed:', rollbackError);
+      }
+      console.error('Dungeon instance creation failed:', error);
+      return { ok: false, message: 'Dungeon creation failed. Your Gate Key has been returned.' };
+    }
     return { ok: true, message: 'Dungeon party created. Share code ' + code + '.', snapshot: this.snapshot(run) };
   }
 
