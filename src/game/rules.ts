@@ -10,7 +10,7 @@ import {
 } from './constants.ts';
 import { getItemDef, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
 import type { AreaLockRecord, PlantedTree, WorldState, ShareLockRecord } from './worldGen.ts';
-import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec, rectanglesOverlap, type ShareLockPermissionKey } from './shareLocks.ts';
+import { getShareLockSpec, rectanglesOverlap, type ShareLockPermissionKey } from './shareLocks.ts';
 import { isSystemWorld } from './expansion.ts';
 
 export interface PlayerContext {
@@ -135,7 +135,7 @@ export function hasEditPermission(
     const lock = getCoveringShareLock(world, tx, ty);
     if (lock) {
       const access = lock.access?.[playerId];
-      return Boolean(access?.permissions?.[permission] ?? DEFAULT_SHARE_LOCK_PERMISSIONS[permission]);
+      return Boolean(access && access.permissions?.[permission] === true);
     }
   }
   return !world.worldLock;
