@@ -201,7 +201,7 @@ export class DungeonStore {
       console.error('Dungeon instance creation failed:', error);
       return { ok: false, message: 'Dungeon creation failed. Your Gate Key has been returned.' };
     }
-    return { ok: true, message: 'Dungeon party created. Share code ' + code + '.', snapshot: this.snapshot(run) };
+    return { ok: true, message: (partyMode === 'solo' ? 'Solo expedition opened.' : 'Cooperative party created. Share code ' + code + '.') , snapshot: this.snapshot(run) };
   }
 
   joinRun(account: PlayerAccount, rawCode: string, now = Date.now()): DungeonActionResult {
@@ -332,7 +332,8 @@ export class DungeonStore {
       const speed = DEFAULT_DUNGEON_BALANCE.playerMoveStep;
       const nx = Math.max(1.22, Math.min(DUNGEON_WIDTH - 1.22, player.x + directionX * speed));
       const ny = Math.max(1.22, Math.min(DUNGEON_HEIGHT - 1.22, player.y + directionY * speed));
-      if (!isDungeonPositionWalkable(run.map, nx, ny) ||
+      const destinationTile = run.map[Math.floor(ny)]?.[Math.floor(nx)] ?? '#';
+      if (!isDungeonPositionWalkable(run.map, nx, ny) || (destinationTile === '>' && run.phase !== 'cleared') ||
           Object.values(run.players).some((other) => other.id !== player.id && other.hp > 0 && Math.hypot(other.x - nx, other.y - ny) < 0.48) ||
           run.enemies.some((enemy) => enemy.hp > 0 && Math.hypot(enemy.x - nx, enemy.y - ny) < 0.5)) {
         return { ok: false, message: 'Blocked.' };
