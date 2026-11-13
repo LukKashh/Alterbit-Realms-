@@ -219,6 +219,10 @@ export class AuthoritativeWorldStore {
     this.loadExchange();
     this.seedDefaultAccounts();
     this.getOrCreateWorld('START');
+    this.getOrCreateWorld('NEXUS');
+    this.getOrCreateWorld('DWELLER');
+    this.getOrCreateWorld('FISHING');
+    this.getOrCreateWorld('STATION');
     this.getOrCreateWorld('TRADE');
     this.getOrCreateWorld('FARM');
   }
@@ -924,7 +928,7 @@ export class AuthoritativeWorldStore {
 
   listWorlds(): WorldSummary[] {
     const files = fs.readdirSync(WORLDS_DIR).filter((f) => f.endsWith('.json'));
-    const names = new Set<string>(['START', 'TRADE', 'FARM']);
+    const names = new Set<string>(['START', 'NEXUS', 'DWELLER', 'FISHING', 'STATION', 'TRADE', 'FARM']);
     for (const f of files) names.add(f.replace(/\.json$/, ''));
     for (const [k, lw] of this.worlds.entries()) {
       if (lw.state.worldKind !== 'mine_shaft') names.add(k);

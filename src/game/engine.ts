@@ -42,6 +42,12 @@ import {
   type WorldState,
 } from './worldGen.ts';
 import { soundEngine } from './audio.ts';
+import { BLOCKGROVE_ART_THEME } from './artTheme.ts';
+import {
+  createDungeonMap,
+  getDungeonEnemyStats,
+  type DungeonSnapshot,
+} from './dungeon.ts';
 import type { ActiveBuff, FishingCastState, RemotePlayerState, WorldDrop } from './network.ts';
 
 interface Particle {
@@ -330,26 +336,28 @@ export class BlockgroveEngine {
   }
 
   private onPointerMove = (e: PointerEvent) => {
-    if (this.activePointerId !== null && e.pointerId !== this.activePointerId && e.pointerType === 'mouse') return;
-    if (e.pointerType === 'mouse' || e.pointerId === this.activePointerId) this.updatePointerCoords(e.clientX, e.clientY);
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+    if (e.pointerType === 'mouse' || e.pointerId === this.activePointerId) {
+      this.updatePointerCoords(e.clientX, e.clientY);
+    }
   };
 
   private onPointerDown = (e: PointerEvent) => {
     if (this.mode !== 'playing') return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.pointerType === 'mouse') {
-      if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
-      this.activePointerId = e.pointerId;
-      this.updatePointerCoords(e.clientX, e.clientY);
-      this.mouseDown = true;
-    }
     this.activePointers.add(e.pointerId);
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+    this.activePointerId = e.pointerId;
+    this.updatePointerCoords(e.clientX, e.clientY);
+    this.mouseDown = true;
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
       // Ignore synthetic events without active pointer capture
     }
-    this.tryInteractAtCursor();
+    if (!this.punchStick.active) {
+      this.tryInteractAtCursor();
+    }
   };
 
   private onPointerUp = (e: PointerEvent) => {
@@ -795,63 +803,101 @@ export class BlockgroveEngine {
     const h = worldHeight(this.world);
     const selectedDef = getItemDef(this.selectedItemId);
     const isBreakTool = this.selectedItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe';
+    const strongVertical = Math.abs(dirY) > 0.78;
 
-    let firstRayTile: { tx: number; ty: number } | null = null;
+    const rayTiles: Array<{ tx: number; ty: number }> = [];
     let prevKey = '';
-
-    for (let d = 0.35; d <= reach; d += 0.15) {
+    for (let d = 0.55; d <= reach; d += 0.16) {
       const tx = Math.max(0, Math.min(w - 1, Math.floor(pcx + dirX * d)));
       const ty = Math.max(0, Math.min(h - 1, Math.floor(pcy + dirY * d)));
       const key = `${tx},${ty}`;
       if (key === prevKey) continue;
       prevKey = key;
+      rayTiles.push({ tx, ty });
+    }
 
-      if (!firstRayTile && (tx !== ptx || ty !== pty)) {
-        firstRayTile = { tx, ty };
-      }
+    const inFrontTiles = rayTiles.filter(({ tx, ty }) => tx !== ptx || ty !== pty || strongVertical);
+    const firstFrontTile = inFrontTiles[0] ?? this.getTargetTileFacing();
 
-      const idx = tileIndexIn(this.world, tx, ty);
-      if (isBreakTool) {
-        if (canBreakTile(this.world, playerCtx, tx, ty, reach).ok) {
-          return { tx, ty };
-        }
+    if (isBreakTool) {
+      // Pass 1: Prefer foreground blocks, plants, or interactables in front along the joystick ray
+      for (const { tx, ty } of inFrontTiles) {
+        const idx = tileIndexIn(this.world, tx, ty);
         const fgId = this.world.fg[idx];
-        if (
-          fgId !== ITEM_IDS.AIR &&
-          (CATALOG[fgId]?.collision === 'solid' ||
+        const hasPlant = Boolean(this.world.plants[`${tx},${ty}`]);
+        if (fgId !== ITEM_IDS.AIR || hasPlant) {
+          if (canBreakTile(this.world, playerCtx, tx, ty, reach).ok) {
+            return { tx, ty };
+          }
+          if (
+            CATALOG[fgId]?.collision === 'solid' ||
             fgId === ITEM_IDS.VENDING_MACHINE ||
             fgId === ITEM_IDS.WORLD_LOCK ||
             fgId === ITEM_IDS.SMALL_LOCK ||
             fgId === ITEM_IDS.STONE_FURNACE ||
             fgId === ITEM_IDS.BFG_COLLECTOR ||
-            fgId === ITEM_IDS.EXCHANGE_TERMINAL)
-        ) {
+            fgId === ITEM_IDS.EXCHANGE_TERMINAL
+          ) {
+            return { tx, ty };
+          }
+        }
+      }
+      // Pass 2: Break background tiles in front if no foreground target was hit
+      for (const { tx, ty } of inFrontTiles) {
+        if (canBreakTile(this.world, playerCtx, tx, ty, reach).ok) {
           return { tx, ty };
         }
-      } else if (this.selectedItemId === ITEM_IDS.WRENCH) {
+      }
+      // Pass 3: Fallback to player's own tile if aiming straight down/up
+      if (canBreakTile(this.world, playerCtx, ptx, pty, reach).ok) {
+        return { tx: ptx, ty: pty };
+      }
+      return firstFrontTile;
+    }
+
+    if (this.selectedItemId === ITEM_IDS.WRENCH) {
+      for (const { tx, ty } of inFrontTiles) {
+        const idx = tileIndexIn(this.world, tx, ty);
         if (this.world.fg[idx] !== ITEM_IDS.AIR) {
           return { tx, ty };
         }
-      } else if (selectedDef?.toolKind === 'rod') {
+      }
+      return firstFrontTile;
+    }
+
+    if (selectedDef?.toolKind === 'rod') {
+      for (const { tx, ty } of inFrontTiles) {
+        const idx = tileIndexIn(this.world, tx, ty);
         if ((this.world.fluidLevel?.[idx] ?? 0) > 0) {
           return { tx, ty };
         }
-      } else {
-        if (canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok) {
-          return { tx, ty };
-        }
-        const fgId = this.world.fg[idx];
-        if (
-          selectedDef?.category !== 'background' &&
-          fgId !== ITEM_IDS.AIR &&
-          CATALOG[fgId]?.collision === 'solid'
-        ) {
-          return firstRayTile ?? { tx, ty };
-        }
+      }
+      return firstFrontTile;
+    }
+
+    // Placing blocks / seeds / backgrounds / locks / machines: prioritize tiles in front first
+    for (const { tx, ty } of inFrontTiles) {
+      if (canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok) {
+        return { tx, ty };
+      }
+      const idx = tileIndexIn(this.world, tx, ty);
+      const fgId = this.world.fg[idx];
+      if (
+        selectedDef?.category !== 'background' &&
+        fgId !== ITEM_IDS.AIR &&
+        CATALOG[fgId]?.collision === 'solid'
+      ) {
+        return firstFrontTile;
       }
     }
 
-    return firstRayTile ?? this.getTargetTileFacing();
+    for (const { tx, ty } of rayTiles) {
+      if (canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok) {
+        return { tx, ty };
+      }
+    }
+
+    return firstFrontTile;
   }
 
   private tryInteractFacing() {
@@ -1074,11 +1120,14 @@ export class BlockgroveEngine {
     this.punchAnimTimer = Math.max(0, this.punchAnimTimer - dt);
     this.placeAnimTimer = Math.max(0, this.placeAnimTimer - dt);
 
-    if (this.mouseDown && this.punchTimer <= 0) {
-      this.tryInteractAtCursor();
-    } else if (this.punchStick.active && this.punchTimer <= 0) {
+    if (this.punchStick.active && this.punchTimer <= 0) {
+      if (Math.abs(this.punchStick.dx) > 0.12) {
+        this.body.facing = this.punchStick.dx > 0 ? 1 : -1;
+      }
       const { tx, ty } = this.getTargetTileFromJoystick();
       this.performTileInteraction(tx, ty);
+    } else if (this.mouseDown && this.punchTimer <= 0) {
+      this.tryInteractAtCursor();
     } else if (this.touchState.punchHeld && this.punchTimer <= 0) {
       this.tryInteractFacing();
     }
@@ -1752,4 +1801,716 @@ export class BlockgroveEngine {
     ctx.drawImage(sprite, drawX, drawY);
     return drawY;
   }
+
+  public renderDungeonFrame(
+    targetCtx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    snapshot: DungeonSnapshot | null,
+    playerId: string,
+    yaw: number,
+    opts?: DungeonRenderOptions
+  ) {
+    renderDungeonRaycaster(targetCtx, width, height, snapshot, playerId, yaw, opts);
+  }
+}
+
+export interface DungeonRenderOptions {
+  nowMs?: number;
+  bobPhase?: number;
+  slashTimer?: number;
+  hitFlash?: number;
+  fovRadians?: number;
+  previewTier?: number;
+}
+
+interface DungeonTierPalette {
+  wallBase: string;
+  wallLight: string;
+  wallDark: string;
+  trim: string;
+  accent: string;
+  ceilTop: string;
+  ceilBot: string;
+  floorTop: string;
+  floorBot: string;
+  fogHex: string;
+}
+
+const DUNGEON_TIER_PALETTES: DungeonTierPalette[] = [
+  {
+    wallBase: '#3d4f66',
+    wallLight: '#566f8c',
+    wallDark: '#263242',
+    trim: '#d8824c',
+    accent: '#ffe18c',
+    ceilTop: '#08101a',
+    ceilBot: '#132030',
+    floorTop: '#161e29',
+    floorBot: '#293545',
+    fogHex: '#0a121c',
+  },
+  {
+    wallBase: '#4c5f73',
+    wallLight: '#6b839c',
+    wallDark: '#303d4b',
+    trim: '#a4d4ec',
+    accent: '#8cf7ee',
+    ceilTop: '#09121c',
+    ceilBot: '#152638',
+    floorTop: '#18212b',
+    floorBot: '#2c3a4a',
+    fogHex: '#0b141f',
+  },
+  {
+    wallBase: '#27473a',
+    wallLight: '#3c6b58',
+    wallDark: '#172b23',
+    trim: '#42e88a',
+    accent: '#b6ffcf',
+    ceilTop: '#07140f',
+    ceilBot: '#10261d',
+    floorTop: '#12211a',
+    floorBot: '#213d31',
+    fogHex: '#081610',
+  },
+  {
+    wallBase: '#2f2952',
+    wallLight: '#49407d',
+    wallDark: '#1c1833',
+    trim: '#f2b738',
+    accent: '#7df5ff',
+    ceilTop: '#0b091a',
+    ceilBot: '#181433',
+    floorTop: '#18142b',
+    floorBot: '#2d264f',
+    fogHex: '#0c0a1c',
+  },
+  {
+    wallBase: '#421d2b',
+    wallLight: '#632c41',
+    wallDark: '#261018',
+    trim: '#ff5e7e',
+    accent: '#ffd166',
+    ceilTop: '#14070c',
+    ceilBot: '#260d17',
+    floorTop: '#210d14',
+    floorBot: '#3d1926',
+    fogHex: '#16080e',
+  },
+];
+
+const dungeonTextureCache = new Map<string, HTMLCanvasElement>();
+let rayBufferCanvas: HTMLCanvasElement | null = null;
+let rayBufferCtx: CanvasRenderingContext2D | null = null;
+
+function getDungeonTexture(
+  kind: 'wall' | 'pillar' | 'entry' | 'exit_locked' | 'exit_open',
+  tier: number
+): HTMLCanvasElement {
+  const safeTier = Math.max(1, Math.min(5, tier));
+  const key = `${kind}_t${safeTier}`;
+  const cached = dungeonTextureCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 48;
+  canvas.height = 48;
+  const c = canvas.getContext('2d')!;
+  c.imageSmoothingEnabled = false;
+
+  const pal = DUNGEON_TIER_PALETTES[safeTier - 1];
+  const ink = BLOCKGROVE_ART_THEME.ink.outline;
+  const px = (vx: number, vy: number, vw: number, vh: number, color: string) => {
+    c.fillStyle = color;
+    c.fillRect(vx * 3, vy * 3, vw * 3, vh * 3);
+  };
+
+  // Base masonry block in Blockgrove's 16x16 @ 3px crisp pixel style
+  px(0, 0, 16, 16, pal.wallBase);
+  // Top-left bevel highlight & bottom-right occlusion
+  px(0, 0, 16, 1, pal.wallLight);
+  px(0, 0, 1, 16, pal.wallLight);
+  px(0, 15, 16, 1, pal.wallDark);
+  px(15, 0, 1, 16, pal.wallDark);
+
+  // Midnight-ink brick mortar seams
+  for (const row of [4, 8, 12]) {
+    px(0, row, 16, 1, ink);
+    px(0, row - 1, 16, 1, pal.wallDark);
+  }
+  px(8, 0, 1, 4, ink);
+  px(4, 4, 1, 4, ink);
+  px(12, 4, 1, 4, ink);
+  px(7, 8, 1, 4, ink);
+  px(3, 12, 1, 4, ink);
+  px(11, 12, 1, 4, ink);
+
+  // Warm pixel stone specular chips
+  px(2, 1, 3, 1, pal.wallLight);
+  px(10, 2, 2, 1, pal.wallLight);
+  px(6, 5, 3, 1, pal.wallLight);
+  px(1, 9, 3, 1, pal.wallLight);
+  px(9, 13, 3, 1, pal.wallLight);
+
+  if (kind === 'pillar') {
+    // Carved tier rune column with glowing ore veins & trim
+    px(2, 1, 12, 14, pal.wallDark);
+    px(3, 2, 10, 12, pal.wallBase);
+    px(3, 2, 10, 1, pal.trim);
+    px(3, 13, 10, 1, pal.trim);
+    px(5, 4, 6, 8, ink);
+    px(6, 5, 4, 6, pal.wallDark);
+    // Glowing diamond rune core
+    px(7, 6, 2, 4, pal.trim);
+    px(6, 7, 4, 2, pal.trim);
+    px(7, 7, 2, 2, pal.accent);
+  } else if (kind === 'entry' || kind === 'exit_locked' || kind === 'exit_open') {
+    const isEntry = kind === 'entry';
+    const isOpen = kind === 'exit_open';
+    const frameColor = isEntry ? '#78c8f5' : isOpen ? '#42e88a' : '#d96459';
+    const glowColor = isEntry ? '#c2edff' : isOpen ? '#ffe18c' : '#ff9b8f';
+    // Arch frame
+    px(1, 2, 14, 14, ink);
+    px(2, 3, 12, 13, frameColor);
+    px(3, 4, 10, 12, '#09131d');
+    // Inner portal energy
+    px(4, 6, 8, 9, isEntry ? '#1d4f7a' : isOpen ? '#1d6949' : '#42191e');
+    px(5, 7, 6, 7, isEntry ? '#3896d6' : isOpen ? '#37ba79' : '#73262e');
+    px(7, 8, 2, 5, glowColor);
+
+    // Top Silkscreen pixel banner nameplate matching Blockgrove's UI typography
+    c.fillStyle = ink;
+    c.fillRect(3, 1, 42, 12);
+    c.fillStyle = '#0f1d2c';
+    c.fillRect(4, 2, 40, 10);
+    c.font = 'bold 7px "Silkscreen", monospace';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = glowColor;
+    c.fillText(isEntry ? 'ENTRY' : isOpen ? 'EXIT!' : 'LOCKED', 24, 7.5);
+  } else {
+    // Occasional tier crystal studding on outer perimeter wall
+    px(1, 5, 2, 2, pal.trim);
+    px(13, 10, 2, 2, pal.trim);
+  }
+
+  dungeonTextureCache.set(key, canvas);
+  return canvas;
+}
+
+function getDungeonSpriteCanvas(
+  kind: 'dweller' | 'drone' | 'boss' | 'portal_open' | 'portal_locked' | 'entry_pad',
+  tier: number
+): HTMLCanvasElement {
+  const safeTier = Math.max(1, Math.min(5, tier));
+  const key = `spr_${kind}_t${safeTier}`;
+  const cached = dungeonTextureCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 48;
+  canvas.height = 48;
+  const c = canvas.getContext('2d')!;
+  c.imageSmoothingEnabled = false;
+
+  const pal = DUNGEON_TIER_PALETTES[safeTier - 1];
+  const ink = BLOCKGROVE_ART_THEME.ink.outline;
+  const px = (vx: number, vy: number, vw: number, vh: number, color: string) => {
+    c.fillStyle = color;
+    c.fillRect(vx * 3, vy * 3, vw * 3, vh * 3);
+  };
+
+  if (kind === 'portal_open' || kind === 'portal_locked' || kind === 'entry_pad') {
+    const ring = kind === 'portal_open' ? '#42e88a' : kind === 'entry_pad' ? '#78c8f5' : '#e05b4f';
+    const core = kind === 'portal_open' ? '#ffe18c' : kind === 'entry_pad' ? '#c9f0ff' : '#ff9e8f';
+    // Floating pixel beacon pedestal
+    px(4, 13, 8, 2, ink);
+    px(5, 13, 6, 1, '#5a7087');
+    px(5, 2, 6, 11, ink);
+    px(6, 3, 4, 9, ring);
+    px(7, 4, 2, 7, core);
+    px(4, 5, 1, 5, ring);
+    px(11, 5, 1, 5, ring);
+  } else if (kind === 'drone') {
+    // Brass & cyan hover drone
+    px(3, 4, 10, 6, ink);
+    px(4, 5, 8, 4, '#b8763e');
+    px(4, 5, 8, 1, '#f5c07a');
+    px(6, 6, 4, 2, '#102233');
+    px(7, 6, 2, 2, '#38e8d8');
+    px(2, 6, 1, 2, '#d88c48');
+    px(13, 6, 1, 2, '#d88c48');
+    px(6, 10, 4, 2, '#f2b738');
+  } else if (kind === 'boss') {
+    // Crowned Armored Boss
+    px(2, 1, 2, 3, '#ffe18c');
+    px(12, 1, 2, 3, '#ffe18c');
+    px(6, 1, 4, 2, '#f2b738');
+    px(3, 3, 10, 12, ink);
+    px(4, 4, 8, 10, pal.wallLight);
+    px(4, 4, 8, 2, pal.trim);
+    px(5, 6, 2, 2, '#ff4d4d');
+    px(9, 6, 2, 2, '#ff4d4d');
+    px(6, 7, 1, 1, '#ffffff');
+    px(10, 7, 1, 1, '#ffffff');
+    px(5, 10, 6, 2, ink);
+    px(6, 10, 1, 1, '#fff3cf');
+    px(9, 10, 1, 1, '#fff3cf');
+    px(1, 6, 2, 6, ink);
+    px(13, 6, 2, 6, ink);
+    px(1, 7, 1, 4, pal.trim);
+    px(14, 7, 1, 4, pal.trim);
+  } else {
+    // Cavern Dweller / Slime / Golem
+    const bodyColors = ['#4ec46a', '#7c93ab', '#38c77f', '#6d5ec9', '#cf4462'];
+    const body = bodyColors[safeTier - 1];
+    px(3, 5, 10, 9, ink);
+    px(4, 6, 8, 7, body);
+    px(4, 6, 8, 2, pal.accent);
+    px(5, 8, 2, 2, ink);
+    px(9, 8, 2, 2, ink);
+    px(5, 8, 1, 1, '#fff8e8');
+    px(9, 8, 1, 1, '#fff8e8');
+    px(6, 11, 4, 1, ink);
+  }
+
+  dungeonTextureCache.set(key, canvas);
+  return canvas;
+}
+
+export function renderDungeonRaycaster(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  snapshot: DungeonSnapshot | null,
+  playerId: string,
+  yaw: number,
+  opts: DungeonRenderOptions = {}
+) {
+  if (width <= 0 || height <= 0) return;
+  const nowMs = opts.nowMs ?? (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const previewTier = snapshot?.tier ?? Math.max(1, Math.min(5, opts.previewTier ?? 1));
+  const map = snapshot?.map ?? createDungeonMap(previewTier, 0, previewTier * 911);
+  const mapH = map.length;
+  const mapW = map[0]?.length ?? 17;
+  const localPlayer = snapshot?.players.find((p) => p.id === playerId);
+  const posX = localPlayer ? localPlayer.x : 3.5;
+  const posY = localPlayer ? localPlayer.y : 5.5;
+  const phase = snapshot?.phase ?? 'cleared';
+  const pal = DUNGEON_TIER_PALETTES[Math.max(0, Math.min(4, previewTier - 1))];
+
+  // Internal crisp pixel-art raycast buffer (~3x virtual pixel scale matching Blockgrove)
+  const rayW = Math.max(240, Math.min(360, Math.floor(width / 3)));
+  const rayH = Math.max(135, Math.round(rayW * (height / width)));
+
+  if (!rayBufferCanvas) {
+    rayBufferCanvas = document.createElement('canvas');
+    rayBufferCtx = rayBufferCanvas.getContext('2d');
+  }
+  if (rayBufferCanvas.width !== rayW || rayBufferCanvas.height !== rayH) {
+    rayBufferCanvas.width = rayW;
+    rayBufferCanvas.height = rayH;
+  }
+  const rctx = rayBufferCtx!;
+  rctx.imageSmoothingEnabled = false;
+
+  const bobOffset = Math.sin(opts.bobPhase ?? 0) * 2.2;
+  const horizon = Math.round(rayH * 0.5 + bobOffset);
+
+  // 1. Ceiling & Floor Perspective Gradients + Stone Slab Depth Strips
+  const ceilGrad = rctx.createLinearGradient(0, 0, 0, Math.max(1, horizon));
+  ceilGrad.addColorStop(0, pal.ceilTop);
+  ceilGrad.addColorStop(1, pal.ceilBot);
+  rctx.fillStyle = ceilGrad;
+  rctx.fillRect(0, 0, rayW, Math.max(0, horizon));
+
+  const floorGrad = rctx.createLinearGradient(0, horizon, 0, rayH);
+  floorGrad.addColorStop(0, pal.floorTop);
+  floorGrad.addColorStop(1, pal.floorBot);
+  rctx.fillStyle = floorGrad;
+  rctx.fillRect(0, horizon, rayW, Math.max(0, rayH - horizon));
+
+  // Perspective floor depth banding matching stone pavers
+  for (let y = horizon + 2; y < rayH; y += 2) {
+    const p = (y - horizon) / Math.max(1, rayH - horizon);
+    if (Math.floor(p * 14) % 3 === 0) {
+      rctx.fillStyle = 'rgba(255, 255, 255, 0.035)';
+      rctx.fillRect(0, y, rayW, 1);
+    }
+  }
+
+  // Horizon cavern haze
+  rctx.fillStyle = pal.fogHex;
+  rctx.fillRect(0, horizon - 2, rayW, 4);
+
+  // 2. DDA Raycasting Pass for Textured Walls
+  const dirX = Math.cos(yaw);
+  const dirY = Math.sin(yaw);
+  const fovScale = opts.fovRadians ? Math.tan(opts.fovRadians * 0.5) : 0.66;
+  const planeX = -dirY * fovScale;
+  const planeY = dirX * fovScale;
+  const zBuffer = new Float32Array(rayW);
+
+  const wallOuterTex = getDungeonTexture('wall', previewTier);
+  const pillarTex = getDungeonTexture('pillar', previewTier);
+  const entryTex = getDungeonTexture('entry', previewTier);
+  const exitTex = getDungeonTexture(phase === 'cleared' ? 'exit_open' : 'exit_locked', previewTier);
+
+  for (let x = 0; x < rayW; x++) {
+    const cameraX = (2 * x) / rayW - 1;
+    const rayDirX = dirX + planeX * cameraX;
+    const rayDirY = dirY + planeY * cameraX;
+
+    let mapX = Math.floor(posX);
+    let mapY = Math.floor(posY);
+
+    const deltaDistX = rayDirX === 0 ? 1e30 : Math.abs(1 / rayDirX);
+    const deltaDistY = rayDirY === 0 ? 1e30 : Math.abs(1 / rayDirY);
+
+    let stepX = 0;
+    let stepY = 0;
+    let sideDistX = 0;
+    let sideDistY = 0;
+
+    if (rayDirX < 0) {
+      stepX = -1;
+      sideDistX = (posX - mapX) * deltaDistX;
+    } else {
+      stepX = 1;
+      sideDistX = (mapX + 1.0 - posX) * deltaDistX;
+    }
+    if (rayDirY < 0) {
+      stepY = -1;
+      sideDistY = (posY - mapY) * deltaDistY;
+    } else {
+      stepY = 1;
+      sideDistY = (mapY + 1.0 - posY) * deltaDistY;
+    }
+
+    let hit = false;
+    let side = 0;
+    let steps = 0;
+    while (!hit && steps < 48) {
+      steps++;
+      if (sideDistX < sideDistY) {
+        sideDistX += deltaDistX;
+        mapX += stepX;
+        side = 0;
+      } else {
+        sideDistY += deltaDistY;
+        mapY += stepY;
+        side = 1;
+      }
+      if (mapX < 0 || mapY < 0 || mapX >= mapW || mapY >= mapH) {
+        hit = true;
+        break;
+      }
+      if (map[mapY][mapX] === '#') {
+        hit = true;
+      }
+    }
+
+    const rawDist = side === 0 ? sideDistX - deltaDistX : sideDistY - deltaDistY;
+    const perpWallDist = Math.max(0.18, rawDist);
+    zBuffer[x] = perpWallDist;
+
+    const lineHeight = Math.round(rayH / perpWallDist);
+    const drawStart = Math.round(horizon - lineHeight * 0.5);
+
+    let wallX = side === 0 ? posY + perpWallDist * rayDirY : posX + perpWallDist * rayDirX;
+    wallX -= Math.floor(wallX);
+
+    let texX = Math.floor(wallX * 48);
+    if (side === 0 && rayDirX > 0) texX = 48 - texX - 1;
+    if (side === 1 && rayDirY < 0) texX = 48 - texX - 1;
+    texX = Math.max(0, Math.min(47, texX));
+
+    // Pick textured wall face (gate banners at west/east portal walls, interior pillars, or outer masonry)
+    let tex = wallOuterTex;
+    if (mapX === 0 && mapY === 5) {
+      tex = entryTex;
+    } else if (mapX === mapW - 1 && mapY === 5) {
+      tex = exitTex;
+    } else if (mapX > 0 && mapX < mapW - 1 && mapY > 0 && mapY < mapH - 1) {
+      tex = pillarTex;
+    }
+
+    rctx.drawImage(tex, texX, 0, 1, 48, x, drawStart, 1, lineHeight);
+
+    // Directional N/S vs E/W lighting + depth fog
+    const fogAlpha = Math.min(0.72, Math.max(0, (perpWallDist - 2.2) / 14));
+    const sideShade = side === 1 ? 0.24 : 0;
+    const totalShade = Math.min(0.82, fogAlpha + sideShade);
+    if (totalShade > 0.02) {
+      rctx.fillStyle = `rgba(7, 13, 22, ${totalShade.toFixed(3)})`;
+      rctx.fillRect(x, drawStart, 1, lineHeight);
+    }
+  }
+
+  // 3. Collect & Sort 3D Billboard Sprites (Portals, Teammates, Enemies)
+  interface BillboardSprite {
+    x: number;
+    y: number;
+    distSq: number;
+    scale: number;
+    vShift: number;
+    tex: HTMLCanvasElement;
+    label?: string;
+    hpRatio?: number;
+    isBoss?: boolean;
+  }
+
+  const sprites: BillboardSprite[] = [];
+  const exitBeacon = getDungeonSpriteCanvas(phase === 'cleared' ? 'portal_open' : 'portal_locked', previewTier);
+  const entryBeacon = getDungeonSpriteCanvas('entry_pad', previewTier);
+
+  const exX = mapW - 1.5;
+  const exY = 5.5;
+  sprites.push({
+    x: exX,
+    y: exY,
+    distSq: (exX - posX) ** 2 + (exY - posY) ** 2,
+    scale: phase === 'cleared' ? 0.92 + Math.sin(nowMs * 0.006) * 0.05 : 0.78,
+    vShift: 0.08,
+    tex: exitBeacon,
+    label: phase === 'cleared' ? 'EXTRACT' : 'GATE LOCKED',
+  });
+
+  const enX = 1.5;
+  const enY = 5.5;
+  if (Math.hypot(enX - posX, enY - posY) > 0.65) {
+    sprites.push({
+      x: enX,
+      y: enY,
+      distSq: (enX - posX) ** 2 + (enY - posY) ** 2,
+      scale: 0.65,
+      vShift: 0.16,
+      tex: entryBeacon,
+    });
+  }
+
+  if (snapshot) {
+    for (const enemy of snapshot.enemies) {
+      if (enemy.hp <= 0) continue;
+      const eKind = enemy.boss ? 'boss' : enemy.kind === 'drone' ? 'drone' : 'dweller';
+      sprites.push({
+        x: enemy.x,
+        y: enemy.y,
+        distSq: (enemy.x - posX) ** 2 + (enemy.y - posY) ** 2,
+        scale: enemy.boss ? 1.18 : enemy.kind === 'drone' ? 0.72 : 0.85,
+        vShift: enemy.kind === 'drone' ? -0.05 + Math.sin(nowMs * 0.006 + enemy.x) * 0.04 : 0.06,
+        tex: getDungeonSpriteCanvas(eKind, previewTier),
+        label: enemy.name,
+        hpRatio: Math.max(0, enemy.hp / Math.max(1, enemy.maxHp)),
+        isBoss: enemy.boss,
+      });
+    }
+
+    for (const member of snapshot.players) {
+      if (member.id === playerId || member.hp <= 0) continue;
+      const pSprite = getPlayerSprite('idle0', 1, '#3fa876');
+      sprites.push({
+        x: member.x,
+        y: member.y,
+        distSq: (member.x - posX) ** 2 + (member.y - posY) ** 2,
+        scale: 0.85,
+        vShift: 0.05,
+        tex: pSprite,
+        label: member.name,
+        hpRatio: Math.max(0, member.hp / Math.max(1, member.maxHp)),
+      });
+    }
+  } else {
+    // Preview chamber guardian for the Gate Command Deck backdrop
+    const gx = 8.5;
+    const gy = 5.5 + Math.sin(nowMs * 0.0014) * 1.4;
+    sprites.push({
+      x: gx,
+      y: gy,
+      distSq: (gx - posX) ** 2 + (gy - posY) ** 2,
+      scale: 1.05,
+      vShift: 0.04,
+      tex: getDungeonSpriteCanvas('boss', previewTier),
+      label: getDungeonEnemyStats(previewTier, true).name,
+      hpRatio: 1,
+      isBoss: true,
+    });
+  }
+
+  sprites.sort((a, b) => b.distSq - a.distSq);
+
+  const invDet = 1.0 / (planeX * dirY - dirX * planeY || 1e-6);
+  const spriteLabels: Array<{
+    screenX: number;
+    screenY: number;
+    label: string;
+    hpRatio?: number;
+    isBoss?: boolean;
+  }> = [];
+
+  for (const sp of sprites) {
+    const relX = sp.x - posX;
+    const relY = sp.y - posY;
+    const transformX = invDet * (dirY * relX - dirX * relY);
+    const transformY = invDet * (-planeY * relX + planeX * relY);
+    if (transformY <= 0.2) continue;
+
+    const screenX = Math.round((rayW * 0.5) * (1 + transformX / transformY));
+    const sprH = Math.abs(Math.round((rayH / transformY) * sp.scale));
+    const sprW = Math.max(1, Math.round(sprH * (sp.tex.width / Math.max(1, sp.tex.height))));
+    const drawStartY = Math.round(horizon - sprH * 0.5 + (rayH / transformY) * sp.vShift);
+    const drawStartX = Math.round(screenX - sprW * 0.5);
+    const drawEndX = drawStartX + sprW;
+
+    let visibleStripes = 0;
+    for (let stripe = Math.max(0, drawStartX); stripe < Math.min(rayW, drawEndX); stripe++) {
+      if (transformY < zBuffer[stripe]) {
+        visibleStripes++;
+        const texX = Math.max(
+          0,
+          Math.min(sp.tex.width - 1, Math.floor(((stripe - drawStartX) * sp.tex.width) / sprW))
+        );
+        rctx.drawImage(sp.tex, texX, 0, 1, sp.tex.height, stripe, drawStartY, 1, sprH);
+      }
+    }
+
+    if (visibleStripes > 2 && transformY < 10.5 && sp.label) {
+      spriteLabels.push({
+        screenX: (screenX / rayW) * width,
+        screenY: (drawStartY / rayH) * height,
+        label: sp.label,
+        hpRatio: sp.hpRatio,
+        isBoss: sp.isBoss,
+      });
+    }
+  }
+
+  // Blit crisp low-res raycast buffer to target viewport canvas without blur
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(rayBufferCanvas, 0, 0, width, height);
+
+  // 4. First-Person Held Weapon & Slash Viewmodel (Bottom-Right Foreground)
+  const slashProgress = Math.max(0, Math.min(1, opts.slashTimer ?? 0));
+  const weaponSprite = getTileSprite(
+    previewTier >= 4 ? ITEM_IDS.CRYSTAL_PICKAXE : previewTier >= 2 ? ITEM_IDS.IRON_PICKAXE : ITEM_IDS.STONE_PICKAXE
+  );
+  const weaponScale = Math.max(2.5, Math.min(4.2, width / 260));
+  const swingAngle = slashProgress > 0 ? -0.95 + Math.sin(slashProgress * Math.PI) * 1.45 : -0.18;
+  const weaponX = width * 0.72 - slashProgress * width * 0.16;
+  const weaponY = height * 0.76 + Math.abs(Math.sin(opts.bobPhase ?? 0)) * 10 - slashProgress * 26;
+
+  ctx.save();
+  ctx.translate(Math.round(weaponX), Math.round(weaponY));
+  ctx.rotate(swingAngle);
+  ctx.drawImage(
+    weaponSprite,
+    -24 * weaponScale * 0.5,
+    -24 * weaponScale * 0.5,
+    48 * (weaponScale * 0.55),
+    48 * (weaponScale * 0.55)
+  );
+  ctx.restore();
+
+  if (slashProgress > 0.05) {
+    ctx.strokeStyle = pal.accent;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(width * 0.5, height * 0.52, Math.min(width, height) * 0.18, -0.75, 0.75);
+    ctx.stroke();
+  }
+
+  // Center 1P Crosshair
+  ctx.fillStyle = 'rgba(255, 248, 232, 0.75)';
+  const cxMid = Math.round(width * 0.5);
+  const cyMid = Math.round(height * 0.5);
+  ctx.fillRect(cxMid - 6, cyMid - 1, 4, 2);
+  ctx.fillRect(cxMid + 2, cyMid - 1, 4, 2);
+  ctx.fillRect(cxMid - 1, cyMid - 6, 2, 4);
+  ctx.fillRect(cxMid - 1, cyMid + 2, 2, 4);
+
+  // 5. Crisp Silkscreen Sprite Labels & Enemy HP Bars (Matching Blockgrove Font Style)
+  ctx.font = 'bold 11px "Silkscreen", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  for (const lbl of spriteLabels) {
+    const yPos = Math.max(26, Math.round(lbl.screenY) - 6);
+    const xPos = Math.round(lbl.screenX);
+    if (typeof lbl.hpRatio === 'number') {
+      const barW = lbl.isBoss ? 86 : 56;
+      const barH = 6;
+      ctx.fillStyle = '#09131d';
+      ctx.fillRect(xPos - barW * 0.5 - 1, yPos - 1, barW + 2, barH + 2);
+      ctx.fillStyle = lbl.isBoss ? '#f59e0b' : '#e6482e';
+      ctx.fillRect(xPos - barW * 0.5, yPos, Math.round(barW * lbl.hpRatio), barH);
+    }
+    ctx.fillStyle = '#09131d';
+    ctx.fillText(lbl.label, xPos + 1, yPos - 4);
+    ctx.fillStyle = lbl.isBoss ? '#ffe18c' : '#f4f1ea';
+    ctx.fillText(lbl.label, xPos, yPos - 5);
+  }
+
+  // 6. Top-Right Pixel Minimap for Effortless 1P Orientation
+  if (snapshot) {
+    const cell = width < 640 ? 5 : 7;
+    const mmW = mapW * cell;
+    const mmH = mapH * cell;
+    const mmX = width - mmW - 12;
+    const mmY = 62;
+    ctx.fillStyle = 'rgba(9, 19, 29, 0.88)';
+    ctx.fillRect(mmX - 3, mmY - 3, mmW + 6, mmH + 6);
+    ctx.strokeStyle = '#c89d54';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mmX - 3, mmY - 3, mmW + 6, mmH + 6);
+
+    for (let gy = 0; gy < mapH; gy++) {
+      for (let gx = 0; gx < mapW; gx++) {
+        const tile = map[gy][gx];
+        if (tile === '#') {
+          ctx.fillStyle = pal.wallBase;
+        } else if (tile === '>') {
+          ctx.fillStyle = phase === 'cleared' ? '#42e88a' : '#d96459';
+        } else if (tile === '<') {
+          ctx.fillStyle = '#78c8f5';
+        } else {
+          ctx.fillStyle = '#111c29';
+        }
+        ctx.fillRect(mmX + gx * cell, mmY + gy * cell, cell, cell);
+      }
+    }
+
+    for (const enemy of snapshot.enemies) {
+      if (enemy.hp <= 0) continue;
+      ctx.fillStyle = enemy.boss ? '#f2b738' : '#ff5555';
+      ctx.fillRect(
+        Math.round(mmX + enemy.x * cell - 2),
+        Math.round(mmY + enemy.y * cell - 2),
+        enemy.boss ? 5 : 4,
+        enemy.boss ? 5 : 4
+      );
+    }
+
+    const pxMm = mmX + posX * cell;
+    const pyMm = mmY + posY * cell;
+    ctx.strokeStyle = 'rgba(140, 247, 238, 0.65)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pxMm, pyMm);
+    ctx.lineTo(pxMm + Math.cos(yaw - 0.5) * cell * 2.4, pyMm + Math.sin(yaw - 0.5) * cell * 2.4);
+    ctx.moveTo(pxMm, pyMm);
+    ctx.lineTo(pxMm + Math.cos(yaw + 0.5) * cell * 2.4, pyMm + Math.sin(yaw + 0.5) * cell * 2.4);
+    ctx.stroke();
+
+    ctx.fillStyle = '#8cf7ee';
+    ctx.fillRect(Math.round(pxMm - 2), Math.round(pyMm - 2), 4, 4);
+  }
+
+  // Hit vignette flash
+  if ((opts.hitFlash ?? 0) > 0.01) {
+    ctx.fillStyle = `rgba(230, 72, 46, ${(opts.hitFlash ?? 0) * 0.35})`;
+    ctx.fillRect(0, 0, width, height);
+  }
+  ctx.restore();
 }

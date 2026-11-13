@@ -62,6 +62,7 @@ interface WorldHubProps {
   }) => void;
   connected?: boolean;
   onReconnectNow?: () => void;
+  onOpenDungeons?: () => void;
   onSignOut: () => void;
 }
 
@@ -97,6 +98,7 @@ export const WorldHub: React.FC<WorldHubProps> = ({
   onExchangeAction,
   connected = true,
   onReconnectNow,
+  onOpenDungeons,
   onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<HubTab>('worlds');
@@ -221,6 +223,15 @@ export const WorldHub: React.FC<WorldHubProps> = ({
             <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">Store</span>
           </button>
+          <button
+            type="button"
+            data-testid="hub-dungeons-button"
+            onClick={() => onOpenDungeons?.()}
+            className="flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded text-[11px] sm:text-xs font-bold bg-[#2b2112] hover:bg-[#3d2f19] border border-[#f2b738] text-[#ffe18c] cursor-pointer"
+          >
+            <span className="font-pixel text-[9px] text-[#f2b738]">3D</span>
+            <span className="truncate">Dungeons</span>
+          </button>
           {role === 'admin' && (
             <button
               type="button"
@@ -268,6 +279,29 @@ export const WorldHub: React.FC<WorldHubProps> = ({
                   Enter World
                 </button>
               </form>
+
+              {/* System Gateway Worlds & 3D Dungeon Quick-Launch */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { name: 'NEXUS', subtitle: 'Gateway Hub', accent: 'border-[#78c8f5] bg-[#13293d]', isDungeon: false },
+                  { name: 'STATION', subtitle: '3D Adventure Dungeons', accent: 'border-[#f2b738] bg-[#2b2112]', isDungeon: true },
+                  { name: 'DWELLER', subtitle: 'Mining & Scrolls', accent: 'border-[#4ec46a] bg-[#132b1d]', isDungeon: false },
+                  { name: 'FISHING', subtitle: 'Depth Ponds', accent: 'border-[#38e8d8] bg-[#102a2e]', isDungeon: false },
+                ].map((sys) => (
+                  <button
+                    key={sys.name}
+                    type="button"
+                    data-testid={`quick-world-${sys.name.toLowerCase()}`}
+                    onClick={() => (sys.isDungeon && onOpenDungeons ? onOpenDungeons() : onEnterWorld(sys.name))}
+                    className={`flex flex-col items-start justify-between p-2.5 rounded border ${sys.accent} hover:brightness-110 text-left cursor-pointer`}
+                  >
+                    <div className="font-pixel text-[11px] text-[#fff8e8]">
+                      {sys.isDungeon ? 'DUNGEONS (3D)' : sys.name}
+                    </div>
+                    <div className="text-[10px] font-bold text-[#b9d2e8] mt-0.5">{sys.subtitle}</div>
+                  </button>
+                ))}
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 min-h-0">
                 {/* Active / Public Worlds */}

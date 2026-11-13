@@ -370,10 +370,6 @@ async function startServer() {
       const account = session.account;
 
       if (msg.type === 'dungeon_buy_key') {
-        if (session.worldName !== 'STATION') {
-          sendTo(ws, { type: 'dungeon_error', message: 'Visit the STATION world and speak with the Station Commander to purchase Gate Keys.' });
-          return;
-        }
         const result = dungeonStore.buyGateKey(account, msg.tier, msg.payment, msg.txId);
         if (!result.ok) {
           sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not purchase Gate Key.' });
@@ -384,10 +380,6 @@ async function startServer() {
       }
 
       if (msg.type === 'dungeon_create') {
-        if (session.worldName !== 'STATION') {
-          sendTo(ws, { type: 'dungeon_error', message: 'Dungeon gates can only be activated from STATION.' });
-          return;
-        }
         const result = dungeonStore.createRun(account, msg.tier, msg.partyMode);
         if (!result.ok || !result.snapshot) {
           sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not create dungeon.' });
@@ -399,10 +391,6 @@ async function startServer() {
       }
 
       if (msg.type === 'dungeon_join') {
-        if (session.worldName !== 'STATION') {
-          sendTo(ws, { type: 'dungeon_error', message: 'Return to STATION before joining a dungeon party.' });
-          return;
-        }
         const result = dungeonStore.joinRun(account, msg.code);
         if (!result.ok || !result.snapshot) {
           sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not join dungeon.' });
@@ -413,7 +401,6 @@ async function startServer() {
       }
 
       if (msg.type === 'dungeon_resume') {
-        if (session.worldName !== 'STATION') return;
         const result = dungeonStore.resume(account);
         if (result.ok && result.snapshot) {
           broadcastDungeon(result.snapshot, [account.id]);
@@ -423,10 +410,6 @@ async function startServer() {
       }
 
       if (msg.type === 'dungeon_action') {
-        if (session.worldName !== 'STATION') {
-          sendTo(ws, { type: 'dungeon_error', message: 'Dungeon controls are only available while stationed at STATION.' });
-          return;
-        }
         const result = dungeonStore.act(account, msg.action, msg.dx ?? 0, msg.dy ?? 0, Date.now(), msg.attackId);
         if (!result.ok) {
           sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Dungeon action failed.' });

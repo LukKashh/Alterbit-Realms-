@@ -59,8 +59,10 @@ export class DungeonStore {
   private readonly accountRefs = new Map<string, PlayerAccount>();
   private lastPersistAt = 0;
   private readonly filePath: string;
+  private readonly playerStore: AuthoritativeWorldStore;
 
-  constructor(private readonly playerStore: AuthoritativeWorldStore, dataDirectory = path.resolve(process.cwd(), 'data')) {
+  constructor(playerStore: AuthoritativeWorldStore, dataDirectory = path.resolve(process.cwd(), 'data')) {
+    this.playerStore = playerStore;
     this.filePath = path.join(dataDirectory, 'dungeons.json');
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     this.load();
@@ -345,6 +347,13 @@ export class DungeonStore {
       player.facingX = directionX;
       player.facingY = directionY;
     } else if (action === 'attack') {
+      if (Number.isFinite(dx) && Number.isFinite(dy)) {
+        const aimMag = Math.hypot(dx, dy);
+        if (aimMag > 0.01) {
+          player.facingX = dx / aimMag;
+          player.facingY = dy / aimMag;
+        }
+      }
       const requestId = String(attackId ?? '').trim();
       if (!requestId || requestId.length > 100) return { ok: false, message: 'Attack request ID is required.' };
       const transactionId = 'dungeon_attack:' + requestId;

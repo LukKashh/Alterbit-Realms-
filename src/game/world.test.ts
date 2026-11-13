@@ -708,7 +708,12 @@ test('mining shaft 50x150 isolation (0 Gems), pickaxe durability + furnace craft
   const castObj = startJoined.world.activeCasts.get(acct.id);
   assert.ok(castObj);
   if (castObj) castObj.biting = true;
-  const reelRes = store.handleReelFishing(startJoined.world, acct);
+  let reelRes = store.handleReelFishing(startJoined.world, acct);
+  let safetyPulls = 0;
+  while (reelRes.ok && !reelRes.finished && safetyPulls < 12) {
+    reelRes = store.handleReelFishing(startJoined.world, acct);
+    safetyPulls++;
+  }
   assert.equal(reelRes.ok, true);
   if (reelRes.ok) {
     assert.equal(reelRes.caught, true);

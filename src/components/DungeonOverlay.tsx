@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GATE_KEYS } from '../game/expansion.ts';
 import { ITEM_IDS } from '../game/catalog.ts';
 import type { InventorySlot } from '../game/network.ts';
 import type { DungeonAction, DungeonSnapshot } from '../game/dungeon.ts';
+import { BlockgroveEngine, renderDungeonRaycaster } from '../game/engine.ts';
 
 interface DungeonOverlayProps {
+  engine?: BlockgroveEngine | null;
   playerId: string;
   level: number;
   gems: number;
@@ -14,6 +16,7 @@ interface DungeonOverlayProps {
   onCreate: (tier: number, partyMode: 'solo' | 'cooperative') => void;
   onJoin: (code: string) => void;
   onAction: (action: DungeonAction, dx?: number, dy?: number) => void;
+  onClose: () => void;
   onDismiss: () => void;
 }
 
@@ -25,30 +28,174 @@ const KEY_ITEM_IDS = [
   ITEM_IDS.GATE_KEY_V,
 ];
 
+const TURN_SPEED_RAD_PER_SEC = 2.55;
+
 export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
-  playerId, level, gems, inventory, snapshot, onBuyKey, onCreate, onJoin, onAction, onDismiss,
+  engine,
+  playerId,
+  level,
+  gems,
+  inventory,
+  snapshot,
+  onBuyKey,
+  onCreate,
+  onJoin,
+  onAction,
+  onClose,
+  onDismiss,
 }) => {
-  const [open, setOpen] = useState(false);
   const [partyCode, setPartyCode] = useState('');
-  const [partyMode, setPartyMode] = useState<'solo' | 'cooperative' | null>(null);
+  const [partyMode, setPartyMode] = useState<'solo' | 'cooperative'>('solo');
+  const [selectedPreviewTier, setSelectedPreviewTier] = useState<number>(1);
+  const [deckCollapsed, setDeckCollapsed] = useState<boolean>(false);
+  const [joystickKnob, setJoystickKnob] = useState({ x: 0, y: 0 });
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const yawRef = useRef<number>(0);
+  const bobPhaseRef = useRef<number>(0);
+  const slashTimerRef = useRef<number>(0);
+  const hitFlashRef = useRef<number>(0);
+  const prevHpRef = useRef<number | null>(null);
+  const prevRoomKeyRef = useRef<string>('');
+
   const keyboardRef = useRef(new Set<string>());
   const joystickRef = useRef({ x: 0, y: 0 });
-  const pointerIdRef = useRef<number | null>(null);
-  const [joystickKnob, setJoystickKnob] = useState({ x: 0, y: 0 });
+  const stickPointerIdRef = useRef<number | null>(null);
+  const lookPointerIdRef = useRef<number | null>(null);
+  const lookLastXRef = useRef<number>(0);
+
   const worldLocks = inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
   const localPlayer = snapshot?.players.find((member) => member.id === playerId);
-  const atExit = Boolean(localPlayer && Math.hypot(localPlayer.x - ((snapshot?.width ?? 17) - 1.5), localPlayer.y - 5.5) <= 0.85);
-  const keyCounts = useMemo(
-    () => KEY_ITEM_IDS.map((id) => inventory.find((slot) => slot.itemId === id)?.qty ?? 0),
-    [inventory],
+  const livingEnemies = useMemo(
+    () => (snapshot ? snapshot.enemies.filter((enemy) => enemy.hp > 0) : []),
+    [snapshot]
   );
 
-  useEffect(() => {
-    if (snapshot) setOpen(true);
-  }, [snapshot?.runId, snapshot?.phase, snapshot?.roomIndex]);
+  const atExit = Boolean(
+    localPlayer &&
+      Math.hypot(localPlayer.x - ((snapshot?.width ?? 17) - 1.5), localPlayer.y - 5.5) <= 0.95
+  );
 
+  const nearestEnemyDistance = useMemo(() => {
+    if (!localPlayer || livingEnemies.length === 0) return Infinity;
+    return Math.min(
+      ...livingEnemies.map((e) => Math.hypot(e.x - localPlayer.x, e.y - localPlayer.y))
+    );
+  }, [localPlayer, livingEnemies]);
+
+  const keyCounts = useMemo(
+    () => KEY_ITEM_IDS.map((id) => inventory.find((slot) => slot.itemId === id)?.qty ?? 0),
+    [inventory]
+  );
+
+  // Sync initial 1st-person camera yaw when entering a run or advancing to a new room
   useEffect(() => {
-    if (!snapshot || snapshot.phase !== 'active') return;
+    if (!snapshot) {
+      prevRoomKeyRef.current = '';
+      prevHpRef.current = null;
+      return;
+    }
+    const roomKey = `${snapshot.runId}:${snapshot.roomIndex}`;
+    if (prevRoomKeyRef.current !== roomKey) {
+      prevRoomKeyRef.current = roomKey;
+      if (localPlayer && (Math.abs(localPlayer.facingX) > 0.01 || Math.abs(localPlayer.facingY) > 0.01)) {
+        yawRef.current = Math.atan2(localPlayer.facingY, localPlayer.facingX);
+      } else {
+        yawRef.current = 0; // Face East toward exit gate
+      }
+    }
+  }, [snapshot?.runId, snapshot?.roomIndex, localPlayer]);
+
+  // Trigger brief red vignette flash when taking damage in 1st-person
+  useEffect(() => {
+    if (!localPlayer) return;
+    if (prevHpRef.current !== null && localPlayer.hp < prevHpRef.current) {
+      hitFlashRef.current = 1;
+    }
+    prevHpRef.current = localPlayer.hp;
+  }, [localPlayer?.hp]);
+
+  // First-person melee strike along current 3D camera yaw
+  const triggerStrike = useCallback(() => {
+    slashTimerRef.current = 1;
+    const dirX = Math.cos(yawRef.current);
+    const dirY = Math.sin(yawRef.current);
+    onAction('attack', dirX, dirY);
+  }, [onAction]);
+
+  // 1st-Person 3D Raycaster Render Loop + Smooth Yaw Rotation
+  useEffect(() => {
+    let rafId = 0;
+    let lastMs = performance.now();
+
+    const frame = (nowMs: number) => {
+      const dt = Math.min(0.05, Math.max(0, (nowMs - lastMs) / 1000));
+      lastMs = nowMs;
+
+      if (snapshot && (snapshot.phase === 'active' || snapshot.phase === 'cleared')) {
+        const keys = keyboardRef.current;
+        let turnInput = joystickRef.current.x;
+        if (keys.has('arrowleft') || keys.has('a')) turnInput -= 1;
+        if (keys.has('arrowright') || keys.has('d')) turnInput += 1;
+        turnInput = Math.max(-1, Math.min(1, turnInput));
+        if (Math.abs(turnInput) > 0.12) {
+          yawRef.current += turnInput * TURN_SPEED_RAD_PER_SEC * dt;
+        }
+
+        let fwdInput = -joystickRef.current.y;
+        if (keys.has('arrowup') || keys.has('w')) fwdInput += 1;
+        if (keys.has('arrowdown') || keys.has('s')) fwdInput -= 1;
+        if (Math.abs(fwdInput) > 0.14) {
+          bobPhaseRef.current += dt * 11;
+        }
+      } else {
+        // Gentle scenic pan inside preview sanctuary when choosing a Gate Key
+        yawRef.current = Math.sin(nowMs * 0.00035) * 0.35;
+      }
+
+      if (slashTimerRef.current > 0) {
+        slashTimerRef.current = Math.max(0, slashTimerRef.current - dt * 4.5);
+      }
+      if (hitFlashRef.current > 0) {
+        hitFlashRef.current = Math.max(0, hitFlashRef.current - dt * 3.2);
+      }
+
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const w = Math.max(320, Math.floor(rect.width));
+        const h = Math.max(200, Math.floor(rect.height));
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+        }
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const opts = {
+            nowMs,
+            bobPhase: bobPhaseRef.current,
+            slashTimer: slashTimerRef.current,
+            hitFlash: hitFlashRef.current,
+            previewTier: selectedPreviewTier,
+          };
+          if (engine) {
+            engine.renderDungeonFrame(ctx, w, h, snapshot, playerId, yawRef.current, opts);
+          } else {
+            renderDungeonRaycaster(ctx, w, h, snapshot, playerId, yawRef.current, opts);
+          }
+        }
+      }
+
+      rafId = requestAnimationFrame(frame);
+    };
+
+    rafId = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(rafId);
+  }, [engine, snapshot, playerId, selectedPreviewTier]);
+
+  // 1st-Person Forward/Back Movement Network Sync + Keyboard Controls
+  useEffect(() => {
+    if (!snapshot || (snapshot.phase !== 'active' && snapshot.phase !== 'cleared')) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
@@ -58,21 +205,29 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
         keyboardRef.current.add(key);
       } else if (!event.repeat && (key === ' ' || key === 'j')) {
         event.preventDefault();
-        onAction('attack');
+        triggerStrike();
+      } else if (!event.repeat && key === 'e' && snapshot.phase === 'cleared' && atExit) {
+        event.preventDefault();
+        onAction(snapshot.roomIndex + 1 >= snapshot.roomCount ? 'extract' : 'next_room');
       }
     };
     const onKeyUp = (event: KeyboardEvent) => keyboardRef.current.delete(event.key.toLowerCase());
+
     const movementTimer = window.setInterval(() => {
-      let x = joystickRef.current.x;
-      let y = joystickRef.current.y;
       const keys = keyboardRef.current;
-      if (keys.has('arrowleft') || keys.has('a')) x -= 1;
-      if (keys.has('arrowright') || keys.has('d')) x += 1;
-      if (keys.has('arrowup') || keys.has('w')) y -= 1;
-      if (keys.has('arrowdown') || keys.has('s')) y += 1;
-      const magnitude = Math.hypot(x, y);
-      if (magnitude > 0.05) onAction('move', x / magnitude, y / magnitude);
-    }, 95);
+      let fwd = -joystickRef.current.y;
+      if (keys.has('arrowup') || keys.has('w')) fwd += 1;
+      if (keys.has('arrowdown') || keys.has('s')) fwd -= 1;
+      fwd = Math.max(-1, Math.min(1, fwd));
+
+      if (Math.abs(fwd) > 0.14) {
+        const dir = fwd > 0 ? 1 : -1;
+        const dx = Math.cos(yawRef.current) * dir;
+        const dy = Math.sin(yawRef.current) * dir;
+        onAction('move', dx, dy);
+      }
+    }, 90);
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     return () => {
@@ -81,8 +236,9 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
       window.removeEventListener('keyup', onKeyUp);
       keyboardRef.current.clear();
       joystickRef.current = { x: 0, y: 0 };
+      setJoystickKnob({ x: 0, y: 0 });
     };
-  }, [snapshot?.runId, snapshot?.phase, onAction]);
+  }, [snapshot?.runId, snapshot?.phase, snapshot?.roomIndex, snapshot?.roomCount, atExit, onAction, triggerStrike]);
 
   const updateJoystick = (event: React.PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -90,193 +246,417 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     let x = (event.clientX - (rect.left + rect.width / 2)) / maxRadius;
     let y = (event.clientY - (rect.top + rect.height / 2)) / maxRadius;
     const magnitude = Math.hypot(x, y);
-    if (magnitude > 1) { x /= magnitude; y /= magnitude; }
+    if (magnitude > 1) {
+      x /= magnitude;
+      y /= magnitude;
+    }
     joystickRef.current = { x, y };
     setJoystickKnob({ x: x * maxRadius, y: y * maxRadius });
   };
 
   const resetJoystick = () => {
-    pointerIdRef.current = null;
+    stickPointerIdRef.current = null;
     joystickRef.current = { x: 0, y: 0 };
     setJoystickKnob({ x: 0, y: 0 });
   };
 
-  const close = () => setOpen(false);
   const leave = () => {
     onAction('leave');
     onDismiss();
-    setOpen(false);
+    onClose();
   };
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="fixed z-40 left-3 top-3 px-3 py-2 rounded-md border-2 border-[#9c8050] bg-[#182332]/95 text-[#ffe3a2] text-[11px] font-bold shadow-lg hover:bg-[#26384b]"
-      >
-        {snapshot ? 'EXPEDITION · ' + snapshot.phase.toUpperCase() : 'STATION COMMANDER'}
-      </button>
+    <div
+      data-testid="dungeon-3d-modal"
+      className="fixed inset-0 z-[70] bg-[#060c14] overflow-hidden select-none"
+    >
+      {/* Full-Viewport First-Person Pseudo-3D Raycaster Canvas */}
+      <canvas
+        ref={canvasRef}
+        data-testid="dungeon-raycaster-canvas"
+        className="absolute inset-0 w-full h-full pixelated touch-none cursor-crosshair"
+        onPointerDown={(event) => {
+          if (!snapshot || (snapshot.phase !== 'active' && snapshot.phase !== 'cleared')) return;
+          lookPointerIdRef.current = event.pointerId;
+          lookLastXRef.current = event.clientX;
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          } catch {
+            // ignore
+          }
+        }}
+        onPointerMove={(event) => {
+          if (lookPointerIdRef.current !== event.pointerId) return;
+          const deltaX = event.clientX - lookLastXRef.current;
+          lookLastXRef.current = event.clientX;
+          yawRef.current += deltaX * 0.0065;
+        }}
+        onPointerUp={(event) => {
+          if (lookPointerIdRef.current === event.pointerId) {
+            lookPointerIdRef.current = null;
+          }
+        }}
+        onPointerCancel={(event) => {
+          if (lookPointerIdRef.current === event.pointerId) {
+            lookPointerIdRef.current = null;
+          }
+        }}
+      />
 
-      {open && (
-        <div className="fixed inset-0 z-[70] bg-[#050b12]/95 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-          <section className="w-full max-w-3xl max-h-[96vh] overflow-y-auto rounded-xl border-2 border-[#6b5a43] bg-[#111c29] shadow-2xl text-[#e8edf4]">
-            <header className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-[#0a121d] border-b border-[#4c4639]">
-              <div>
-                <div className="flex items-center gap-2"><img src="/assets/dungeon/station-commander.svg" alt="Station Commander" className="w-9 h-9 object-contain" style={{ imageRendering: 'pixelated' }} /><div><div className="font-pixel text-xs sm:text-sm text-[#f5d18a]">STATION COMMANDER</div><div className="text-[9px] text-[#91a4b8]">Adventure Gate Operations</div></div></div>
-                <div className="text-[10px] text-[#91a4b8] mt-1">Top-down expeditions · Solo or co-operative</div>
+      {/* Top Bar: Matching Blockgrove Pixel-Art & Silkscreen Font Aesthetic */}
+      <header className="relative z-10 flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-2 bg-[#0f1d2c]/92 border-b-2 border-[#3b5978] text-[#eaf2fa]">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded border-2 border-[#f2b738] bg-[#16283c] flex items-center justify-center font-pixel text-[11px] text-[#ffe18c]">
+            3D
+          </div>
+          <div>
+            <div className="font-pixel text-[11px] sm:text-xs text-[#ffe18c]">
+              {snapshot
+                ? `GATE TIER ${snapshot.tier} · ROOM ${Math.min(snapshot.roomIndex + 1, snapshot.roomCount)}/${snapshot.roomCount}`
+                : '3D ADVENTURE DUNGEONS'}
+            </div>
+            <div className="text-[11px] text-[#9cb5cc]">
+              {snapshot ? (
+                <>
+                  <span className="font-pixel text-[9px] text-[#89d6ff]">
+                    {snapshot.partyMode === 'solo' ? 'SOLO RUN' : 'CO-OP'}
+                  </span>
+                  {snapshot.partyMode === 'cooperative' && (
+                    <>
+                      {' · CODE '}
+                      <span className="font-mono-num font-bold text-[#8cf7ee] tracking-widest">
+                        {snapshot.code}
+                      </span>
+                    </>
+                  )}
+                  {' · '}
+                  <span className="text-[#fff3cf]">{snapshot.message}</span>
+                </>
+              ) : (
+                <span className="font-mono-num">
+                  LVL {level} · {Math.round(gems)} GEMS · {worldLocks} WL
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {!snapshot && (
+            <button
+              type="button"
+              onClick={() => setDeckCollapsed((v) => !v)}
+              className="px-2.5 py-1.5 rounded border border-[#46678a] bg-[#142538] hover:bg-[#1e3752] font-pixel text-[10px] text-[#89d6ff] cursor-pointer"
+            >
+              {deckCollapsed ? 'SHOW DECK' : 'VIEW 3D'}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded border border-[#46678a] bg-[#16283c] hover:bg-[#213c57] font-pixel text-[10px] text-[#fff8e8] cursor-pointer"
+          >
+            {snapshot ? 'WORLD MENU' : 'BACK'}
+          </button>
+        </div>
+      </header>
+
+      {/* ACTIVE 1ST-PERSON 3D DUNGEON HUD */}
+      {snapshot ? (
+        <>
+          {/* Top-left compact explorer & enemy HP bars */}
+          <div className="relative z-10 pointer-events-none px-3 pt-2 flex flex-col gap-1.5 max-w-xs">
+            {snapshot.players.map((member) => (
+              <div
+                key={member.id}
+                className="rounded border-2 border-[#314e6b] bg-[#0f1d2c]/90 px-2.5 py-1.5"
+              >
+                <div className="flex items-center justify-between gap-2 text-[10px]">
+                  <span className="font-pixel text-[9px] text-[#fff8e8] truncate">
+                    {member.name}
+                    {member.id === playerId ? ' (YOU)' : ''}
+                  </span>
+                  <span className="font-mono-num font-bold text-[#82e068]">
+                    {member.hp}/{member.maxHp}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded bg-[#08101a] mt-1 overflow-hidden border border-[#243c54]">
+                  <div
+                    className="h-full bg-[#4ec46a]"
+                    style={{ width: `${Math.max(0, (member.hp / member.maxHp) * 100)}%` }}
+                  />
+                </div>
               </div>
-              <button type="button" onClick={close} className="px-3 py-1.5 rounded border border-[#42566b] text-xs font-bold hover:bg-[#1b2c3e]">Close</button>
-            </header>
+            ))}
 
-            {snapshot ? (
-              <div className="p-3 sm:p-4 flex flex-col gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-bold text-[#f5d18a]">Gate Key Tier {snapshot.tier} · Room {Math.min(snapshot.roomIndex + 1, snapshot.roomCount)}/{snapshot.roomCount}</div>
-                    <div className="text-[10px] text-[#91a4b8]">{snapshot.partyMode === 'solo' ? 'SOLO EXPEDITION' : 'CO-OP · UP TO 4'}{snapshot.partyMode === 'cooperative' && <> · Party code <span className="font-mono text-[#9ce7ff] tracking-[0.2em]">{snapshot.code}</span></>}</div>
-                  </div>
-                  <div className="text-[10px] uppercase tracking-wider text-[#c5b38e]">{snapshot.phase}</div>
+            <div className="rounded border border-[#314e6b] bg-[#09131d]/85 px-2.5 py-1 font-pixel text-[9px] text-[#8cf7ee]">
+              FOES LEFT: {livingEnemies.length}
+            </div>
+          </div>
+
+          {/* Bottom Peripheral 1st-Person Navigation Joystick (Forward/Back + Turn L/R) & Strike */}
+          <div className="fixed inset-x-0 bottom-0 z-20 pointer-events-none p-3 sm:p-5 flex items-end justify-between gap-3">
+            {(snapshot.phase === 'active' || snapshot.phase === 'cleared') && (
+              <div className="pointer-events-auto flex flex-col items-center gap-1.5">
+                <div
+                  data-testid="dungeon-joystick"
+                  className="relative w-28 h-28 sm:w-32 sm:h-32 shrink-0 rounded-full border-2 border-[#78c8f5] bg-[#0f1d2c]/90 shadow-2xl touch-none select-none cursor-grab active:cursor-grabbing"
+                  onPointerDown={(event) => {
+                    stickPointerIdRef.current = event.pointerId;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    updateJoystick(event);
+                  }}
+                  onPointerMove={(event) => {
+                    if (stickPointerIdRef.current === event.pointerId) updateJoystick(event);
+                  }}
+                  onPointerUp={(event) => {
+                    if (stickPointerIdRef.current === event.pointerId) resetJoystick();
+                  }}
+                  onPointerCancel={resetJoystick}
+                >
+                  <span className="absolute top-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
+                    FWD
+                  </span>
+                  <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">
+                    BACK
+                  </span>
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 font-pixel text-[10px] text-[#ffe18c]">
+                    ↺
+                  </span>
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 font-pixel text-[10px] text-[#ffe18c]">
+                    ↻
+                  </span>
+                  <div
+                    className="absolute left-1/2 top-1/2 w-11 h-11 rounded-full border-2 border-[#f2b738] bg-[#214463] shadow-lg"
+                    style={{
+                      transform: `translate(calc(-50% + ${joystickKnob.x}px), calc(-50% + ${joystickKnob.y}px))`,
+                    }}
+                  />
                 </div>
-
-                <div className="rounded-lg border border-[#34485c] bg-[#080f18] p-2">
-                  <div className="relative mx-auto w-full max-w-[680px]" style={{ aspectRatio: snapshot.width + ' / ' + snapshot.height }}>
-                    <div className="absolute inset-0 grid gap-[2px]" style={{ gridTemplateColumns: 'repeat(' + snapshot.width + ', minmax(0, 1fr))', gridTemplateRows: 'repeat(' + snapshot.height + ', minmax(0, 1fr))' }}>
-                      {snapshot.map.flatMap((line, y) => Array.from(line).map((tile, x) => {
-                        const isWall = tile === '#';
-                        const isExit = tile === '>';
-                        const isEntry = tile === '<';
-                        const wallColors = ['#48524d', '#56616a', '#285a46', '#38516d', '#563d57'];
-                        const floorColors = ['#1a2b25', '#26323b', '#14382c', '#1b2b43', '#332337'];
-                        const background = isWall ? wallColors[snapshot.tier - 1] : isExit ? (snapshot.phase === 'active' ? '#4c422e' : '#80612a') : floorColors[snapshot.tier - 1];
-                        return <div key={x + ':' + y} className="flex items-center justify-center rounded-[2px] text-[clamp(7px,1.8vw,14px)] font-bold" style={{ background, color: isExit ? '#ffe8a9' : '#82938b' }}>{isExit ? <img src="/assets/dungeon/extraction-portal.svg" alt="Extraction portal" className={'w-full h-full object-contain ' + (snapshot.phase === 'active' ? 'opacity-40' : 'opacity-100')} style={{ imageRendering: 'pixelated' }} /> : isEntry ? '◂' : ''}</div>;
-                      }))}
-                    </div>
-                    <div className="absolute inset-0 pointer-events-none">
-                      {snapshot.enemies.filter((enemy) => enemy.hp > 0).map((enemy) => {
-                        const enemySprite = enemy.kind === 'drone' ? '/assets/dungeon/station-drone.svg'
-                          : snapshot.tier === 1 ? '/assets/dungeon/cavern-slime.svg'
-                          : snapshot.tier === 2 ? '/assets/dungeon/sentinel-golem.svg'
-                          : snapshot.tier === 3 ? '/assets/dungeon/emerald-stalker.svg'
-                          : snapshot.tier === 4 ? '/assets/dungeon/divinium-warden.svg'
-                          : '/assets/dungeon/omegazyte-overlord.svg';
-                        return (
-                          <div key={enemy.id} title={enemy.name} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: (enemy.x / snapshot.width * 100) + '%', top: (enemy.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 1.15) + '%', aspectRatio: '1' }}>
-                            <img src={enemySprite} alt={enemy.name} draggable={false} className={'w-full h-full object-contain ' + (enemy.boss ? 'scale-125 drop-shadow-[0_0_8px_rgba(255,210,110,0.9)]' : '')} style={{ imageRendering: 'pixelated' }} />
-                          </div>
-                        );
-                      })}
-                      {snapshot.players.filter((member) => member.hp > 0).map((member) => (
-                        <div key={member.id} title={member.name} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: (member.x / snapshot.width * 100) + '%', top: (member.y / snapshot.height * 100) + '%', width: (100 / snapshot.width * 1.05) + '%', aspectRatio: '1' }}>
-                          <img src="/assets/dungeon/player.svg" alt={member.name} draggable={false} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-3 mt-2 text-[9px] text-[#91a4b8]">
-                    <span>● You</span><span>◆ Party</span><span>☠ Dweller</span><span>♛ Guardian</span><span>⇢ Exit</span>
-                  </div>
-                </div>
-
-                <div className="text-center text-xs text-[#f5d18a] min-h-5">{snapshot.message}</div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {snapshot.players.map((member) => (
-                    <div key={member.id} className="rounded border border-[#34485c] bg-[#0b1520] p-2">
-                      <div className="text-[10px] font-bold truncate">{member.name}{member.id === playerId ? ' (You)' : ''}</div>
-                      <div className="h-1.5 rounded bg-[#263340] mt-1 overflow-hidden"><div className="h-full bg-[#59c987]" style={{ width: (member.hp / member.maxHp * 100) + '%' }} /></div>
-                      <div className="text-[9px] text-[#a9bbca] mt-1">{member.hp}/{member.maxHp} HP · {member.connected ? 'Online' : 'Offline'}</div>
-                    </div>
-                  ))}
-                  {snapshot.enemies.filter((enemy) => enemy.hp > 0).map((enemy) => (
-                    <div key={enemy.id} className="rounded border border-[#68403c] bg-[#201316] p-2">
-                      <div className="text-[10px] font-bold truncate text-[#ffb2a3]">{enemy.name}</div>
-                      <div className="h-1.5 rounded bg-[#44282a] mt-1 overflow-hidden"><div className="h-full bg-[#d45b51]" style={{ width: (enemy.hp / enemy.maxHp * 100) + '%' }} /></div>
-                      <div className="text-[9px] text-[#d2a5a0] mt-1">{enemy.hp}/{enemy.maxHp} HP</div>
-                    </div>
-                  ))}
-                </div>
-
-                {snapshot.phase === 'active' && (
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div
-                      className="relative w-32 h-32 shrink-0 rounded-full border-2 border-[#607b91] bg-[#1a2b3b]/90 touch-none select-none"
-                      onPointerDown={(event) => { pointerIdRef.current = event.pointerId; event.currentTarget.setPointerCapture(event.pointerId); updateJoystick(event); }}
-                      onPointerMove={(event) => { if (pointerIdRef.current === event.pointerId) updateJoystick(event); }}
-                      onPointerUp={(event) => { if (pointerIdRef.current === event.pointerId) resetJoystick(); }}
-                      onPointerCancel={resetJoystick}
-                    >
-                      <div className="absolute left-1/2 top-1/2 w-12 h-12 rounded-full border-2 border-[#b9d8e9] bg-[#547a91] shadow-lg" style={{ transform: 'translate(calc(-50% + ' + joystickKnob.x + 'px), calc(-50% + ' + joystickKnob.y + 'px))' }} />
-                    </div>
-                    <button type="button" onClick={() => onAction('attack')} className="w-full sm:w-auto px-8 py-5 rounded-lg border-2 border-[#e7a16c] bg-[#713d2d] hover:bg-[#8a4b36] text-sm font-black tracking-widest">ATTACK</button>
-                    <button type="button" onClick={leave} className="px-4 py-2 rounded border border-[#7d4b4b] text-xs text-[#ffb7ae]">{snapshot.partyMode === 'solo' ? 'Abandon expedition' : 'Leave party'}</button>
-                  </div>
-                )}
-
-                {snapshot.phase === 'cleared' && (
-                  <button type="button" disabled={!atExit} onClick={() => onAction(snapshot.roomIndex + 1 >= snapshot.roomCount ? 'extract' : 'next_room')} className="w-full py-3 rounded-lg bg-[#b78b3c] hover:bg-[#d1a54f] disabled:opacity-40 text-[#1a1208] font-black tracking-wider">
-                    {!atExit ? 'REACH THE UNLOCKED EXIT PORTAL' : snapshot.roomIndex + 1 >= snapshot.roomCount ? 'EXTRACT · CLAIM REWARDS' : 'ENTER NEXT ROOM'}
-                  </button>
-                )}
-
-                {(snapshot.phase === 'completed' || snapshot.phase === 'failed') && (
-                  <div className="flex flex-col gap-2">
-                    <div className="text-center text-sm font-bold text-[#f5d18a]">{snapshot.phase === 'completed' ? 'EXPEDITION COMPLETE' : 'EXPEDITION FAILED'}</div>
-                    <div className="text-center text-xs text-[#a9bbca]">{snapshot.phase === 'completed' ? 'XP and eligible raw ore has been delivered to your account.' : 'The Gate Key was consumed. No completion rewards were granted.'}</div>
-                    <button type="button" onClick={() => { onDismiss(); setOpen(false); }} className="w-full py-2 rounded bg-[#28435a] font-bold">Return to world</button>
-                  </div>
-                )}
-
-                <div className="text-[9px] text-[#71879a]">Controls: 360° joystick or WASD / arrows to move · Space / J / Attack button to strike.</div>
-              </div>
-            ) : (
-              <div className="p-3 sm:p-4 flex flex-col gap-3">
-                <div className="rounded-lg border border-[#3c5368] bg-[#0b1520] p-3">
-                  <div className="text-sm font-bold text-[#f5d18a]">Open an expedition</div>
-                  <div className="text-[10px] text-[#91a4b8] mt-1">Choose one payment method: Gems OR World Locks. A purchased key is consumed when you activate its gate.</div>
-                  <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-[#a9bbca]">Expedition type · choose before activation</div>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <button type="button" onClick={() => setPartyMode('solo')} className={'py-2 rounded border text-xs font-bold ' + (partyMode === 'solo' ? 'border-[#e7c27a] bg-[#6c522d] text-[#ffe7b3]' : 'border-[#40566b] bg-[#152332] text-[#a9bbca]')}>Solo · 1 explorer</button>
-                    <button type="button" onClick={() => setPartyMode('cooperative')} className={'py-2 rounded border text-xs font-bold ' + (partyMode === 'cooperative' ? 'border-[#8acfc1] bg-[#28574f] text-[#d4fff4]' : 'border-[#40566b] bg-[#152332] text-[#a9bbca]')}>Co-op · up to 4</button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {GATE_KEYS.map((key, index) => {
-                    const owned = keyCounts[index] ?? 0;
-                    const canUnlock = level >= key.minLevel;
-                    const canBuyGems = canUnlock && gems >= key.gemPrice;
-                    const canBuyLocks = canUnlock && worldLocks >= key.worldLockPrice;
-                    return (
-                      <div key={key.id} className="rounded-lg border border-[#3a4d60] bg-[#0b1520] p-3 flex flex-col gap-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="font-bold text-xs text-[#f5d18a]">Gate Key Tier {key.tier}</div>
-                          <div className="text-[10px] text-[#9ce7ff]">{owned} owned</div>
-                        </div>
-                        <div className="text-[10px] text-[#a9bbca]">Level {key.minLevel} · {key.rooms} rooms</div>
-                        <div className="text-[10px] text-[#a9bbca]">{key.enemyFamily}</div>
-                        <div className="text-[10px] text-[#d9c7a3]">Choose: {key.gemPrice} Gems OR {key.worldLockPrice} World Lock(s)</div>
-                        <div className="grid grid-cols-2 gap-2 mt-auto">
-                          <button type="button" disabled={!canBuyGems} onClick={() => onBuyKey(key.tier, 'gems')} className="py-2 rounded bg-[#314f68] disabled:opacity-40 text-[10px] font-bold">Buy · {key.gemPrice} Gems</button>
-                          <button type="button" disabled={!canBuyLocks} onClick={() => onBuyKey(key.tier, 'world_locks')} className="py-2 rounded bg-[#425b42] disabled:opacity-40 text-[10px] font-bold">Buy · {key.worldLockPrice} WL</button>
-                          <button type="button" disabled={owned <= 0 || !canUnlock || !partyMode} onClick={() => partyMode && onCreate(key.tier, partyMode)} className="col-span-2 py-2 rounded bg-[#9a7332] disabled:opacity-40 text-[10px] font-black text-[#1a1208]">Activate Gate · {owned} Key(s)</button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="rounded-lg border border-[#3a4d60] bg-[#0b1520] p-3 flex flex-col gap-2">
-                  <div className="text-xs font-bold text-[#f5d18a]">Join a party</div>
-                  <div className="flex gap-2">
-                    <input value={partyCode} onChange={(event) => setPartyCode(event.target.value.toUpperCase().slice(0, 6))} placeholder="6-character code" className="min-w-0 flex-1 rounded border border-[#40566b] bg-[#07101a] px-3 py-2 text-sm font-mono tracking-[0.2em] uppercase" />
-                    <button type="button" disabled={partyCode.length !== 6} onClick={() => onJoin(partyCode)} className="px-4 rounded bg-[#386d63] disabled:opacity-40 text-xs font-bold">Join</button>
-                  </div>
-                </div>
-                
+                <span className="font-pixel text-[8px] text-[#b9d2e8] bg-[#09131d]/90 px-2 py-1 rounded border border-[#314e6b]">
+                  W/S MOVE · A/D TURN · DRAG LOOK
+                </span>
               </div>
             )}
-          </section>
-        </div>
+
+            {/* Center: Portal Extraction / Room Advance / Run Completion Banner */}
+            <div className="pointer-events-auto flex flex-col items-center gap-2 max-w-md mx-auto">
+              {snapshot.phase === 'cleared' && (
+                <button
+                  type="button"
+                  disabled={!atExit}
+                  onClick={() =>
+                    onAction(
+                      snapshot.roomIndex + 1 >= snapshot.roomCount ? 'extract' : 'next_room'
+                    )
+                  }
+                  className="px-5 py-3 rounded-md border-2 border-[#ffe18c] bg-[#b8862d] hover:bg-[#d19a38] disabled:opacity-60 text-[#171005] font-pixel text-[10px] sm:text-xs shadow-xl cursor-pointer"
+                >
+                  {!atExit
+                    ? 'WALK TO GREEN EXIT PORTAL →'
+                    : snapshot.roomIndex + 1 >= snapshot.roomCount
+                      ? 'EXTRACT · CLAIM ORE & XP'
+                      : 'NEXT CHAMBER (E)'}
+                </button>
+              )}
+
+              {(snapshot.phase === 'completed' || snapshot.phase === 'failed') && (
+                <div className="rounded-lg border-2 border-[#f2b738] bg-[#0f1d2c]/96 p-4 text-center shadow-2xl flex flex-col gap-2.5 min-w-[270px]">
+                  <div className="font-pixel text-xs sm:text-sm text-[#ffe18c]">
+                    {snapshot.phase === 'completed'
+                      ? 'EXPEDITION COMPLETE'
+                      : 'EXPEDITION FAILED'}
+                  </div>
+                  <div className="text-xs text-[#b9d2e8]">
+                    {snapshot.phase === 'completed'
+                      ? 'Raw Ores and Expedition XP have been delivered to your backpack.'
+                      : 'Your explorer fell in battle. Gate Key was consumed.'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDismiss();
+                      onClose();
+                    }}
+                    className="w-full py-2.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border-2 border-[#82e068] font-pixel text-[11px] text-[#081709] cursor-pointer"
+                  >
+                    RETURN TO WORLD MENU
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Right: 1st-Person Melee Strike & Leave */}
+            {(snapshot.phase === 'active' || snapshot.phase === 'cleared') && (
+              <div className="pointer-events-auto flex flex-col items-end gap-2">
+                <button
+                  type="button"
+                  data-testid="dungeon-attack-button"
+                  onClick={triggerStrike}
+                  className={`w-28 h-28 sm:w-32 sm:h-32 rounded-full border-4 font-pixel text-xs shadow-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-transform ${
+                    nearestEnemyDistance <= 1.5
+                      ? 'border-[#ffe18c] bg-[#a83827] hover:bg-[#bf422f] text-[#fff8e8]'
+                      : 'border-[#d97757] bg-[#692c20] hover:bg-[#7d3527] text-[#ffe4db]'
+                  }`}
+                >
+                  <span>STRIKE</span>
+                  <span className="font-mono-num text-[10px] font-bold text-[#ffd7c9]">
+                    {nearestEnemyDistance <= 1.5 ? 'IN RANGE!' : 'SPACE / J'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={leave}
+                  className="px-3 py-1.5 rounded border border-[#7a343d] bg-[#3b1b1f]/95 hover:bg-[#52242a] font-pixel text-[9px] text-[#ffd4d4] cursor-pointer"
+                >
+                  {snapshot.partyMode === 'solo' ? 'ABANDON' : 'LEAVE PARTY'}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        /* GATE COMMAND DECK (When opening Dungeons straight from World Menu) */
+        !deckCollapsed && (
+          <div className="fixed inset-x-0 bottom-0 z-20 max-h-[82vh] overflow-y-auto p-2 sm:p-4 flex justify-center">
+            <section className="w-full max-w-4xl rounded-lg border-2 border-[#3b5978] bg-[#0f1d2c]/95 p-3 sm:p-4 shadow-[0_10px_0_rgba(6,12,20,0.9)] text-[#eaf2fa] flex flex-col gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#28425e] pb-2.5">
+                <div>
+                  <div className="font-pixel text-xs text-[#ffe18c]">
+                    3D Adventure Dungeon Gates
+                  </div>
+                  <div className="text-[11px] text-[#9cb5cc] mt-0.5">
+                    Preview each tier in 1st-person 3D behind this deck. Unlock Gate Keys with Gems or World Locks.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setPartyMode('solo')}
+                    className={`px-3 py-1.5 rounded border font-pixel text-[10px] cursor-pointer ${
+                      partyMode === 'solo'
+                        ? 'border-[#f2b738] bg-[#5c441e] text-[#ffe18c]'
+                        : 'border-[#314e6b] bg-[#09131d] text-[#9cb5cc]'
+                    }`}
+                  >
+                    SOLO (1P)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPartyMode('cooperative')}
+                    className={`px-3 py-1.5 rounded border font-pixel text-[10px] cursor-pointer ${
+                      partyMode === 'cooperative'
+                        ? 'border-[#38e8d8] bg-[#16423d] text-[#8cf7ee]'
+                        : 'border-[#314e6b] bg-[#09131d] text-[#9cb5cc]'
+                    }`}
+                  >
+                    CO-OP (4P)
+                  </button>
+                </div>
+              </div>
+
+              {/* 5 Progressive Gate Key Tiers */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                {GATE_KEYS.map((key, index) => {
+                  const owned = keyCounts[index] ?? 0;
+                  const canUnlock = level >= key.minLevel;
+                  const canBuyGems = canUnlock && gems >= key.gemPrice;
+                  const canBuyLocks = canUnlock && worldLocks >= key.worldLockPrice;
+                  const isSelected = selectedPreviewTier === key.tier;
+                  return (
+                    <div
+                      key={key.id}
+                      onClick={() => setSelectedPreviewTier(key.tier)}
+                      className={`rounded border-2 p-2.5 flex flex-col gap-1.5 cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'border-[#f2b738] bg-[#15283c]'
+                          : 'border-[#28425e] bg-[#09131d] hover:border-[#46678a]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-pixel text-[10px] text-[#ffe18c]">
+                          TIER {key.tier}
+                        </span>
+                        <span className="text-[10px] font-mono-num font-bold text-[#8cf7ee]">
+                          {owned} Key{owned === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-mono-num text-[#9cb5cc]">
+                        Req LVL {key.minLevel} · {key.rooms} Rooms
+                      </div>
+                      <div className="text-[11px] font-bold text-[#e2eef8] truncate">
+                        {key.enemyFamily}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 mt-auto pt-1">
+                        <button
+                          type="button"
+                          disabled={!canBuyGems}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onBuyKey(key.tier, 'gems');
+                          }}
+                          className="py-1.5 rounded bg-[#214463] hover:bg-[#2d5b82] disabled:opacity-35 font-mono-num text-[10px] font-bold cursor-pointer"
+                        >
+                          {key.gemPrice} G
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!canBuyLocks}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onBuyKey(key.tier, 'world_locks');
+                          }}
+                          className="py-1.5 rounded bg-[#2d5432] hover:bg-[#3a6b41] disabled:opacity-35 font-mono-num text-[10px] font-bold cursor-pointer"
+                        >
+                          {key.worldLockPrice} WL
+                        </button>
+                        <button
+                          type="button"
+                          disabled={owned <= 0 || !canUnlock}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCreate(key.tier, partyMode);
+                          }}
+                          className="col-span-2 py-1.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border border-[#82e068] disabled:opacity-35 font-pixel text-[9px] text-[#081709] cursor-pointer"
+                        >
+                          ENTER GATE ({owned})
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Co-op Party Code Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded border border-[#28425e] bg-[#09131d] px-3 py-2">
+                <div className="font-pixel text-[10px] text-[#ffe18c]">
+                  JOIN CO-OP 3D PARTY
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={partyCode}
+                    onChange={(event) =>
+                      setPartyCode(event.target.value.toUpperCase().slice(0, 6))
+                    }
+                    placeholder="6-CHAR CODE"
+                    className="w-36 rounded border border-[#2d4863] bg-[#08101a] px-2.5 py-1.5 text-xs font-mono-num tracking-[0.2em] uppercase text-white focus:outline-none focus:border-[#f2b738]"
+                  />
+                  <button
+                    type="button"
+                    disabled={partyCode.length !== 6}
+                    onClick={() => onJoin(partyCode)}
+                    className="px-4 py-1.5 rounded bg-[#214463] hover:bg-[#2d5b82] border border-[#78c8f5] disabled:opacity-40 font-pixel text-[10px] text-white cursor-pointer"
+                  >
+                    JOIN
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )
       )}
-    </>
+    </div>
   );
 };

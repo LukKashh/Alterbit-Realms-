@@ -117,6 +117,7 @@ export default function App() {
   const [fishingLineTension, setFishingLineTension] = useState<number>(0.15);
   const [fishingFightPattern, setFishingFightPattern] = useState<'darting' | 'surging' | 'deep_run' | 'erratic'>('darting');
   const [dungeonSnapshot, setDungeonSnapshot] = useState<DungeonSnapshot | null>(null);
+  const [dungeonOpen, setDungeonOpen] = useState<boolean>(false);
   const [hotbarItemIds, setHotbarItemIds] = useState<number[]>(EMPTY_HOTBAR);
   const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.FIST);
   const [gameConfig, setGameConfig] = useState<GameConfig>(() => cloneGameConfig(DEFAULT_GAME_CONFIG));
@@ -219,16 +220,16 @@ export default function App() {
     }
   }, [appState]);
 
-  // Freeze the sandbox character while the independent top-down dungeon instance is active.
+  // Freeze the sandbox character while the independent 3D dungeon overlay is open.
   useEffect(() => {
-    if (dungeonSnapshot) {
+    if (dungeonSnapshot || dungeonOpen) {
       engineRef.current?.setMode('paused');
     } else if (appState === 'playing') {
       engineRef.current?.setMode('playing');
     } else if (appState === 'paused') {
       engineRef.current?.setMode('paused');
     }
-  }, [dungeonSnapshot?.runId, dungeonSnapshot?.phase, appState]);
+  }, [dungeonSnapshot?.runId, dungeonSnapshot?.phase, dungeonOpen, appState]);
 
   const fetchWorldsList = useCallback(async () => {
     try {
@@ -320,6 +321,7 @@ export default function App() {
           setGameConfig(msg.gameConfig);
           engine.applyGameConfig(msg.gameConfig);
           if (msg.exchange) setExchangeSnapshot(msg.exchange);
+          socket.send({ type: 'dungeon_resume' });
           break;
         case 'pong':
           if (typeof msg.playerCount === 'number') {
@@ -387,6 +389,7 @@ export default function App() {
           break;
         case 'dungeon_state':
           setDungeonSnapshot(msg.snapshot);
+          setDungeonOpen(true);
           break;
         case 'dungeon_error':
           if (msg.message.toLowerCase().includes('left the expedition')) setDungeonSnapshot(null);
@@ -709,7 +712,7 @@ export default function App() {
   // Global keyboard shortcuts (hotbar 1-6, Pause Esc/P, Mute M)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (dungeonSnapshot) return;
+      if (dungeonSnapshot || dungeonOpen) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -735,7 +738,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSelectItem, hotbarItemIds, dungeonSnapshot]);
+  }, [handleSelectItem, hotbarItemIds, dungeonSnapshot, dungeonOpen]);
 
   // Live Firestore world presence heartbeat & subscription when in a world
   useEffect(() => {
@@ -837,6 +840,11 @@ export default function App() {
           }
           connected={connected}
           onReconnectNow={() => socketRef.current?.reconnectNow()}
+          onOpenDungeons={() => {
+            soundEngine.uiClick();
+            setDungeonOpen(true);
+            socketRef.current?.send({ type: 'dungeon_resume' });
+          }}
           onSignOut={handleSignOut}
         />
       )}
@@ -967,20 +975,33 @@ export default function App() {
         />
       )}
 
-      {(appState === 'playing' || appState === 'paused') && worldName === 'STATION' && (
-        <DungeonOverlay
-          playerId={playerId}
-          level={level}
-          gems={gems}
-          inventory={inventory}
-          snapshot={dungeonSnapshot}
-          onBuyKey={(tier, payment) => socketRef.current?.send({ type: 'dungeon_buy_key', tier, payment, txId: makeTxId() })}
-          onCreate={(tier, partyMode) => socketRef.current?.send({ type: 'dungeon_create', tier, partyMode })}
-          onJoin={(code) => socketRef.current?.send({ type: 'dungeon_join', code })}
-          onAction={(action, dx, dy) => socketRef.current?.send(action === 'attack' ? { type: 'dungeon_action', action, attackId: makeTxId() } : { type: 'dungeon_action', action, dx, dy })}
-          onDismiss={() => setDungeonSnapshot(null)}
-        />
-      )}
+      {(appState === 'hub' || appState === 'playing' || appState === 'paused') &&
+        (dungeonOpen || Boolean(dungeonSnapshot)) && (
+          <DungeonOverlay
+            engine={engineRef.current}
+            playerId={playerId}
+            level={level}
+            gems={gems}
+            inventory={inventory}
+            snapshot={dungeonSnapshot}
+            onBuyKey={(tier, payment) =>
+              socketRef.current?.send({ type: 'dungeon_buy_key', tier, payment, txId: makeTxId() })
+            }
+            onCreate={(tier, partyMode) =>
+              socketRef.current?.send({ type: 'dungeon_create', tier, partyMode })
+            }
+            onJoin={(code) => socketRef.current?.send({ type: 'dungeon_join', code })}
+            onAction={(action, dx, dy) =>
+              socketRef.current?.send(
+                action === 'attack'
+                  ? { type: 'dungeon_action', action, dx, dy, attackId: makeTxId() }
+                  : { type: 'dungeon_action', action, dx, dy }
+              )
+            }
+            onClose={() => setDungeonOpen(false)}
+            onDismiss={() => setDungeonSnapshot(null)}
+          />
+        )}
     </main>
   );
 }
