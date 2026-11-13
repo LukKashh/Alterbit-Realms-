@@ -32,6 +32,8 @@ export interface ActiveBuff {
   expiresAt: number;
 }
 
+export type FishFightPattern = 'darting' | 'surging' | 'deep_run' | 'erratic';
+
 export interface FishingCastState {
   playerId: string;
   playerName: string;
@@ -42,6 +44,10 @@ export interface FishingCastState {
   depthLevel?: number;
   biting: boolean;
   startedAt: number;
+  pullProgress?: number;
+  lineTension?: number;
+  bobberOffset?: number;
+  fightPattern?: FishFightPattern;
 }
 
 export interface ExchangeListing {
@@ -353,7 +359,7 @@ export type ServerMessage =
   | { type: 'worlds_list'; worlds: WorldSummary[] }
   | { type: 'fishing_started'; cast: FishingCastState }
   | { type: 'fishing_bite'; playerId: string; bobberTx: number; bobberTy: number; depthTier: LiquidPoolInfo['depthTier'] }
-  | { type: 'fishing_progress'; playerId: string; progress: number }
+  | { type: 'fishing_progress'; playerId: string; progress: number; lineTension: number; bobberOffset: number; fightPattern: FishFightPattern }
   | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier'] }
   | { type: 'exchange_updated'; exchange: ExchangeSnapshot }
   | { type: 'mine_shaft_expired'; worldName: string; message: string };
