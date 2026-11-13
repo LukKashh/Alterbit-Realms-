@@ -370,6 +370,18 @@ async function startServer() {
       if (!session.account) return;
       const account = session.account;
 
+      if (msg.type === 'create_world') {
+        const result = store.createOwnedWorld(account, msg.worldName, Boolean(msg.terraBlast));
+        if (!result.ok) {
+          sendTo(ws, { type: 'world_error', message: result.message });
+          return;
+        }
+        enterWorldSession(session, ws, account, result.worldName, undefined, true);
+        sendProfileUpdate(ws, account, result.notice);
+        broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
+        return;
+      }
+
       if (msg.type === 'dungeon_buy_key') {
         const result = dungeonStore.buyGateKey(account, msg.tier, msg.payment, msg.txId);
         if (!result.ok) {
