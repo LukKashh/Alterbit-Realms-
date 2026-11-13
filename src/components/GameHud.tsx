@@ -131,6 +131,7 @@ interface GameHudProps {
   exchange: ExchangeSnapshot;
   fishingActive: boolean;
   fishingBiting: boolean;
+  fishingDepthLevel?: number | null;
   onExitMineShaft: () => void;
   onUseConsumable: (itemId: number) => void;
   onReelFishing: () => void;
@@ -348,6 +349,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   exchange,
   fishingActive,
   fishingBiting,
+  fishingDepthLevel,
   onExitMineShaft,
   onUseConsumable,
   onReelFishing,
@@ -649,7 +651,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 : 'bg-[#12334d]/94 hover:bg-[#194669] border-[#78c8f5] text-[#eaf6ff]'
             }`}
           >
-            {fishingBiting ? '! BITE ! Tap to Reel Catch!' : 'Fishing Cast Active · Tap to Reel'}
+            {fishingBiting ? `! BITE ! Depth ${fishingDepthLevel ?? '?'} / 6 · Tap to Reel!` : `Fishing · Depth ${fishingDepthLevel ?? '?'} / 6 · Tap to Reel`}
           </button>
         )}
 

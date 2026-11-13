@@ -893,6 +893,7 @@ export default function App() {
           exchange={exchangeSnapshot}
           fishingActive={Boolean(fishingCast)}
           fishingBiting={fishingBiting}
+          fishingDepthLevel={fishingCast?.depthLevel ?? null}
           onExitMineShaft={() => socketRef.current?.send({ type: 'exit_mine_shaft' })}
           onUseConsumable={(itemId) =>
             socketRef.current?.send({ type: 'use_consumable', itemId })

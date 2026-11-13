@@ -81,6 +81,7 @@ export interface ItemDefinition {
   toolPower?: number;
   rodType?: 1 | 2 | 3 | 4 | 5 | 6;
   rodUpgradeLevels?: readonly [1, 2, 3];
+  fishDepthProfile?: { minDepthLevel: number; maxDepthLevel: number; preferredDepthLevel: number };
   maxDurability?: number;
   repairMaterialId?: number;
   repairQty?: number;
@@ -717,6 +718,7 @@ export const CATALOG: Record<number, ItemDefinition> = {
     category: 'material', rarity: 'common', stackLimit: 200,
     collision: 'none', breakable: false, hardness: 0,
     placeable: false, tradeable: true, gemValue: 0, xpValue: 2,
+    fishDepthProfile: { minDepthLevel: 1, maxDepthLevel: 2, preferredDepthLevel: 1 },
     colorPrimary: '#d97c43', colorSecondary: '#7d3d1d', colorAccent: '#ffbf8c',
   },
   [ITEM_IDS.IRON_FRAGMENT]: {
@@ -789,6 +791,7 @@ export const CATALOG: Record<number, ItemDefinition> = {
     category: 'material', rarity: 'uncommon', stackLimit: 200,
     collision: 'none', breakable: false, hardness: 0,
     placeable: false, tradeable: true, gemValue: 0, xpValue: 4,
+    fishDepthProfile: { minDepthLevel: 2, maxDepthLevel: 4, preferredDepthLevel: 3 },
     colorPrimary: '#e39b49', colorSecondary: '#8c4e1c', colorAccent: '#ffe0a3',
   },
   [ITEM_IDS.FISH_GLACIER_TROUT]: {
@@ -797,6 +800,7 @@ export const CATALOG: Record<number, ItemDefinition> = {
     category: 'material', rarity: 'rare', stackLimit: 200,
     collision: 'none', breakable: false, hardness: 0,
     placeable: false, tradeable: true, gemValue: 0, xpValue: 7,
+    fishDepthProfile: { minDepthLevel: 5, maxDepthLevel: 6, preferredDepthLevel: 6 },
     colorPrimary: '#4fc7e8', colorSecondary: '#1c638c', colorAccent: '#d9fbff',
   },
   [ITEM_IDS.FISH_SLIMEFIN]: {

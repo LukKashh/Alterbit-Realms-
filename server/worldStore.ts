@@ -74,7 +74,7 @@ import type {
   WorldSummary,
 } from '../src/game/network.ts';
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
-import { canRodFishAtDepth, getFishingDepthLevel } from '../src/game/expansion.ts';
+import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight } from '../src/game/expansion.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -2240,24 +2240,27 @@ export class AuthoritativeWorldStore {
       (s) => s.itemId === cast.rodItemId && (s.durability ?? 1) > 0
     );
     if (!rodSlot) return { ok: false, message: 'The fishing rod used for this cast is no longer available or has no durability.' };
-    const rodDef = getItemDef(rodSlot.itemId);
-    const isAngler = (rodDef?.rodType ?? 1) >= 2;
     if (rodSlot && typeof rodSlot.durability === 'number') {
       rodSlot.durability = Math.max(0, rodSlot.durability - 1);
     }
 
-    const r = Math.random();
     let caughtItemId: number = ITEM_IDS.FISH_MINNOW;
-    if (cast.depthTier === 'acid') {
+    if (cast.fluidType === 2 || cast.depthTier === 'acid') {
       caughtItemId = ITEM_IDS.FISH_SLIMEFIN;
-    } else if (cast.depthTier === 'abyssal') {
-      caughtItemId = r < (isAngler ? 0.85 : 0.72) ? ITEM_IDS.FISH_GLACIER_TROUT : ITEM_IDS.FISH_CARP;
-    } else if (cast.depthTier === 'deep') {
-      if (r < (isAngler ? 0.30 : 0.16)) caughtItemId = ITEM_IDS.FISH_GLACIER_TROUT;
-      else if (r < 0.84) caughtItemId = ITEM_IDS.FISH_CARP;
-      else caughtItemId = ITEM_IDS.FISH_MINNOW;
     } else {
-      caughtItemId = r < (isAngler ? 0.32 : 0.18) ? ITEM_IDS.FISH_CARP : ITEM_IDS.FISH_MINNOW;
+      const depthLevel = cast.depthLevel ?? 1;
+      const candidates = [ITEM_IDS.FISH_MINNOW, ITEM_IDS.FISH_CARP, ITEM_IDS.FISH_GLACIER_TROUT]
+        .map((itemId) => {
+          const fish = getItemDef(itemId);
+          return { itemId, weight: fish?.fishDepthProfile ? getFishDepthWeight(fish.fishDepthProfile, depthLevel) : 0 };
+        })
+        .filter((candidate) => candidate.weight > 0);
+      const totalWeight = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
+      if (totalWeight > 0) {
+        let roll = Math.random() * totalWeight;
+        const selected = candidates.find((candidate) => (roll -= candidate.weight) < 0);
+        caughtItemId = selected?.itemId ?? candidates[candidates.length - 1].itemId;
+      }
     }
 
     this.addInventory(account, caughtItemId, 1);
