@@ -90,24 +90,29 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     [inventory]
   );
 
-  // Sync initial 1st-person camera yaw when entering a run or advancing to a new room
+  // Keep the local camera position responsive while reconciling against server snapshots.
   useEffect(() => {
-    if (!snapshot) {
+    if (!snapshot || !localPlayer) {
+      predictedPositionRef.current = null;
       prevRoomKeyRef.current = '';
       prevHpRef.current = null;
       return;
     }
-    const roomKey = `${snapshot.runId}:${snapshot.roomIndex}`;
-    if (prevRoomKeyRef.current !== roomKey) {
+    const roomKey = snapshot.runId + ':' + snapshot.roomIndex;
+    const predicted = predictedPositionRef.current;
+    if (prevRoomKeyRef.current !== roomKey || !predicted || predicted.runId !== snapshot.runId || predicted.roomIndex !== snapshot.roomIndex) {
       prevRoomKeyRef.current = roomKey;
-      if (localPlayer && (Math.abs(localPlayer.facingX) > 0.01 || Math.abs(localPlayer.facingY) > 0.01)) {
-        yawRef.current = Math.atan2(localPlayer.facingY, localPlayer.facingX);
-      } else {
-        yawRef.current = 0; // Face East toward exit gate
-      }
+      predictedPositionRef.current = { runId: snapshot.runId, roomIndex: snapshot.roomIndex, x: localPlayer.x, y: localPlayer.y };
+      keyboardRef.current.clear();
+      joystickRef.current = { x: 0, y: 0 };
+      setJoystickKnob({ x: 0, y: 0 });
+      yawRef.current = Math.abs(localPlayer.facingX) > 0.01 || Math.abs(localPlayer.facingY) > 0.01 ? Math.atan2(localPlayer.facingY, localPlayer.facingX) : 0;
+    } else {
+      const error = Math.hypot(localPlayer.x - predicted.x, localPlayer.y - predicted.y);
+      if (error > 0.65) { predicted.x = localPlayer.x; predicted.y = localPlayer.y; }
+      else if (error > 0.015) { predicted.x += (localPlayer.x - predicted.x) * 0.22; predicted.y += (localPlayer.y - predicted.y) * 0.22; }
     }
-  }, [snapshot?.runId, snapshot?.roomIndex, localPlayer]);
-
+  }, [snapshot?.runId, snapshot?.roomIndex, localPlayer?.x, localPlayer?.y, localPlayer?.facingX, localPlayer?.facingY]);
   // Trigger brief red vignette flash when taking damage in 1st-person
   useEffect(() => {
     if (!localPlayer) return;
