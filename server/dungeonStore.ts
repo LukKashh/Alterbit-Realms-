@@ -58,9 +58,10 @@ export class DungeonStore {
   private readonly runs = new Map<string, DungeonRun>();
   private readonly accountRefs = new Map<string, PlayerAccount>();
   private lastPersistAt = 0;
-  private readonly filePath = path.resolve(process.cwd(), 'data', 'dungeons.json');
+  private readonly filePath: string;
 
-  constructor(private readonly playerStore: AuthoritativeWorldStore) {
+  constructor(private readonly playerStore: AuthoritativeWorldStore, dataDirectory = path.resolve(process.cwd(), 'data')) {
+    this.filePath = path.join(dataDirectory, 'dungeons.json');
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     this.load();
   }
