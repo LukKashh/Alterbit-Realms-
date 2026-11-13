@@ -74,7 +74,7 @@ import type {
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
 import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec } from '../src/game/shareLocks.ts';
 import type { ShareLockPermissions } from '../src/game/shareLocks.ts';
-import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance } from '../src/game/expansion.ts';
+import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance, isSystemWorld } from '../src/game/expansion.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -178,6 +178,7 @@ const CONFIG_FILE = path.join(DATA_DIR, 'game-config.json');
 const EXCHANGE_FILE = path.join(DATA_DIR, 'exchange.json');
 
 const SHIRT_PALETTE = ['#3f8fd9', '#d95b43', '#49a863', '#c99334', '#8e63c9', '#38a3a5'];
+const MAX_OWNED_WORLD_PLAYERS = 10;
 
 const DEFAULT_STATS: Record<PlayerStatKey, number> = {
   blocksBroken: 0,
@@ -917,6 +918,71 @@ export class AuthoritativeWorldStore {
     return live;
   }
 
+
+  createOwnedWorld(
+    account: PlayerAccount,
+    rawName: string,
+    terraBlast = false
+  ): { ok: true; worldName: string; notice: string } | { ok: false; message: string } {
+    const validation = validateWorldName(rawName);
+    if (!validation.ok) return { ok: false, message: validation.reason ?? 'Invalid world name.' };
+    const name = validation.normalized;
+    const reserved = new Set(['START', 'TRADE', 'FARM']);
+    if (isSystemWorld(name) || reserved.has(name)) {
+      return { ok: false, message: 'That name is reserved for a system world.' };
+    }
+    const filePath = path.join(WORLDS_DIR, `${name}.json`);
+    if (this.worlds.has(name) || fs.existsSync(filePath)) {
+      return { ok: false, message: 'That realm name is already taken. Choose another name.' };
+    }
+    if (terraBlast && !this.consumeInventory(account, ITEM_IDS.WORLD_BLAST, 1)) {
+      return { ok: false, message: 'You need a World Blast to Terra Blast this realm.' };
+    }
+
+    const state = generateWorld(name, terraBlast);
+    const coreX = state.spawnX;
+    const coreY = Math.min(state.height - 7, state.spawnY + 1);
+    const coreIndex = tileIndexIn(state, coreX, coreY);
+    state.fg[coreIndex] = ITEM_IDS.WORLD_CORE;
+    state.worldLock = {
+      x: coreX,
+      y: coreY,
+      lockItemId: ITEM_IDS.WORLD_CORE,
+      ownerId: account.id,
+      ownerName: account.name,
+      editors: [],
+      editorNames: {},
+      publicAccess: false,
+    };
+    state.revision += 1;
+
+    const live: LiveWorld = {
+      state,
+      players: new Map(),
+      drops: new Map(),
+      damage: new Map(),
+      fluidFrontier: this.seedInitialFluidFrontier(state),
+      activeCasts: new Map(),
+      chatHistory: [{
+        id: `sys_${Date.now()}`,
+        senderId: 'system',
+        senderName: 'Alterbit Realms',
+        text: `Welcome to ${name}. This realm belongs to ${account.name}. Use WorldCore to manage it.`,
+        timestamp: Date.now(),
+        system: true,
+      }],
+      dirty: false,
+    };
+    this.worlds.set(name, live);
+    this.saveWorld(live);
+    if (terraBlast) this.savePlayer(account);
+    return {
+      ok: true,
+      worldName: name,
+      notice: terraBlast ? `Terra Blasted realm ${name} created. World Blast consumed.` : `Realm ${name} created and secured to your account.`,
+    };
+  }
+
   saveWorld(live: LiveWorld) {
     if (live.state.worldKind === 'mine_shaft') {
       live.dirty = false;
@@ -989,10 +1055,11 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: enterCheck.reason ?? 'World access is restricted.' };
     }
 
-    if (live.players.size >= MAX_WORLD_PLAYERS && !live.players.has(account.id)) {
+    const playerLimit = live.state.worldLock?.ownerId ? MAX_OWNED_WORLD_PLAYERS : MAX_WORLD_PLAYERS;
+    if (live.players.size >= playerLimit && !live.players.has(account.id)) {
       return {
         ok: false,
-        message: `World ${v.normalized} is full (${MAX_WORLD_PLAYERS}/${MAX_WORLD_PLAYERS}).`,
+        message: `World ${v.normalized} is full (${playerLimit}/${playerLimit}).`,
       };
     }
 
