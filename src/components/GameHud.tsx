@@ -38,6 +38,7 @@ import type {
   WorldSummary,
 } from '../game/network.ts';
 import type { GameConfig } from '../game/config.ts';
+import { getRodUpgradeGemCost } from '../game/expansion.ts';
 import type { TileInspectInfo } from '../game/engine.ts';
 import { AdminPanel } from './AdminPanel.tsx';
 import { ExchangeModal } from './ExchangeModal.tsx';
@@ -135,6 +136,7 @@ interface GameHudProps {
   onExitMineShaft: () => void;
   onUseConsumable: (itemId: number) => void;
   onReelFishing: () => void;
+  onUpgradeFishingRod: (rodInstanceId: string) => void;
   onConfigureFurnace: (
     tx: number,
     ty: number,
@@ -353,6 +355,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   onExitMineShaft,
   onUseConsumable,
   onReelFishing,
+  onUpgradeFishingRod,
   onConfigureFurnace,
   onConfigureBfg,
   onExchangeAction,
@@ -365,6 +368,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [spliceB, setSpliceB] = useState<number | null>(null);
   const [spliceBranch, setSpliceBranch] = useState<'all' | BiomeBranch>('all');
   const [assignSlot, setAssignSlot] = useState<number>(2);
+  const [selectedRodInstanceId, setSelectedRodInstanceId] = useState<string | null>(null);
   const [storeCategory, setStoreCategory] = useState<StoreSection>('locks');
   const [profileTab, setProfileTab] = useState<'achievements' | 'wardrobe'>('achievements');
   const [friendInput, setFriendInput] = useState('');
@@ -442,6 +446,13 @@ export const GameHud: React.FC<GameHudProps> = ({
   const xpPct = Math.min(100, Math.round((xp / nextXp) * 100));
   const selectedDef = getItemDef(selectedItemId);
   const seedsInBag = inventory.filter((s) => getItemDef(s.itemId)?.category === 'seed' && s.qty > 0);
+  const fishingRodsInBag = inventory.filter((s) => getItemDef(s.itemId)?.toolKind === 'rod' && s.qty > 0 && s.rodInstanceId);
+  const selectedRodSlot = fishingRodsInBag.find((s) => s.rodInstanceId === selectedRodInstanceId) ?? fishingRodsInBag[0];
+  const selectedRodDef = selectedRodSlot ? getItemDef(selectedRodSlot.itemId) : undefined;
+  const selectedRodLevel = selectedRodSlot?.rodUpgradeLevel ?? 1;
+  const selectedRodNextCost = selectedRodDef?.rodType && selectedRodLevel < 3
+    ? getRodUpgradeGemCost(selectedRodDef.rodType, selectedRodLevel + 1, gameConfig.fishing)
+    : 0;
   const wearablesInBag = inventory.filter(
     (s) => getItemDef(s.itemId)?.category === 'wearable' && s.qty > 0
   );
@@ -1258,10 +1269,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                 : 1;
               return (
                 <button
-                  key={slot.itemId}
+                  key={slot.rodInstanceId ?? slot.itemId}
                   type="button"
                   title={`${def.name} (${slot.qty})`}
+                  onContextMenu={(e) => { if (def.toolKind === 'rod' && slot.rodInstanceId) { e.preventDefault(); setSelectedRodInstanceId(slot.rodInstanceId); } }}
                   onClick={() => {
+                    if (def.toolKind === 'rod' && slot.rodInstanceId) setSelectedRodInstanceId(slot.rodInstanceId);
                     if (def.category === 'wearable') {
                       onEquipWearable(slot.itemId);
                       return;
@@ -1305,6 +1318,40 @@ export const GameHud: React.FC<GameHudProps> = ({
               );
             })}
           </div>
+          {fishingRodsInBag.length > 0 && (
+            <div className="border-t border-[#28425e] pt-2 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[#89d6ff]">Fishing Rod Upgrades</span>
+                <span className="text-[10px] font-mono-num text-[#8cf7ee]">{Math.round(gems)} Gems</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {fishingRodsInBag.map((rod) => {
+                  const rodDef = getItemDef(rod.itemId);
+                  const selected = (rod.rodInstanceId ?? null) === (selectedRodSlot?.rodInstanceId ?? null);
+                  return (
+                    <button key={rod.rodInstanceId} type="button" onClick={() => setSelectedRodInstanceId(rod.rodInstanceId ?? null)}
+                      className={`rounded border px-2 py-1.5 text-left ${selected ? 'bg-[#254463] border-[#f2b738]' : 'bg-[#09131d] border-[#263c52]'}`}>
+                      <span className="block text-[10px] font-bold text-[#eaf6ff] truncate">{rodDef?.name ?? 'Fishing Rod'}</span>
+                      <span className="block text-[10px] text-[#9cb5cc]">Upgrade {rod.rodUpgradeLevel ?? 1}/3</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedRodSlot && selectedRodDef && (
+                <div className="flex items-center justify-between gap-2 bg-[#09131d] border border-[#263c52] rounded px-2 py-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-bold text-[#ffe18c]">{selectedRodDef.name} · Level {selectedRodLevel}/3</div>
+                    <div className="text-[10px] text-[#9cb5cc]">{selectedRodLevel >= 3 ? 'Maximum upgrade reached' : `Next upgrade: ${selectedRodNextCost} Gems`}</div>
+                  </div>
+                  <button type="button" disabled={selectedRodLevel >= 3 || gems < selectedRodNextCost || !selectedRodSlot.rodInstanceId}
+                    onClick={() => selectedRodSlot.rodInstanceId && onUpgradeFishingRod(selectedRodSlot.rodInstanceId)}
+                    className="shrink-0 px-3 py-1.5 rounded bg-[#38e8d8] disabled:bg-[#1d3342] disabled:text-[#65849c] text-[#062024] text-[11px] font-bold cursor-pointer">
+                    {selectedRodLevel >= 3 ? 'MAX' : 'Upgrade'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
