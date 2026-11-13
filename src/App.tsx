@@ -977,7 +977,7 @@ export default function App() {
           onBuyKey={(tier, payment) => socketRef.current?.send({ type: 'dungeon_buy_key', tier, payment, txId: makeTxId() })}
           onCreate={(tier, partyMode) => socketRef.current?.send({ type: 'dungeon_create', tier, partyMode })}
           onJoin={(code) => socketRef.current?.send({ type: 'dungeon_join', code })}
-          onAction={(action, dx, dy) => socketRef.current?.send({ type: 'dungeon_action', action, dx, dy })}
+          onAction={(action, dx, dy) => socketRef.current?.send(action === 'attack' ? { type: 'dungeon_action', action, attackId: makeTxId() } : { type: 'dungeon_action', action, dx, dy })}
           onDismiss={() => setDungeonSnapshot(null)}
         />
       )}
