@@ -451,6 +451,15 @@ export class BlockgroveEngine {
     if (c) c.biting = true;
   }
 
+  public updateFishingProgress(playerId: string, progress: number, lineTension: number, bobberOffset: number, fightPattern: FishingCastState['fightPattern']) {
+    const cast = this.activeCasts.get(playerId);
+    if (!cast) return;
+    cast.pullProgress = Math.max(0, Math.min(100, progress));
+    cast.lineTension = Math.max(0, Math.min(1, lineTension));
+    cast.bobberOffset = Math.max(-16, Math.min(16, bobberOffset));
+    cast.fightPattern = fightPattern;
+  }
+
   public removeFishingCast(playerId: string) {
     this.activeCasts.delete(playerId);
   }
@@ -1487,13 +1496,16 @@ export class BlockgroveEngine {
         const bobY =
           cast.bobberTy * TILE_SIZE +
           TILE_SIZE * 0.45 +
-          Math.sin(nowMs * (cast.biting ? 0.035 : 0.008)) * (cast.biting ? 5 : 2) -
-          cy;
-        ctx.strokeStyle = '#e8eff7';
-        ctx.lineWidth = 1.5;
+          Math.sin(nowMs * (cast.biting ? 0.035 : 0.008)) * (cast.biting ? 5 : 2) +
+          (cast.biting ? (cast.bobberOffset ?? 0) : 0) - cy;
+        const tension = cast.lineTension ?? 0.15;
+        ctx.strokeStyle = tension > 0.82 ? '#ff6255' : tension < 0.38 ? '#77e7ff' : '#e8eff7';
+        ctx.lineWidth = 1.2 + tension * 1.2;
         ctx.beginPath();
         ctx.moveTo(rodX, rodY);
-        ctx.lineTo(bobX, bobY);
+        const midX = (rodX + bobX) * 0.5;
+        const midY = (rodY + bobY) * 0.5 + (1 - tension) * 7;
+        ctx.quadraticCurveTo(midX, midY, bobX, bobY);
         ctx.stroke();
 
         ctx.fillStyle = '#151b26';
