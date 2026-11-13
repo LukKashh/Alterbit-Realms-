@@ -1,3 +1,5 @@
+import type { FishingMechanicsConfig } from './config.ts';
+
 /** Source-confirmed progression data from the revised implementation blueprint.
  * Unknown balance values are intentionally left undefined. */
 export const ORE_PROGRESSION = [
@@ -63,4 +65,31 @@ export function isFishEligibleAtDepth(fish:FishDepthProfile,depth:number):boolea
 export function getFishDepthWeight(fish:FishDepthProfile,depth:number):number {
  if(!isFishEligibleAtDepth(fish,depth)) return 0;
  return depth===fish.preferredDepthLevel?1:0.35;
+}
+
+
+/** Gem cost to reach a target rod upgrade level (1–3). */
+export function getRodUpgradeGemCost(
+ rodType:number,
+ targetUpgradeLevel:number,
+ config:FishingMechanicsConfig
+):number {
+ if(!Number.isInteger(rodType)||rodType<1||rodType>6||!Number.isInteger(targetUpgradeLevel)||targetUpgradeLevel<1||targetUpgradeLevel>3) return 0;
+ return config.upgradeGemCostsByRodType[rodType-1]?.[targetUpgradeLevel-1] ?? 0;
+}
+
+/** Effective pulling power combines rod tier and its individual upgrade level. */
+export function getFishingPullStrength(
+ rodType:number,
+ upgradeLevel:number,
+ config:FishingMechanicsConfig
+):number {
+ if(!Number.isInteger(rodType)||rodType<1||rodType>6||!Number.isInteger(upgradeLevel)||upgradeLevel<1||upgradeLevel>3) return 0;
+ return rodType * (config.pullingMultiplierByUpgrade[upgradeLevel-1] ?? 1);
+}
+
+/** Fish resistance is a balance multiplier; missing entries safely use 1. */
+export function getFishPullResistance(itemId:number,config:FishingMechanicsConfig):number {
+ const value=config.fishResistanceByItemId[itemId];
+ return Number.isFinite(value)?Math.max(0.1,Math.min(5,value)):1;
 }
