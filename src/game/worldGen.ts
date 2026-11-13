@@ -80,6 +80,8 @@ export interface WorldState {
   width: number;
   height: number;
   worldKind?: 'standard' | 'mine_shaft';
+  worldFamily?: WorldFamily;
+  terraBlasted?: boolean;
   expiresAt?: number;
   spawnX: number;
   spawnY: number;
@@ -129,7 +131,7 @@ export function classifyWorldFamily(worldName: string): WorldFamily {
   return 'temperate';
 }
 
-export function generateWorld(worldName: string): WorldState {
+export function generateWorld(worldName: string, terraBlast = false): WorldState {
   const normalized = worldName.trim().toUpperCase() || 'START';
   const seed = hashWorldSeed(normalized);
   const rand = createRng(seed);
@@ -141,7 +143,10 @@ export function generateWorld(worldName: string): WorldState {
 
   const spawnX = Math.floor(WORLD_WIDTH / 2); // 50
   const baseSurfaceY = 24;
-  const worldFamily = classifyWorldFamily(normalized);
+  const blastFamilies: WorldFamily[] = ['desert_blast', 'arctic_tundra', 'cave_blast'];
+  const worldFamily = terraBlast
+    ? blastFamilies[hashWorldSeed(normalized + '_TERRA') % blastFamilies.length]
+    : classifyWorldFamily(normalized);
   const playableRows = WORLD_HEIGHT - BEDROCK_ROWS;
 
   // Compute smooth rolling surface heights with a flat terrace around spawn
@@ -274,6 +279,13 @@ export function generateWorld(worldName: string): WorldState {
   const spawnY = surfaceHeights[spawnX] - 1;
   fg[spawnY * WORLD_WIDTH + spawnX] = ITEM_IDS.ENTRANCE_PORTAL;
 
+  // Nexus has a permanent Landlord NPC beside the entrance for realm management.
+  if (normalized === 'NEXUS') {
+    const landlordX = Math.min(WORLD_WIDTH - 4, spawnX + 4);
+    const landlordY = surfaceHeights[landlordX] - 1;
+    fg[landlordY * WORLD_WIDTH + landlordX] = ITEM_IDS.LANDLORD_NPC;
+  }
+
   // Place a helpful welcome GrowPixel sign at spawnX - 2
   const signX = spawnX - 2;
   const signY = surfaceHeights[signX] - 1;
@@ -285,6 +297,8 @@ export function generateWorld(worldName: string): WorldState {
     width: WORLD_WIDTH,
     height: WORLD_HEIGHT,
     worldKind: 'standard',
+    worldFamily,
+    terraBlasted: terraBlast,
     spawnX,
     spawnY,
     fg,
