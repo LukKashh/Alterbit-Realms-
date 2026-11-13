@@ -3,10 +3,11 @@ import path from 'node:path';
 import express from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { AuthoritativeWorldStore, type LiveWorld, type PlayerAccount } from './server/worldStore.ts';
+import { DungeonStore } from './server/dungeonStore.ts';
 import { adminAuth } from './src/lib/firebase-admin.ts';
 import type { ClientMessage, ResumePosition, ServerMessage } from './src/game/network.ts';
 import { TILE_SIZE } from './src/game/constants.ts';
-import { tileIndexIn, worldHeight, worldWidth } from './src/game/rules.ts';
+import { addXp, tileIndexIn, worldHeight, worldWidth } from './src/game/rules.ts';
 
 interface ClientSession {
   ws: WebSocket;
@@ -23,6 +24,7 @@ async function startServer() {
   app.use(express.json());
 
   const store = new AuthoritativeWorldStore();
+  const dungeonStore = new DungeonStore(store);
 
   function extractBearerToken(req: express.Request): string | undefined {
     const auth = req.headers.authorization;
@@ -174,6 +176,26 @@ async function startServer() {
       if (s.account && s.account.id === playerId) {
         sendProfileUpdate(s.ws, s.account, notice);
       }
+    }
+  }
+
+  function broadcastDungeon(snapshot: import('./src/game/dungeon.ts').DungeonSnapshot, playerIds: string[]) {
+    const payload: ServerMessage = { type: 'dungeon_state', snapshot };
+    for (const session of sessions) {
+      if (session.account && playerIds.includes(session.account.id)) sendTo(session.ws, payload);
+    }
+  }
+
+  function applyDungeonRewards(rewards: import('./src/game/dungeon.ts').DungeonReward[]) {
+    for (const reward of rewards) {
+      const account = dungeonStore.getAccountRef(reward.playerId);
+      if (!account) continue;
+      const progress = addXp(account.level, account.xp, reward.xp);
+      account.level = progress.level;
+      account.xp = progress.xp;
+      for (const item of reward.items) store.addInventory(account, item.itemId, item.qty);
+      store.savePlayer(account);
+      sendProfileToPlayerId(account.id, 'Dungeon cleared! +' + reward.xp + ' XP and expedition materials secured.');
     }
   }
 
@@ -346,6 +368,78 @@ async function startServer() {
 
       if (!session.account) return;
       const account = session.account;
+
+      if (msg.type === 'dungeon_buy_key') {
+        if (session.worldName !== 'STATION') {
+          sendTo(ws, { type: 'dungeon_error', message: 'Visit the STATION world and speak with the Station Commander to purchase Gate Keys.' });
+          return;
+        }
+        const result = dungeonStore.buyGateKey(account, msg.tier, msg.payment, msg.txId);
+        if (!result.ok) {
+          sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not purchase Gate Key.' });
+          return;
+        }
+        sendProfileUpdate(ws, account, result.message);
+        return;
+      }
+
+      if (msg.type === 'dungeon_create') {
+        if (session.worldName !== 'STATION') {
+          sendTo(ws, { type: 'dungeon_error', message: 'Dungeon gates can only be activated from STATION.' });
+          return;
+        }
+        const result = dungeonStore.createRun(account, msg.tier, msg.partyMode);
+        if (!result.ok || !result.snapshot) {
+          sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not create dungeon.' });
+          return;
+        }
+        sendProfileUpdate(ws, account, result.message);
+        broadcastDungeon(result.snapshot, dungeonStore.getParticipantIds(result.snapshot.runId));
+        return;
+      }
+
+      if (msg.type === 'dungeon_join') {
+        if (session.worldName !== 'STATION') {
+          sendTo(ws, { type: 'dungeon_error', message: 'Return to STATION before joining a dungeon party.' });
+          return;
+        }
+        const result = dungeonStore.joinRun(account, msg.code);
+        if (!result.ok || !result.snapshot) {
+          sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not join dungeon.' });
+          return;
+        }
+        broadcastDungeon(result.snapshot, dungeonStore.getParticipantIds(result.snapshot.runId));
+        return;
+      }
+
+      if (msg.type === 'dungeon_resume') {
+        if (session.worldName !== 'STATION') return;
+        const result = dungeonStore.resume(account);
+        if (result.ok && result.snapshot) {
+          broadcastDungeon(result.snapshot, [account.id]);
+          broadcastDungeon(result.snapshot, dungeonStore.getParticipantIds(result.snapshot.runId).filter((id) => id !== account.id));
+        }
+        return;
+      }
+
+      if (msg.type === 'dungeon_action') {
+        if (session.worldName !== 'STATION') {
+          sendTo(ws, { type: 'dungeon_error', message: 'Dungeon controls are only available while stationed at STATION.' });
+          return;
+        }
+        const result = dungeonStore.act(account, msg.action, msg.dx ?? 0, msg.dy ?? 0, Date.now(), msg.attackId);
+        if (!result.ok) {
+          sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Dungeon action failed.' });
+          return;
+        }
+        if (result.rewards) applyDungeonRewards(result.rewards);
+        if (result.snapshot && result.affectedPlayerIds?.length) {
+          broadcastDungeon(result.snapshot, result.affectedPlayerIds);
+        } else if (msg.action === 'leave') {
+          sendTo(ws, { type: 'dungeon_error', message: 'You left the expedition.' });
+        }
+        return;
+      }
 
       if (msg.type === 'list_worlds') {
         sendTo(ws, { type: 'worlds_list', worlds: store.listWorlds() });
@@ -734,6 +828,11 @@ async function startServer() {
     });
 
     ws.on('close', () => {
+      const playerId = session.account?.id;
+      const hasOtherSession = playerId
+        ? [...sessions].some((other) => other !== session && other.account?.id === playerId && other.ws.readyState === WebSocket.OPEN)
+        : false;
+      if (playerId && !hasOtherSession) dungeonStore.disconnect(playerId);
       leaveCurrentWorld(session, false);
       sessions.delete(session);
     });
@@ -741,7 +840,11 @@ async function startServer() {
 
   // Authoritative 250ms simulation tick: fluid CA, fishing bites/timeouts, furnace completion & mine timers
   const simTickTimer = setInterval(() => {
-    const tick = store.tickAllWorlds(Date.now());
+    const now = Date.now();
+    const tick = store.tickAllWorlds(now);
+    for (const snapshot of dungeonStore.tick(now)) {
+      broadcastDungeon(snapshot, dungeonStore.getParticipantIds(snapshot.runId));
+    }
     for (const fu of tick.fluidUpdates) {
       broadcastWorld(fu.worldName, { type: 'fluid_delta', deltas: fu.deltas });
     }

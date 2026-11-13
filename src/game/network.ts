@@ -166,6 +166,11 @@ export type ClientMessage =
   | { type: 'ping'; clientTime: number }
   | { type: 'join_world'; worldName: string; resumePosition?: ResumePosition }
   | { type: 'leave_world' }
+  | { type: 'dungeon_buy_key'; tier: number; payment: 'gems' | 'world_locks'; txId: string }
+  | { type: 'dungeon_create'; tier: number; partyMode: 'solo' | 'cooperative' }
+  | { type: 'dungeon_join'; code: string }
+  | { type: 'dungeon_resume' }
+  | { type: 'dungeon_action'; action: 'move' | 'attack' | 'next_room' | 'extract' | 'leave'; dx?: number; dy?: number; attackId?: string }
   | {
       type: 'move';
       x: number;
@@ -362,7 +367,9 @@ export type ServerMessage =
   | { type: 'fishing_progress'; playerId: string; progress: number; lineTension: number; bobberOffset: number; fightPattern: FishFightPattern }
   | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier'] }
   | { type: 'exchange_updated'; exchange: ExchangeSnapshot }
-  | { type: 'mine_shaft_expired'; worldName: string; message: string };
+  | { type: 'mine_shaft_expired'; worldName: string; message: string }
+  | { type: 'dungeon_state'; snapshot: import('./dungeon.ts').DungeonSnapshot }
+  | { type: 'dungeon_error'; message: string };
 
 interface QueuedClientMessage {
   msg: ClientMessage;
