@@ -2240,8 +2240,6 @@ export class AuthoritativeWorldStore {
       (s) => s.itemId === cast.rodItemId && (s.durability ?? 1) > 0
     );
     if (!rodSlot) return { ok: false, message: 'The fishing rod used for this cast is no longer available or has no durability.' };
-    const rodDef = getItemDef(rodSlot.itemId);
-    const isAngler = (rodDef?.rodType ?? 1) >= 2;
     if (rodSlot && typeof rodSlot.durability === 'number') {
       rodSlot.durability = Math.max(0, rodSlot.durability - 1);
     }
@@ -2250,7 +2248,7 @@ export class AuthoritativeWorldStore {
     if (cast.fluidType === 2 || cast.depthTier === 'acid') {
       caughtItemId = ITEM_IDS.FISH_SLIMEFIN;
     } else {
-      const depthLevel = cast.depthLevel ?? getFishingDepthLevel(floodFillLiquidDepth(live.state, cast.bobberTx, cast.bobberTy).depth);
+      const depthLevel = cast.depthLevel ?? 1;
       const candidates = [ITEM_IDS.FISH_MINNOW, ITEM_IDS.FISH_CARP, ITEM_IDS.FISH_GLACIER_TROUT]
         .map((itemId) => {
           const fish = getItemDef(itemId);
