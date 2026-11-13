@@ -1351,9 +1351,10 @@ export function getPlayerSprite(
     if (normPose === 'walk1' || normPose === 'walk3') bobY = -1;
     if (normPose === 'jump') bobY = -1;
     if (normPose === 'fall') bobY = 1;
-    if (normPose === 'punch1' || normPose === 'mine1' || normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3' || normPose === 'mine1' || normPose === 'mine2' || normPose === 'mine3') {
+    const attackPose = new Set<string>(['punch1', 'punch2', 'punch3', 'mine1', 'mine2', 'mine3']);
+    if (attackPose.has(normPose)) {
       leanX = 1;
-      squint = normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3' || normPose === 'mine2' || normPose === 'mine3';
+      squint = normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3';
     }
     if (normPose === 'place') leanX = 1;
 
