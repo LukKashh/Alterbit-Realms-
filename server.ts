@@ -3,6 +3,7 @@ import path from 'node:path';
 import express from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { AuthoritativeWorldStore, type LiveWorld, type PlayerAccount } from './server/worldStore.ts';
+import { adminAuth } from './src/lib/firebase-admin.ts';
 import type { ClientMessage, ServerMessage } from './src/game/network.ts';
 import { tileIndex } from './src/game/rules.ts';
 
@@ -83,6 +84,36 @@ async function startServer() {
       user: store.toAuthUserProfile(account),
       gameConfig: store.getGameConfig(),
     });
+  });
+
+  app.post('/api/auth/firebase', async (req, res) => {
+    const idToken = extractBearerToken(req);
+    if (!idToken) {
+      res.status(401).json({ ok: false, message: 'Unauthorized: Missing Firebase ID token.' });
+      return;
+    }
+    try {
+      const decoded = await adminAuth.verifyIdToken(idToken);
+      const result = store.loginOrCreateFirebaseAccount({
+        uid: decoded.uid,
+        email: decoded.email ?? '',
+        displayName: typeof decoded.name === 'string' ? decoded.name : undefined,
+        emailVerified: Boolean(decoded.email_verified),
+      });
+      if (!result.ok) {
+        res.status(400).json({ ok: false, message: result.message });
+        return;
+      }
+      res.json({
+        ok: true,
+        token: result.token,
+        user: store.toAuthUserProfile(result.account),
+        gameConfig: store.getGameConfig(),
+      });
+    } catch (error) {
+      console.error('Error verifying Firebase ID token:', error);
+      res.status(401).json({ ok: false, message: 'Unauthorized: Invalid Firebase ID token.' });
+    }
   });
 
   app.post('/api/auth/logout', (req, res) => {
@@ -171,6 +202,7 @@ async function startServer() {
     store.leaveWorld(prevWorld, session.account.id);
     session.worldName = null;
     broadcastWorld(prevWorld, { type: 'player_left', playerId: session.account.id });
+    broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
   }
 
   wss.on('connection', (ws) => {
@@ -256,6 +288,7 @@ async function startServer() {
           { type: 'player_joined', player: res.remote },
           ws
         );
+        broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
         return;
       }
 

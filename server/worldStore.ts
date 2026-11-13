@@ -392,6 +392,66 @@ export class AuthoritativeWorldStore {
     return { ok: true, token, account };
   }
 
+  loginOrCreateFirebaseAccount(input: {
+    uid: string;
+    email: string;
+    displayName?: string;
+    emailVerified?: boolean;
+  }): { ok: true; token: string; account: PlayerAccount } | { ok: false; message: string } {
+    const uid = this.safeFileId(input.uid || '');
+    const email = (input.email ?? '').trim().toLowerCase();
+    if (!uid || !email) {
+      return { ok: false, message: 'Firebase account must include a verified UID and email.' };
+    }
+
+    const isVerifiedAdminEmail = email === 'puncisters@gmail.com' && Boolean(input.emailVerified);
+    let cred = this.credentials.find((c) => c.email === email || c.accountId === `fb_${uid}`);
+
+    if (!cred) {
+      const accountId = isVerifiedAdminEmail ? 'admin_gamedev' : `fb_${uid}`;
+      const baseName = (input.displayName || email.split('@')[0] || 'Explorer')
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .slice(0, 12) || 'Explorer';
+      let candidate = baseName.length >= 2 ? baseName : `Player_${uid.slice(0, 4)}`;
+      let suffix = 1;
+      while (this.credentials.some((c) => c.usernameLower === candidate.toLowerCase())) {
+        candidate = `${baseName.slice(0, 11)}_${suffix++}`;
+      }
+      cred = {
+        accountId,
+        email,
+        username: candidate,
+        usernameLower: candidate.toLowerCase(),
+        passwordHash: this.hashPassword(crypto.randomBytes(24).toString('hex')),
+        role: isVerifiedAdminEmail ? 'admin' : 'player',
+        createdAt: Date.now(),
+      };
+      this.credentials.push(cred);
+      this.saveCredentials();
+    } else if (isVerifiedAdminEmail && cred.role !== 'admin') {
+      cred.role = 'admin';
+      this.saveCredentials();
+    }
+
+    let account = this.loadPlayerById(cred.accountId);
+    if (!account) {
+      account = this.createEmptyPlayerAccount(cred.accountId, cred.username, cred.email, cred.role);
+      this.players.set(cred.accountId, account);
+      this.savePlayer(account);
+    } else {
+      account.role = cred.role;
+      account.email = cred.email;
+      account.name = cred.username;
+      this.savePlayer(account);
+    }
+
+    const token = crypto.randomBytes(24).toString('hex');
+    this.sessions.set(token, { token, accountId: account.id, createdAt: Date.now() });
+    this.saveSessions();
+
+    return { ok: true, token, account };
+  }
+
   loginAccount(input: {
     identifier: string;
     password: string;

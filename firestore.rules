@@ -1,0 +1,249 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'puncisters@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isValidPublicProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'playerName', 'level', 'role', 'currentWorld', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'playerName', 'level', 'role', 'currentWorld', 'updatedAt'])
+        && data.uid is string
+        && data.uid.size() >= 1
+        && data.uid.size() <= 128
+        && data.uid == userId
+        && data.playerName is string
+        && data.playerName.size() >= 1
+        && data.playerName.size() <= 32
+        && data.level is int
+        && data.level >= 1
+        && data.level <= 999
+        && data.role in ['player', 'admin']
+        && data.currentWorld is string
+        && data.currentWorld.size() <= 32
+        && data.updatedAt == request.time;
+    }
+
+    function isValidPrivateAccount(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'gems', 'xp', 'level', 'favoriteWorlds', 'recentWorlds', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'gems', 'xp', 'level', 'favoriteWorlds', 'recentWorlds', 'inventory', 'equipped', 'stats', 'createdAt', 'updatedAt'])
+        && data.uid is string
+        && data.uid.size() >= 1
+        && data.uid.size() <= 128
+        && data.uid == userId
+        && data.email is string
+        && data.email.size() <= 160
+        && data.gems is int
+        && data.gems >= 0
+        && data.gems <= 100000000
+        && data.xp is int
+        && data.xp >= 0
+        && data.level is int
+        && data.level >= 1
+        && data.level <= 999
+        && data.favoriteWorlds is list
+        && data.favoriteWorlds.size() <= 30
+        && (data.favoriteWorlds.size() == 0 || data.favoriteWorlds[0] is string)
+        && data.recentWorlds is list
+        && data.recentWorlds.size() <= 30
+        && (data.recentWorlds.size() == 0 || data.recentWorlds[0] is string)
+        && (!('inventory' in data) || (data.inventory is list && data.inventory.size() <= 200))
+        && (!('equipped' in data) || data.equipped is map)
+        && (!('stats' in data) || data.stats is map)
+        && data.updatedAt == request.time;
+    }
+
+    function isValidWorldSnapshot(data, worldId) {
+      return data.keys().hasAll(['worldId', 'name', 'revision', 'spawnX', 'spawnY', 'fgRle', 'bgRle', 'publicAccess', 'updatedByUid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['worldId', 'name', 'ownerUid', 'ownerName', 'revision', 'spawnX', 'spawnY', 'fgRle', 'bgRle', 'publicAccess', 'updatedByUid', 'createdAt', 'updatedAt'])
+        && data.worldId is string
+        && data.worldId.size() >= 1
+        && data.worldId.size() <= 32
+        && data.worldId == worldId
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 24
+        && (!('ownerUid' in data) || data.ownerUid == null || (data.ownerUid is string && data.ownerUid.size() <= 128))
+        && (!('ownerName' in data) || data.ownerName == null || (data.ownerName is string && data.ownerName.size() <= 32))
+        && data.revision is int
+        && data.revision >= 0
+        && data.spawnX is int
+        && data.spawnX >= 0
+        && data.spawnX < 100
+        && data.spawnY is int
+        && data.spawnY >= 0
+        && data.spawnY < 60
+        && data.fgRle is string
+        && data.fgRle.size() <= 120000
+        && data.bgRle is string
+        && data.bgRle.size() <= 120000
+        && data.publicAccess is bool
+        && data.updatedByUid is string
+        && data.updatedByUid.size() >= 1
+        && data.updatedByUid.size() <= 128
+        && data.updatedByUid == request.auth.uid
+        && data.updatedAt == request.time;
+    }
+
+    function isValidPresence(data, worldId, userId) {
+      return data.keys().hasAll(['uid', 'playerName', 'worldName', 'x', 'y', 'level', 'online', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'playerName', 'worldName', 'x', 'y', 'level', 'online', 'updatedAt'])
+        && data.uid is string
+        && data.uid.size() >= 1
+        && data.uid.size() <= 128
+        && data.uid == userId
+        && data.playerName is string
+        && data.playerName.size() >= 1
+        && data.playerName.size() <= 32
+        && data.worldName is string
+        && data.worldName.size() >= 1
+        && data.worldName.size() <= 24
+        && data.worldName == worldId
+        && data.x is number
+        && data.x >= 0
+        && data.x <= 3200
+        && data.y is number
+        && data.y >= 0
+        && data.y <= 1920
+        && data.level is int
+        && data.level >= 1
+        && data.level <= 999
+        && data.online is bool
+        && data.updatedAt == request.time;
+    }
+
+    // Boot connection health check document
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+    }
+
+    // Trusted Admin Role lookup (read-only for owner/admin)
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // User Profiles (Split Collection: public vs PII-isolated private)
+    match /users/{userId}/public/{docId} {
+      allow get: if isSignedIn() && isValidId(userId) && isValidId(docId);
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isVerified() && isOwner(userId) && docId == 'profile' && isValidId(userId)
+        && isValidPublicProfile(incoming(), userId)
+        && (incoming().role == 'player' || isAdmin());
+      allow update: if isVerified() && isOwner(userId) && docId == 'profile' && isValidId(userId)
+        && isValidPublicProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && (incoming().role == existing().role || isAdmin())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['playerName', 'level', 'role', 'currentWorld', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /users/{userId}/private/{docId} {
+      allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isVerified() && isOwner(userId) && docId == 'account' && isValidId(userId)
+        && isValidPrivateAccount(incoming(), userId)
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(userId) && docId == 'account' && ((isVerified() && isOwner(userId)) || isAdmin())
+        && isValidPrivateAccount(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'email',
+          'gems',
+          'xp',
+          'level',
+          'favoriteWorlds',
+          'recentWorlds',
+          'inventory',
+          'equipped',
+          'stats',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Persistent Worlds
+    match /worlds/{worldId} {
+      allow get: if isSignedIn() && isValidId(worldId)
+        && (resource.data.publicAccess == true || resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.publicAccess == true;
+      allow create: if isVerified() && isValidId(worldId)
+        && isValidWorldSnapshot(incoming(), worldId)
+        && incoming().createdAt == request.time;
+      allow update: if isVerified() && isValidId(worldId)
+        && isValidWorldSnapshot(incoming(), worldId)
+        && incoming().worldId == existing().worldId
+        && incoming().createdAt == existing().createdAt
+        && (existing().ownerUid == null || existing().ownerUid == request.auth.uid || existing().publicAccess == true || isAdmin())
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'ownerUid',
+          'ownerName',
+          'revision',
+          'spawnX',
+          'spawnY',
+          'fgRle',
+          'bgRle',
+          'publicAccess',
+          'updatedByUid',
+          'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(worldId);
+
+      // Live Player Presence Subcollection (Master Gate checks parent world exists)
+      match /presence/{userId} {
+        allow get: if isSignedIn() && isValidId(worldId) && isValidId(userId);
+        allow list: if isSignedIn() && resource.data.online == true && resource.data.worldName == worldId;
+        allow create: if isVerified() && isOwner(userId) && isValidId(worldId) && isValidId(userId)
+          && exists(/databases/$(database)/documents/worlds/$(worldId))
+          && isValidPresence(incoming(), worldId, userId);
+        allow update: if isVerified() && isOwner(userId) && isValidId(worldId) && isValidId(userId)
+          && exists(/databases/$(database)/documents/worlds/$(worldId))
+          && isValidPresence(incoming(), worldId, userId)
+          && incoming().uid == existing().uid
+          && incoming().worldName == existing().worldName
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'playerName',
+            'x',
+            'y',
+            'level',
+            'online',
+            'updatedAt'
+          ]);
+        allow delete: if isValidId(worldId) && isValidId(userId) && (isOwner(userId) || isAdmin());
+      }
+    }
+  }
+}

@@ -1,0 +1,285 @@
+{
+  "entities": {
+    "UserPublicProfile": {
+      "title": "UserPublicProfile",
+      "description": "Non-PII public explorer profile visible to other players.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "playerName": {
+          "type": "string",
+          "description": "Public display username.",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "level": {
+          "type": "integer",
+          "description": "Current explorer XP level."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["player", "admin"],
+          "description": "Player privilege role."
+        },
+        "currentWorld": {
+          "type": "string",
+          "description": "Name of world currently occupied or empty string.",
+          "maxLength": 32
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last profile sync."
+        }
+      },
+      "required": ["uid", "playerName", "level", "role", "currentWorld", "updatedAt"]
+    },
+    "UserPrivateAccount": {
+      "title": "UserPrivateAccount",
+      "description": "PII-isolated private player account progression, inventory, and wallet.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Player email address.",
+          "maxLength": 160
+        },
+        "gems": {
+          "type": "integer",
+          "description": "Gem currency balance."
+        },
+        "xp": {
+          "type": "integer",
+          "description": "Current level XP."
+        },
+        "level": {
+          "type": "integer",
+          "description": "Current explorer level."
+        },
+        "favoriteWorlds": {
+          "type": "array",
+          "description": "Starred world names."
+        },
+        "recentWorlds": {
+          "type": "array",
+          "description": "Recently visited world names."
+        },
+        "inventory": {
+          "type": "array",
+          "description": "Inventory item stacks."
+        },
+        "equipped": {
+          "type": "object",
+          "description": "Equipped cosmetic wearables."
+        },
+        "stats": {
+          "type": "object",
+          "description": "Player lifetime statistics."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last save."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "gems",
+        "xp",
+        "level",
+        "favoriteWorlds",
+        "recentWorlds",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorldSnapshot": {
+      "title": "WorldSnapshot",
+      "description": "Persistent 100x60 sandbox world tilemap and ownership state.",
+      "type": "object",
+      "properties": {
+        "worldId": {
+          "type": "string",
+          "description": "Uppercase normalized world identifier.",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "World display name.",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "Firebase UID of the World Lock owner if claimed.",
+          "maxLength": 128
+        },
+        "ownerName": {
+          "type": "string",
+          "description": "Display name of world owner if claimed.",
+          "maxLength": 32
+        },
+        "revision": {
+          "type": "integer",
+          "description": "Monotonic world revision counter."
+        },
+        "spawnX": {
+          "type": "integer",
+          "description": "Spawn portal tile X."
+        },
+        "spawnY": {
+          "type": "integer",
+          "description": "Spawn portal tile Y."
+        },
+        "fgRle": {
+          "type": "string",
+          "description": "Run-length encoded foreground tile grid (6000 tiles).",
+          "maxLength": 120000
+        },
+        "bgRle": {
+          "type": "string",
+          "description": "Run-length encoded background tile grid (6000 tiles).",
+          "maxLength": 120000
+        },
+        "publicAccess": {
+          "type": "boolean",
+          "description": "Whether public visitors may enter this world."
+        },
+        "updatedByUid": {
+          "type": "string",
+          "description": "UID of last writer.",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "worldId",
+        "name",
+        "revision",
+        "spawnX",
+        "spawnY",
+        "fgRle",
+        "bgRle",
+        "publicAccess",
+        "updatedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorldPresence": {
+      "title": "WorldPresence",
+      "description": "Real-time player presence heartbeat inside a specific world.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "playerName": {
+          "type": "string",
+          "description": "Explorer display name.",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "worldName": {
+          "type": "string",
+          "description": "World ID currently occupied.",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "x": {
+          "type": "number",
+          "description": "Player pixel X position."
+        },
+        "y": {
+          "type": "number",
+          "description": "Player pixel Y position."
+        },
+        "level": {
+          "type": "integer",
+          "description": "Player XP level."
+        },
+        "online": {
+          "type": "boolean",
+          "description": "Whether the player is actively connected."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last presence ping."
+        }
+      },
+      "required": ["uid", "playerName", "worldName", "x", "y", "level", "online", "updatedAt"]
+    },
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Server-managed administrator role assignment.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of admin."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Admin email."
+        }
+      },
+      "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/public/{docId}": {
+      "schema": { "$ref": "#/entities/UserPublicProfile" },
+      "description": "Public non-PII explorer profile document ('profile')."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateAccount" },
+      "description": "Private PII-isolated account record ('account')."
+    },
+    "/worlds/{worldId}": {
+      "schema": { "$ref": "#/entities/WorldSnapshot" },
+      "description": "Persistent world tilemap and ownership state."
+    },
+    "/worlds/{worldId}/presence/{userId}": {
+      "schema": { "$ref": "#/entities/WorldPresence" },
+      "description": "Live multiplayer presence per active player in a world."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "Trusted administrator lookup collection."
+    }
+  }
+}
