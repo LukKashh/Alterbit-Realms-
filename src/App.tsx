@@ -21,6 +21,13 @@ import { TitleScreen } from './components/TitleScreen.tsx';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
 import { WorldHub } from './components/WorldHub.tsx';
 import { GameHud } from './components/GameHud.tsx';
+import { testFirestoreConnection } from './lib/firebase.ts';
+import {
+  publishWorldPresence,
+  subscribeWorldPresence,
+  syncUserToFirestore,
+  syncWorldToFirestore,
+} from './lib/firebaseSync.ts';
 
 type AppState = 'auth' | 'loading' | 'hub' | 'playing' | 'paused';
 
@@ -190,6 +197,7 @@ export default function App() {
       setUnclaimedWl(user.unclaimedWl ?? 0);
       engineRef.current?.setLocalIdentity(user.playerId, user.playerName, '#3f8fd9', user.equipped);
       engineRef.current?.setActiveBuffs(buffs);
+      void syncUserToFirestore(user, socketRef.current?.getActiveWorldName() ?? '').catch(() => {});
     },
     [syncHotbarWithInventory]
   );
@@ -234,6 +242,8 @@ export default function App() {
     const mount = canvasMountRef.current;
     if (!mount) return;
 
+    void testFirestoreConnection();
+
     const socket = new GameSocketClient();
     socketRef.current = socket;
 
@@ -258,7 +268,16 @@ export default function App() {
     engineRef.current = engine;
     engine.setMode('title');
 
-    const unsubStatus = socket.onStatus((isConn) => setConnected(isConn));
+    let wasDisconnectedWhilePlaying = false;
+    const unsubStatus = socket.onStatus((isConn) => {
+      setConnected(isConn);
+      if (!isConn && (modeRef.current === 'playing' || modeRef.current === 'paused')) {
+        wasDisconnectedWhilePlaying = true;
+      } else if (isConn && wasDisconnectedWhilePlaying) {
+        wasDisconnectedWhilePlaying = false;
+        showToast('Reconnected to live world state.');
+      }
+    });
     const unsubMsg = socket.onMessage((msg) => {
       switch (msg.type) {
         case 'welcome':
@@ -285,6 +304,20 @@ export default function App() {
           engine.applyGameConfig(msg.gameConfig);
           if (msg.exchange) setExchangeSnapshot(msg.exchange);
           break;
+        case 'pong':
+          if (typeof msg.playerCount === 'number') {
+            setPlayerCount(msg.playerCount);
+          }
+          if (
+            msg.worldName &&
+            typeof msg.worldRevision === 'number' &&
+            (modeRef.current === 'playing' || modeRef.current === 'paused') &&
+            engine.getWorldState().name === msg.worldName &&
+            engine.getWorldRevision() < msg.worldRevision
+          ) {
+            socket.joinWorld(msg.worldName, engine.getLocalPose());
+          }
+          break;
         case 'auth_error':
           try {
             localStorage.removeItem(TOKEN_STORAGE_KEY);
@@ -299,9 +332,15 @@ export default function App() {
           engine.applyGameConfig(msg.gameConfig);
           if (msg.notice) showToast(msg.notice);
           break;
-        case 'world_joined':
+        case 'world_joined': {
+          const isReconnectSameWorld =
+            Boolean(msg.resumed) ||
+            ((modeRef.current === 'playing' || modeRef.current === 'paused') &&
+              engine.getWorldState().name === msg.world.name);
           setErrorMessage(null);
-          setInspectInfo(null);
+          if (!isReconnectSameWorld) {
+            setInspectInfo(null);
+          }
           setWorldName(msg.world.name);
           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
           setWorldKind(msg.world.worldKind ?? 'standard');
@@ -310,9 +349,22 @@ export default function App() {
           setFishingBiting(false);
           setPlayerCount(msg.players.length);
           setChatMessages(msg.chatHistory);
-          engine.loadWorld(msg.world, msg.players, msg.drops);
-          engine.setMode('playing');
-          setAppState('playing');
+          engine.loadWorld(msg.world, msg.players, msg.drops, {
+            preserveLocalPose: isReconnectSameWorld,
+          });
+          socket.updateLocalPose(engine.getLocalPose());
+          if (modeRef.current !== 'paused') {
+            engine.setMode('playing');
+            setAppState('playing');
+          }
+          void syncWorldToFirestore(msg.world).catch(() => {});
+          break;
+        }
+        case 'presence_sync':
+          if (engine.getWorldState().name === msg.worldName) {
+            engine.syncPresenceAndDrops(msg.players, msg.drops, msg.revision);
+            setPlayerCount(msg.players.length);
+          }
           break;
         case 'world_error':
           if (modeRef.current === 'loading') {
@@ -639,6 +691,42 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleSelectItem, hotbarItemIds]);
 
+  // Live Firestore world presence heartbeat & subscription when in a world
+  useEffect(() => {
+    if ((appState !== 'playing' && appState !== 'paused') || !worldName) return;
+
+    const unsubPresence = subscribeWorldPresence(worldName, () => {
+      // Presence listener keeps Firestore live collection active
+    });
+
+    const publishNow = (online: boolean) => {
+      const pose = engineRef.current?.getLocalPose();
+      void publishWorldPresence({
+        worldName,
+        playerName,
+        x: pose?.x ?? coords.tx * 48,
+        y: pose?.y ?? coords.ty * 48,
+        level,
+        online,
+      }).catch(() => {});
+    };
+
+    publishNow(true);
+    const interval = window.setInterval(() => {
+      publishNow(true);
+      const ws = engineRef.current?.getWorldState();
+      if (ws && ws.worldKind !== 'mine_shaft') {
+        void syncWorldToFirestore(ws).catch(() => {});
+      }
+    }, 8000);
+
+    return () => {
+      window.clearInterval(interval);
+      unsubPresence();
+      publishNow(false);
+    };
+  }, [appState, coords.tx, coords.ty, level, playerName, worldName]);
+
   return (
     <main className="relative w-screen h-screen overflow-hidden bg-[#0b1622]">
       {/* Isolated Canvas2D World Mount */}
@@ -701,6 +789,8 @@ export default function App() {
               txId: opts.action === 'buy' || opts.action === 'post' ? makeTxId() : undefined,
             })
           }
+          connected={connected}
+          onReconnectNow={() => socketRef.current?.reconnectNow()}
           onSignOut={handleSignOut}
         />
       )}
@@ -795,6 +885,7 @@ export default function App() {
           onDismissInspect={() => setInspectInfo(null)}
           toastMessage={toastMessage}
           connected={connected}
+          onReconnectNow={() => socketRef.current?.reconnectNow()}
           worldKind={worldKind}
           mineExpiresAt={mineExpiresAt}
           activeBuffs={activeBuffs}

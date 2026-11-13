@@ -4,7 +4,7 @@ import express from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { AuthoritativeWorldStore, type LiveWorld, type PlayerAccount } from './server/worldStore.ts';
 import { adminAuth } from './src/lib/firebase-admin.ts';
-import type { ClientMessage, ServerMessage } from './src/game/network.ts';
+import type { ClientMessage, ResumePosition, ServerMessage } from './src/game/network.ts';
 import { TILE_SIZE } from './src/game/constants.ts';
 import { tileIndexIn, worldHeight, worldWidth } from './src/game/rules.ts';
 
@@ -12,6 +12,7 @@ interface ClientSession {
   ws: WebSocket;
   account: PlayerAccount | null;
   worldName: string | null;
+  lastSeenAt: number;
 }
 
 const PORT = Number(process.env.PORT || 3000);
@@ -207,23 +208,45 @@ async function startServer() {
     });
   }
 
-  function leaveCurrentWorld(session: ClientSession) {
+  function leaveCurrentWorld(session: ClientSession, explicitExit = false) {
     if (!session.account || !session.worldName) return;
     const prevWorld = session.worldName;
-    store.leaveWorld(prevWorld, session.account.id);
+    const accountId = session.account.id;
     session.worldName = null;
-    broadcastWorld(prevWorld, { type: 'player_left', playerId: session.account.id });
-    broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
+
+    // Only remove player from world if no other active socket for the same account is in that world
+    let hasOtherActiveSocketInWorld = false;
+    for (const s of sessions) {
+      if (
+        s !== session &&
+        s.account?.id === accountId &&
+        s.worldName === prevWorld &&
+        s.ws.readyState === WebSocket.OPEN
+      ) {
+        hasOtherActiveSocketInWorld = true;
+        break;
+      }
+    }
+
+    if (!hasOtherActiveSocketInWorld) {
+      store.leaveWorld(prevWorld, accountId, explicitExit);
+      broadcastWorld(prevWorld, { type: 'player_left', playerId: accountId });
+      broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
+    }
   }
 
   function enterWorldSession(
     session: ClientSession,
     ws: WebSocket,
     account: PlayerAccount,
-    targetWorldName: string
+    targetWorldName: string,
+    resumePosition?: ResumePosition,
+    explicitLeavePrev = false
   ) {
-    leaveCurrentWorld(session);
-    const res = store.joinWorld(account, targetWorldName);
+    if (session.worldName && session.worldName !== targetWorldName.trim().toUpperCase()) {
+      leaveCurrentWorld(session, explicitLeavePrev);
+    }
+    const res = store.joinWorld(account, targetWorldName, resumePosition);
     if (!res.ok) {
       sendTo(ws, { type: 'world_error', message: res.message });
       return;
@@ -235,6 +258,7 @@ async function startServer() {
       players: Array.from(res.world.players.values()),
       drops: Array.from(res.world.drops.values()),
       chatHistory: res.world.chatHistory,
+      resumed: res.resumed,
     });
     sendProfileUpdate(ws, account);
     broadcastWorld(
@@ -246,10 +270,20 @@ async function startServer() {
   }
 
   wss.on('connection', (ws) => {
-    const session: ClientSession = { ws, account: null, worldName: null };
+    const session: ClientSession = {
+      ws,
+      account: null,
+      worldName: null,
+      lastSeenAt: Date.now(),
+    };
     sessions.add(session);
 
+    ws.on('pong', () => {
+      session.lastSeenAt = Date.now();
+    });
+
     ws.on('message', (raw) => {
+      session.lastSeenAt = Date.now();
       let msg: ClientMessage;
       try {
         msg = JSON.parse(raw.toString()) as ClientMessage;
@@ -297,6 +331,19 @@ async function startServer() {
         return;
       }
 
+      if (msg.type === 'ping') {
+        const currentWorld = session.worldName ? store.getExistingWorld(session.worldName) : null;
+        sendTo(ws, {
+          type: 'pong',
+          clientTime: msg.clientTime,
+          serverTime: Date.now(),
+          worldName: session.worldName,
+          worldRevision: currentWorld?.state.revision ?? null,
+          playerCount: currentWorld?.players.size ?? undefined,
+        });
+        return;
+      }
+
       if (!session.account) return;
       const account = session.account;
 
@@ -306,12 +353,12 @@ async function startServer() {
       }
 
       if (msg.type === 'leave_world') {
-        leaveCurrentWorld(session);
+        leaveCurrentWorld(session, true);
         return;
       }
 
       if (msg.type === 'join_world') {
-        enterWorldSession(session, ws, account, msg.worldName);
+        enterWorldSession(session, ws, account, msg.worldName, msg.resumePosition, false);
         return;
       }
 
@@ -322,7 +369,7 @@ async function startServer() {
           return;
         }
         if (res.kind === 'mine_scroll' && res.mineWorldName) {
-          enterWorldSession(session, ws, account, res.mineWorldName);
+          enterWorldSession(session, ws, account, res.mineWorldName, undefined, true);
           sendProfileUpdate(ws, account, res.notice);
         } else {
           sendProfileUpdate(ws, account, res.notice);
@@ -331,7 +378,7 @@ async function startServer() {
       }
 
       if (msg.type === 'exit_mine_shaft') {
-        enterWorldSession(session, ws, account, 'START');
+        enterWorldSession(session, ws, account, 'START', undefined, true);
         return;
       }
 
@@ -479,6 +526,14 @@ async function startServer() {
         remote.punching = msg.punching;
         remote.placing = Boolean(msg.placing);
         remote.equipped = account.equipped;
+        store.recordPlayerPose(live.state.name, account.id, {
+          x: remote.x,
+          y: remote.y,
+          vx: remote.vx,
+          vy: remote.vy,
+          facing: remote.facing,
+          grounded: remote.grounded,
+        });
         broadcastWorld(live.state.name, { type: 'player_moved', player: remote }, ws);
         return;
       }
@@ -657,7 +712,7 @@ async function startServer() {
     });
 
     ws.on('close', () => {
-      leaveCurrentWorld(session);
+      leaveCurrentWorld(session, false);
       sessions.delete(session);
     });
   });
@@ -693,7 +748,7 @@ async function startServer() {
             worldName: em.worldName,
             message: `Mining Shaft ${em.worldName} collapsed! Returning to START.`,
           });
-          enterWorldSession(s, s.ws, s.account, 'START');
+          enterWorldSession(s, s.ws, s.account, 'START', undefined, true);
         }
       }
     }
@@ -714,6 +769,62 @@ async function startServer() {
     }
   }, 2500);
   bfgTickTimer.unref();
+
+  // Authoritative 3000ms Live Presence Sync, Dirty-World Disk Flush & Socket Liveness Sweep
+  const presenceSyncTimer = setInterval(() => {
+    store.flushDirtyWorlds();
+    const now = Date.now();
+    const activeWorlds = new Set<string>();
+
+    for (const s of Array.from(sessions)) {
+      if (s.ws.readyState !== WebSocket.OPEN) {
+        leaveCurrentWorld(s, false);
+        sessions.delete(s);
+        continue;
+      }
+      if (now - s.lastSeenAt > 32000) {
+        try {
+          s.ws.terminate();
+        } catch {
+          // ignore
+        }
+        leaveCurrentWorld(s, false);
+        sessions.delete(s);
+        continue;
+      }
+      try {
+        s.ws.ping();
+      } catch {
+        // ignore
+      }
+      if (s.worldName) {
+        activeWorlds.add(s.worldName);
+      }
+    }
+
+    for (const wName of activeWorlds) {
+      const lw = store.getExistingWorld(wName);
+      if (!lw || lw.players.size === 0) continue;
+      broadcastWorld(wName, {
+        type: 'presence_sync',
+        worldName: wName,
+        players: Array.from(lw.players.values()),
+        drops: Array.from(lw.drops.values()),
+        revision: lw.state.revision,
+      });
+    }
+  }, 3000);
+  presenceSyncTimer.unref();
+
+  const flushOnExit = () => {
+    try {
+      store.flushDirtyWorlds();
+    } catch {
+      // ignore
+    }
+  };
+  process.once('SIGINT', flushOnExit);
+  process.once('SIGTERM', flushOnExit);
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');

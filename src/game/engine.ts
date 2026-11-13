@@ -475,11 +475,67 @@ export class BlockgroveEngine {
     }
   }
 
+  public getWorldState(): WorldState {
+    return this.world;
+  }
+
+  public getWorldRevision(): number {
+    return this.world.revision ?? 0;
+  }
+
+  public getLocalPose() {
+    return {
+      x: this.body.x,
+      y: this.body.y,
+      vx: this.body.vx,
+      vy: this.body.vy,
+      facing: this.body.facing,
+      grounded: this.body.grounded,
+    };
+  }
+
+  public syncPresenceAndDrops(players: RemotePlayerState[], drops: WorldDrop[], revision?: number) {
+    if (typeof revision === 'number' && revision > (this.world.revision ?? 0)) {
+      this.world.revision = revision;
+    }
+    const seenIds = new Set<string>();
+    for (const p of players) {
+      if (p.id === this.localPlayerId) continue;
+      seenIds.add(p.id);
+      this.updateRemotePlayer(p);
+    }
+    for (const existingId of Array.from(this.remotePlayers.keys())) {
+      if (!seenIds.has(existingId)) {
+        this.remotePlayers.delete(existingId);
+        this.activeCasts.delete(existingId);
+      }
+    }
+
+    const seenDropIds = new Set<string>();
+    for (const d of drops) {
+      seenDropIds.add(d.id);
+      this.drops.set(d.id, d);
+    }
+    for (const existingDropId of Array.from(this.drops.keys())) {
+      if (!seenDropIds.has(existingDropId)) {
+        this.drops.delete(existingDropId);
+        this.pickupAttempted.delete(existingDropId);
+      }
+    }
+  }
+
   public loadWorld(
     world: WorldState,
     players: RemotePlayerState[],
-    drops: WorldDrop[]
+    drops: WorldDrop[],
+    options?: { preserveLocalPose?: boolean }
   ) {
+    const isSameWorldReconnect =
+      Boolean(options?.preserveLocalPose) &&
+      this.mode !== 'title' &&
+      this.world?.name === world.name;
+    const prevBody = isSameWorldReconnect ? { ...this.body } : null;
+
     this.world = world;
     this.world.areaLocks = this.world.areaLocks ?? {};
     this.world.vendingMachines = this.world.vendingMachines ?? {};
@@ -497,7 +553,24 @@ export class BlockgroveEngine {
     }
 
     this.rebuildWorldLayer();
-    this.body = createPlayerBody(world.spawnX, world.spawnY);
+
+    const serverSelf = players.find((p) => p.id === this.localPlayerId);
+    if (prevBody) {
+      this.body = prevBody;
+    } else if (serverSelf && options?.preserveLocalPose) {
+      this.body = {
+        ...createPlayerBody(world.spawnX, world.spawnY),
+        x: serverSelf.x,
+        y: serverSelf.y,
+        vx: serverSelf.vx,
+        vy: serverSelf.vy,
+        facing: serverSelf.facing,
+        grounded: serverSelf.grounded,
+      };
+    } else {
+      this.body = createPlayerBody(world.spawnX, world.spawnY);
+    }
+
     this.remotePlayers.clear();
     for (const p of players) {
       if (p.id !== this.localPlayerId) {
@@ -511,7 +584,9 @@ export class BlockgroveEngine {
     this.cracks.clear();
     this.pickupAttempted.clear();
     this.activeCasts.clear();
-    this.snapCameraToPlayer();
+    if (!prevBody) {
+      this.snapCameraToPlayer();
+    }
   }
 
   public addRemotePlayer(p: RemotePlayerState) {

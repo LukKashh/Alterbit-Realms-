@@ -60,6 +60,8 @@ interface WorldHubProps {
     priceWl?: number;
     listingId?: string;
   }) => void;
+  connected?: boolean;
+  onReconnectNow?: () => void;
   onSignOut: () => void;
 }
 
@@ -93,6 +95,8 @@ export const WorldHub: React.FC<WorldHubProps> = ({
   onSaveGameConfig,
   onAdminAction,
   onExchangeAction,
+  connected = true,
+  onReconnectNow,
   onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<HubTab>('worlds');
@@ -133,6 +137,15 @@ export const WorldHub: React.FC<WorldHubProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {!connected && (
+              <button
+                type="button"
+                onClick={onReconnectNow}
+                className="px-2.5 py-1 rounded bg-[#3b181b] hover:bg-[#542227] border border-[#80333a] text-xs font-bold text-[#ffb0b0] cursor-pointer whitespace-nowrap"
+              >
+                Reconnecting · Retry
+              </button>
+            )}
             {toastMessage && (
               <span className="text-xs font-bold text-[#fff3cf] bg-[#213b57] border border-[#f2b738] rounded px-2.5 py-1">
                 {toastMessage}

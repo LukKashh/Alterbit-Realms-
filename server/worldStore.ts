@@ -67,6 +67,7 @@ import type {
   FriendRequestEntry,
   InventorySlot,
   RemotePlayerState,
+  ResumePosition,
   UserRole,
   WorldDrop,
   WorldSummary,
@@ -173,6 +174,7 @@ export class AuthoritativeWorldStore {
   };
   private lastPunchAt = new Map<string, number>();
   private lastChatAt = new Map<string, number>();
+  private lastKnownPositions = new Map<string, { pose: ResumePosition; savedAt: number }>();
 
   constructor() {
     fs.mkdirSync(WORLDS_DIR, { recursive: true });
@@ -904,12 +906,37 @@ export class AuthoritativeWorldStore {
     return summaries.sort((a, b) => b.playerCount - a.playerCount || a.name.localeCompare(b.name));
   }
 
+  flushDirtyWorlds(): number {
+    let flushed = 0;
+    for (const live of this.worlds.values()) {
+      if (live.dirty && live.state.worldKind !== 'mine_shaft') {
+        this.saveWorld(live);
+        flushed += 1;
+      }
+    }
+    return flushed;
+  }
+
+  recordPlayerPose(worldName: string, playerId: string, pose: ResumePosition) {
+    this.lastKnownPositions.set(`${worldName}:${playerId}`, {
+      pose,
+      savedAt: Date.now(),
+    });
+  }
+
   joinWorld(
     account: PlayerAccount,
-    rawWorldName: string
-  ): { ok: true; world: LiveWorld; remote: RemotePlayerState } | { ok: false; message: string } {
+    rawWorldName: string,
+    resumePosition?: ResumePosition
+  ):
+    | { ok: true; world: LiveWorld; remote: RemotePlayerState; resumed: boolean }
+    | { ok: false; message: string } {
     const v = validateWorldName(rawWorldName);
     if (!v.ok) return { ok: false, message: v.reason ?? 'Invalid world name.' };
+
+    if (v.normalized.startsWith('MINE_') && !this.worlds.has(v.normalized)) {
+      return { ok: false, message: 'This Mining Shaft has collapsed or expired.' };
+    }
 
     const live = this.getOrCreateWorld(v.normalized);
     const enterCheck = canEnterWorld(live.state, account.id);
@@ -918,7 +945,10 @@ export class AuthoritativeWorldStore {
     }
 
     if (live.players.size >= MAX_WORLD_PLAYERS && !live.players.has(account.id)) {
-      return { ok: false, message: `World ${v.normalized} is full (${MAX_WORLD_PLAYERS}/${MAX_WORLD_PLAYERS}).` };
+      return {
+        ok: false,
+        message: `World ${v.normalized} is full (${MAX_WORLD_PLAYERS}/${MAX_WORLD_PLAYERS}).`,
+      };
     }
 
     if (live.state.worldKind !== 'mine_shaft') {
@@ -929,15 +959,50 @@ export class AuthoritativeWorldStore {
       this.savePlayer(account);
     }
 
+    const posKey = `${live.state.name}:${account.id}`;
+    const savedPoseEntry = this.lastKnownPositions.get(posKey);
+    const candidatePose =
+      resumePosition ??
+      (savedPoseEntry && Date.now() - savedPoseEntry.savedAt < 10 * 60 * 1000
+        ? savedPoseEntry.pose
+        : undefined);
+
+    const maxPxX = ((live.state.width || 100) - 1) * TILE_SIZE;
+    const maxPxY = ((live.state.height || 60) - 1) * TILE_SIZE;
+    const defaultX = live.state.spawnX * TILE_SIZE + (TILE_SIZE - PLAYER_WIDTH) * 0.5;
+    const defaultY = (live.state.spawnY + 1) * TILE_SIZE - PLAYER_HEIGHT;
+
+    let spawnX = defaultX;
+    let spawnY = defaultY;
+    let facing: 1 | -1 = 1;
+    let grounded = true;
+    let resumed = false;
+
+    if (
+      candidatePose &&
+      Number.isFinite(candidatePose.x) &&
+      Number.isFinite(candidatePose.y) &&
+      candidatePose.x >= 0 &&
+      candidatePose.x <= maxPxX &&
+      candidatePose.y >= 0 &&
+      candidatePose.y <= maxPxY
+    ) {
+      spawnX = candidatePose.x;
+      spawnY = candidatePose.y;
+      facing = candidatePose.facing === -1 ? -1 : 1;
+      grounded = Boolean(candidatePose.grounded);
+      resumed = true;
+    }
+
     const remote: RemotePlayerState = {
       id: account.id,
       name: account.name,
-      x: live.state.spawnX * TILE_SIZE + (TILE_SIZE - PLAYER_WIDTH) * 0.5,
-      y: (live.state.spawnY + 1) * TILE_SIZE - PLAYER_HEIGHT,
+      x: spawnX,
+      y: spawnY,
       vx: 0,
       vy: 0,
-      facing: 1,
-      grounded: true,
+      facing,
+      grounded,
       punching: false,
       shirtColor: account.shirtColor,
       level: account.level,
@@ -945,15 +1010,36 @@ export class AuthoritativeWorldStore {
       role: account.role,
     };
     live.players.set(account.id, remote);
-    return { ok: true, world: live, remote };
+    this.recordPlayerPose(live.state.name, account.id, {
+      x: remote.x,
+      y: remote.y,
+      vx: 0,
+      vy: 0,
+      facing: remote.facing,
+      grounded: remote.grounded,
+    });
+    return { ok: true, world: live, remote, resumed };
   }
 
-  leaveWorld(worldName: string, playerId: string) {
+  leaveWorld(worldName: string, playerId: string, explicitExit = false) {
     const live = this.worlds.get(worldName);
     if (!live) return;
+    const existing = live.players.get(playerId);
+    if (existing && !explicitExit) {
+      this.recordPlayerPose(worldName, playerId, {
+        x: existing.x,
+        y: existing.y,
+        vx: existing.vx,
+        vy: existing.vy,
+        facing: existing.facing,
+        grounded: existing.grounded,
+      });
+    } else if (explicitExit) {
+      this.lastKnownPositions.delete(`${worldName}:${playerId}`);
+    }
     live.players.delete(playerId);
     live.activeCasts.delete(playerId);
-    if (live.state.worldKind === 'mine_shaft' && live.players.size === 0) {
+    if (explicitExit && live.state.worldKind === 'mine_shaft' && live.players.size === 0) {
       this.worlds.delete(worldName);
       return;
     }

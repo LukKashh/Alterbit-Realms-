@@ -841,7 +841,97 @@ test('Global WL Exchange escrow, 5% WL sink, 10-Gem clearing fee, Claim Vault & 
   assert.equal(bfgRec.storedGems, 0);
   assert.equal(bfgRec.storedItems.length, 0);
 
-  store.leaveWorld(bfgWorldName, seller.id);
+  store.leaveWorld(bfgWorldName, seller.id, true);
 });
+
+test('16. Live connectivity & reconnect resumes exact player coordinates and preserves active mine shafts', () => {
+  const store = new AuthoritativeWorldStore();
+  const suffix = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  const reg = store.registerAccount({
+    email: `res_${suffix}@test.local`,
+    username: `Res_${suffix.slice(0, 8)}`,
+    password: 'password123',
+  });
+  assert.equal(reg.ok, true);
+  if (!reg.ok) return;
+  const account = reg.account;
+
+  // 1. Join START, move to custom coordinates, and simulate transient disconnect (explicitExit = false)
+  const j1 = store.joinWorld(account, 'START');
+  assert.equal(j1.ok, true);
+  if (!j1.ok) return;
+  assert.equal(j1.resumed, false);
+
+  const customX = (j1.world.state.spawnX + 6) * TILE_SIZE;
+  const customY = j1.world.state.spawnY * TILE_SIZE;
+  const pState = j1.world.players.get(account.id)!;
+  pState.x = customX;
+  pState.y = customY;
+  pState.facing = -1;
+  store.recordPlayerPose('START', account.id, {
+    x: customX,
+    y: customY,
+    vx: 0,
+    vy: 0,
+    facing: -1,
+    grounded: true,
+  });
+
+  // Transient disconnect (explicitExit = false) saves lastKnownPositions
+  store.leaveWorld('START', account.id, false);
+
+  // Re-joining START without client resumePosition still restores server-side lastKnownPositions
+  const j2 = store.joinWorld(account, 'START');
+  assert.equal(j2.ok, true);
+  if (!j2.ok) return;
+  assert.equal(j2.resumed, true, 'Reconnecting player should resume previous position');
+  const resumedPlayer = j2.world.players.get(account.id)!;
+  assert.equal(resumedPlayer.x, customX);
+  assert.equal(resumedPlayer.y, customY);
+  assert.equal(resumedPlayer.facing, -1);
+
+  // 2. Client-supplied resumePosition on reconnect is validated and restored
+  const clientResumeX = (j2.world.state.spawnX + 4) * TILE_SIZE;
+  const j3 = store.joinWorld(account, 'START', {
+    x: clientResumeX,
+    y: customY,
+    vx: 0,
+    vy: 0,
+    facing: 1,
+    grounded: true,
+  });
+  assert.equal(j3.ok, true);
+  if (!j3.ok) return;
+  assert.equal(j3.resumed, true);
+  assert.equal(j3.world.players.get(account.id)?.x, clientResumeX);
+
+  // 3. Ephemeral Mine Shaft survives transient socket disconnect (explicitExit = false)
+  store.addInventory(account, ITEM_IDS.MINING_SCROLL, 1);
+  const mineRes = store.handleUseConsumable(account, ITEM_IDS.MINING_SCROLL);
+  assert.equal(mineRes.ok, true);
+  if (!mineRes.ok || !mineRes.mineWorldName) return;
+  const mineName = mineRes.mineWorldName;
+  store.leaveWorld('START', account.id, true);
+
+  const mineJoin1 = store.joinWorld(account, mineName);
+  assert.equal(mineJoin1.ok, true);
+  if (!mineJoin1.ok) return;
+
+  // Simulate transient disconnect inside mine shaft
+  store.leaveWorld(mineName, account.id, false);
+
+  // Reconnect into the same mine shaft succeeds because transient disconnect keeps it alive
+  const mineJoin2 = store.joinWorld(account, mineName);
+  assert.equal(mineJoin2.ok, true, 'Mine shaft must remain in memory across transient disconnect');
+
+  // Explicit exit cleans up empty mine shaft
+  store.leaveWorld(mineName, account.id, true);
+  const mineJoinAfterExit = store.joinWorld(account, mineName);
+  assert.equal(mineJoinAfterExit.ok, false, 'Explicit exit should clean up empty mine shaft');
+
+  // Flush dirty worlds without throwing
+  store.flushDirtyWorlds();
+});
+
 
 

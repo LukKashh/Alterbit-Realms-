@@ -125,6 +125,7 @@ interface GameHudProps {
   onDismissInspect: () => void;
   toastMessage: string | null;
   connected: boolean;
+  onReconnectNow?: () => void;
   worldKind?: 'standard' | 'mine_shaft';
   mineExpiresAt?: number | null;
   activeBuffs: ActiveBuff[];
@@ -341,6 +342,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   onDismissInspect,
   toastMessage,
   connected,
+  onReconnectNow,
   worldKind = 'standard',
   mineExpiresAt = null,
   activeBuffs,
@@ -497,9 +499,13 @@ export const GameHud: React.FC<GameHudProps> = ({
             </button>
           )}
           {!connected && (
-            <span className="px-2 py-1 rounded bg-[#3b181b] border border-[#80333a] text-[11px] font-bold text-[#ffb0b0] whitespace-nowrap">
-              Reconnecting
-            </span>
+            <button
+              type="button"
+              onClick={onReconnectNow}
+              className="px-2.5 py-1 rounded bg-[#3b181b] hover:bg-[#542227] border border-[#80333a] text-[11px] font-bold text-[#ffb0b0] cursor-pointer whitespace-nowrap"
+            >
+              Reconnecting · Retry
+            </button>
           )}
           <button
             type="button"
