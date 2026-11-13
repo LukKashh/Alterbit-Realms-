@@ -703,7 +703,7 @@ export const CATALOG: Record<number, ItemDefinition> = {
     toolKind: 'rod', toolPower: 6, rodType: 6, rodUpgradeLevels: [1, 2, 3],
     colorPrimary: '#e6e8f2', colorSecondary: '#68738c', colorAccent: '#ffffff',
   },
-  [ITEM_IDS.COAL_FUEL]:
+  [ITEM_IDS.COAL_FUEL]: {
     id: ITEM_IDS.COAL_FUEL, key: 'coal_fuel', name: 'Coal Fuel',
     description: 'Combustible mineral fuel required to power Stone Furnaces.',
     category: 'material', rarity: 'common', stackLimit: 200,
