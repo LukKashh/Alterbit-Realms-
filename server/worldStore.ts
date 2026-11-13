@@ -74,7 +74,7 @@ import type {
   WorldSummary,
 } from '../src/game/network.ts';
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
-import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost } from '../src/game/expansion.ts';
+import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance } from '../src/game/expansion.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -145,6 +145,10 @@ export interface ServerFishingCast extends FishingCastState {
   rodItemId: number;
   rodInstanceId: string;
   rodUpgradeLevel: 1 | 2 | 3;
+  pullingStrength: number;
+  fishItemId?: number;
+  fishResistance?: number;
+  pullProgress: number;
   biteAt: number;
   expiresAt: number;
 }
@@ -2158,7 +2162,7 @@ export class AuthoritativeWorldStore {
     if (!playerState) return { ok: false, message: 'Not in world.' };
 
     const rodSlot = account.inventory
-      .filter((s) => s.itemId === rodItemId && s.qty >= 1)
+      .filter((s) => s.itemId === rodItemId && s.qty >= 1 && (s.durability ?? 1) > 0)
       .sort((a, b) => (b.rodUpgradeLevel ?? 1) - (a.rodUpgradeLevel ?? 1))[0];
     const rodDef = rodSlot ? getItemDef(rodSlot.itemId) : undefined;
     if (!rodSlot || rodDef?.toolKind !== 'rod') {
@@ -2212,10 +2216,12 @@ export class AuthoritativeWorldStore {
       rodItemId,
       rodInstanceId: rodSlot.rodInstanceId ?? (rodSlot.rodInstanceId = crypto.randomUUID()),
       rodUpgradeLevel: rodSlot.rodUpgradeLevel ?? 1,
+      pullingStrength: getFishingPullStrength(rodType, rodSlot.rodUpgradeLevel ?? 1, this.gameConfig.fishing),
+      pullProgress: 0,
       biting: false,
       startedAt: now,
       biteAt: now + delayMs,
-      expiresAt: now + delayMs + 5500,
+      expiresAt: now + delayMs + 15000,
     };
     live.activeCasts.set(account.id, cast);
     return { ok: true, cast };
@@ -2246,56 +2252,63 @@ export class AuthoritativeWorldStore {
     live: LiveWorld,
     account: PlayerAccount
   ):
-    | {
-        ok: true;
-        caught: boolean;
-        caughtItemId?: number;
-        caughtName?: string;
-        depthTier?: LiquidPoolInfo['depthTier'];
-        notice: string;
-      }
+    | { ok: true; caught: boolean; finished: boolean; progress: number; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier']; notice: string }
     | { ok: false; message: string } {
     const cast = live.activeCasts.get(account.id);
-    if (!cast) {
-      return { ok: false, message: 'No active fishing cast.' };
-    }
-    live.activeCasts.delete(account.id);
-
+    if (!cast) return { ok: false, message: 'No active fishing cast.' };
     if (!cast.biting) {
-      return {
-        ok: true,
-        caught: false,
-        notice: 'Reeled in too early — wait for the ! bite alert.',
-      };
+      live.activeCasts.delete(account.id);
+      return { ok: true, caught: false, finished: true, progress: 0, notice: 'Reeled in too early — wait for the ! bite alert.' };
     }
 
     const rodSlot = account.inventory.find(
       (s) => s.rodInstanceId === cast.rodInstanceId && s.itemId === cast.rodItemId && (s.durability ?? 1) > 0
     );
-    if (!rodSlot) return { ok: false, message: 'The fishing rod used for this cast is no longer available or has no durability.' };
-    if (rodSlot && typeof rodSlot.durability === 'number') {
+    if (!rodSlot) {
+      live.activeCasts.delete(account.id);
+      return { ok: false, message: 'The fishing rod used for this cast is no longer available or has no durability.' };
+    }
+
+    if (cast.fishItemId === undefined) {
+      if (cast.fluidType === 2 || cast.depthTier === 'acid') {
+        cast.fishItemId = ITEM_IDS.FISH_SLIMEFIN;
+      } else {
+        const depthLevel = cast.depthLevel ?? 1;
+        const candidates = [ITEM_IDS.FISH_MINNOW, ITEM_IDS.FISH_CARP, ITEM_IDS.FISH_GLACIER_TROUT]
+          .map((itemId) => {
+            const fish = getItemDef(itemId);
+            return { itemId, weight: fish?.fishDepthProfile ? getFishDepthWeight(fish.fishDepthProfile, depthLevel) : 0 };
+          })
+          .filter((candidate) => candidate.weight > 0);
+        const totalWeight = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
+        if (totalWeight > 0) {
+          let roll = Math.random() * totalWeight;
+          const selected = candidates.find((candidate) => (roll -= candidate.weight) < 0);
+          cast.fishItemId = selected?.itemId ?? candidates[candidates.length - 1].itemId;
+        } else {
+          cast.fishItemId = ITEM_IDS.FISH_MINNOW;
+        }
+      }
+      cast.fishResistance = getFishPullResistance(cast.fishItemId, this.gameConfig.fishing);
+    }
+
+    const resistance = cast.fishResistance ?? getFishPullResistance(cast.fishItemId, this.gameConfig.fishing);
+    cast.pullProgress = Math.min(100, cast.pullProgress + 24 * cast.pullingStrength / resistance);
+    if (cast.pullProgress < 100) {
+      return {
+        ok: true,
+        caught: false,
+        finished: false,
+        progress: Math.round(cast.pullProgress),
+        notice: `The ${getItemDef(cast.fishItemId)?.name ?? 'fish'} is fighting back! Keep reeling.`,
+      };
+    }
+
+    live.activeCasts.delete(account.id);
+    if (typeof rodSlot.durability === 'number') {
       rodSlot.durability = Math.max(0, rodSlot.durability - 1);
     }
-
-    let caughtItemId: number = ITEM_IDS.FISH_MINNOW;
-    if (cast.fluidType === 2 || cast.depthTier === 'acid') {
-      caughtItemId = ITEM_IDS.FISH_SLIMEFIN;
-    } else {
-      const depthLevel = cast.depthLevel ?? 1;
-      const candidates = [ITEM_IDS.FISH_MINNOW, ITEM_IDS.FISH_CARP, ITEM_IDS.FISH_GLACIER_TROUT]
-        .map((itemId) => {
-          const fish = getItemDef(itemId);
-          return { itemId, weight: fish?.fishDepthProfile ? getFishDepthWeight(fish.fishDepthProfile, depthLevel) : 0 };
-        })
-        .filter((candidate) => candidate.weight > 0);
-      const totalWeight = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
-      if (totalWeight > 0) {
-        let roll = Math.random() * totalWeight;
-        const selected = candidates.find((candidate) => (roll -= candidate.weight) < 0);
-        caughtItemId = selected?.itemId ?? candidates[candidates.length - 1].itemId;
-      }
-    }
-
+    const caughtItemId = cast.fishItemId;
     this.addInventory(account, caughtItemId, 1);
     account.stats.fishCaught = (account.stats.fishCaught ?? 0) + 1;
     const def = getItemDef(caughtItemId);
@@ -2307,6 +2320,8 @@ export class AuthoritativeWorldStore {
     return {
       ok: true,
       caught: true,
+      finished: true,
+      progress: 100,
       caughtItemId,
       caughtName: def?.name ?? 'Fish',
       depthTier: cast.depthTier,
