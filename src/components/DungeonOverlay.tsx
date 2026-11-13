@@ -32,6 +32,8 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
   const [partyCode, setPartyCode] = useState('');
   const [notice, setNotice] = useState('');
   const worldLocks = inventory.find((slot) => slot.itemId === ITEM_IDS.WORLD_LOCK)?.qty ?? 0;
+  const localPlayer = snapshot?.players.find((member) => member.id === playerId);
+  const atExit = Boolean(localPlayer && Math.hypot(localPlayer.x - (snapshot?.width ?? 17) + 2, localPlayer.y - 5) <= 0.85);
   const keyCounts = useMemo(
     () => KEY_ITEM_IDS.map((id) => inventory.find((slot) => slot.itemId === id)?.qty ?? 0),
     [inventory],
@@ -161,8 +163,8 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                 )}
 
                 {snapshot.phase === 'cleared' && (
-                  <button type="button" onClick={() => onAction('next_room')} className="w-full py-3 rounded-lg bg-[#b78b3c] hover:bg-[#d1a54f] text-[#1a1208] font-black tracking-wider">
-                    {snapshot.roomIndex + 1 >= snapshot.roomCount ? 'CLAIM EXPEDITION COMPLETION' : 'OPEN NEXT ROOM'}
+                  <button type="button" disabled={!atExit} onClick={() => onAction(snapshot.roomIndex + 1 >= snapshot.roomCount ? 'extract' : 'next_room')} className="w-full py-3 rounded-lg bg-[#b78b3c] hover:bg-[#d1a54f] disabled:opacity-40 text-[#1a1208] font-black tracking-wider">
+                    {!atExit ? 'REACH THE UNLOCKED EXIT PORTAL' : snapshot.roomIndex + 1 >= snapshot.roomCount ? 'EXTRACT · CLAIM REWARDS' : 'ENTER NEXT ROOM'}
                   </button>
                 )}
 
