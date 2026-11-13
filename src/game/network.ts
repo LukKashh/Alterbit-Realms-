@@ -35,6 +35,7 @@ export interface RemotePlayerState {
   facing: 1 | -1;
   grounded: boolean;
   punching: boolean;
+  placing?: boolean;
   shirtColor: string;
   level: number;
   equipped?: EquippedWearables;
@@ -101,6 +102,7 @@ export type ClientMessage =
       facing: 1 | -1;
       grounded: boolean;
       punching: boolean;
+      placing?: boolean;
     }
   | { type: 'punch_tile'; tx: number; ty: number }
   | { type: 'place_tile'; tx: number; ty: number; itemId: number }

@@ -407,13 +407,14 @@ async function startServer() {
       if (!remote) return;
 
       if (msg.type === 'move') {
-        remote.x = Math.max(0, Math.min(99 * 32, msg.x));
-        remote.y = Math.max(0, Math.min(59 * 32, msg.y));
+        remote.x = Math.max(0, Math.min(99 * 48, msg.x));
+        remote.y = Math.max(0, Math.min(59 * 48, msg.y));
         remote.vx = msg.vx;
         remote.vy = msg.vy;
         remote.facing = msg.facing;
         remote.grounded = msg.grounded;
         remote.punching = msg.punching;
+        remote.placing = Boolean(msg.placing);
         remote.equipped = account.equipped;
         broadcastWorld(live.state.name, { type: 'player_moved', player: remote }, ws);
         return;

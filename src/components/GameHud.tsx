@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Backpack,
   Globe,
   Lock,
+  Menu,
   MessageSquare,
-  Pause,
-  RotateCw,
   Shield,
   ShoppingBag,
   Smartphone,
@@ -77,6 +76,7 @@ interface GameHudProps {
   onTouchMove: (dir: 'left' | 'right' | 'down', active: boolean) => void;
   onTouchJump: (active: boolean) => void;
   onTouchPunch: (active: boolean) => void;
+  onTouchPunchStick: (active: boolean, dx: number, dy: number) => void;
   onPause: () => void;
   onResume: () => void;
   onReturnToHub: () => void;
@@ -130,6 +130,120 @@ type ActivePanel =
   | 'profile'
   | 'admin';
 
+interface PunchJoystickProps {
+  selectedItemId: number;
+  onChange: (active: boolean, dx: number, dy: number) => void;
+}
+
+const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange }) => {
+  const baseRef = useRef<HTMLDivElement | null>(null);
+  const pointerIdRef = useRef<number | null>(null);
+  const [knob, setKnob] = useState<{ active: boolean; x: number; y: number }>({
+    active: false,
+    x: 0,
+    y: 0,
+  });
+
+  const updateFromClient = (clientX: number, clientY: number) => {
+    const el = baseRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const maxOffset = Math.max(24, Math.round(rect.width * 0.27));
+    const cx = rect.left + rect.width * 0.5;
+    const cy = rect.top + rect.height * 0.5;
+    const rawX = clientX - cx;
+    const rawY = clientY - cy;
+    const dist = Math.hypot(rawX, rawY);
+    const radius = Math.max(22, rect.width * 0.36);
+    const clampedDist = Math.min(dist, radius);
+    const scale = dist > 0.001 ? clampedDist / dist : 0;
+    const normX = (rawX * scale) / radius;
+    const normY = (rawY * scale) / radius;
+    setKnob({
+      active: true,
+      x: normX * maxOffset,
+      y: normY * maxOffset,
+    });
+    onChange(true, normX, normY);
+  };
+
+  const resetStick = () => {
+    pointerIdRef.current = null;
+    setKnob({ active: false, x: 0, y: 0 });
+    onChange(false, 0, 0);
+  };
+
+  return (
+    <div
+      ref={baseRef}
+      data-testid="punch-joystick"
+      role="slider"
+      aria-label="Punch Joystick"
+      aria-valuetext={knob.active ? 'Active' : 'Idle'}
+      onPointerDown={(e) => {
+        if (pointerIdRef.current !== null) return;
+        pointerIdRef.current = e.pointerId;
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // Ignore synthetic pointer capture failure
+        }
+        updateFromClient(e.clientX, e.clientY);
+      }}
+      onPointerMove={(e) => {
+        if (pointerIdRef.current !== e.pointerId) return;
+        updateFromClient(e.clientX, e.clientY);
+      }}
+      onPointerUp={(e) => {
+        if (pointerIdRef.current !== e.pointerId) return;
+        resetStick();
+      }}
+      onPointerCancel={(e) => {
+        if (pointerIdRef.current !== e.pointerId) return;
+        resetStick();
+      }}
+      className={`relative w-[100px] h-[100px] sm:w-[128px] sm:h-[128px] rounded-full border-2 flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing shadow-[0_6px_0_rgba(6,12,20,0.85)] transition-colors ${
+        knob.active
+          ? 'bg-[#2a1512]/90 border-[#ffb89e]'
+          : 'bg-[#0f1d2c]/88 border-[#e0896b]/85'
+      }`}
+    >
+      {/* Directional ring crosshair guides */}
+      <div className="pointer-events-none absolute inset-3 rounded-full border border-dashed border-[#e0896b]/35" />
+      <span className="pointer-events-none absolute top-1.5 text-[9px] font-bold text-[#ffb89e]/70">▲</span>
+      <span className="pointer-events-none absolute bottom-1.5 text-[9px] font-bold text-[#ffb89e]/70">▼</span>
+      <span className="pointer-events-none absolute left-2 text-[9px] font-bold text-[#ffb89e]/70">◀</span>
+      <span className="pointer-events-none absolute right-2 text-[9px] font-bold text-[#ffb89e]/70">▶</span>
+
+      {/* Movable thumb knob */}
+      <div
+        className={`pointer-events-none w-[46px] h-[46px] sm:w-[58px] sm:h-[58px] rounded-full border-2 flex flex-col items-center justify-center shadow-[0_3px_0_rgba(0,0,0,0.7)] ${
+          knob.active
+            ? 'bg-[#c95738] border-[#ffe3d6]'
+            : 'bg-[#94422c] border-[#e89d82]'
+        }`}
+        style={{
+          transform: `translate(${knob.x}px, ${knob.y}px)`,
+        }}
+      >
+        <img
+          src={getItemIconUrl(selectedItemId)}
+          alt="Action"
+          className="w-5 h-5 sm:w-6 sm:h-6 pixelated"
+          referrerPolicy="no-referrer"
+        />
+        <span className="text-[8px] font-bold uppercase tracking-wider text-[#fff2ec] leading-none mt-0.5">
+          {selectedItemId === ITEM_IDS.FIST
+            ? 'Punch'
+            : selectedItemId === ITEM_IDS.WRENCH
+              ? 'Use'
+              : 'Place'}
+        </span>
+      </div>
+    </div>
+  );
+};
+
 export const GameHud: React.FC<GameHudProps> = ({
   mode,
   playerId,
@@ -163,7 +277,8 @@ export const GameHud: React.FC<GameHudProps> = ({
   onToggleTouch,
   onTouchMove,
   onTouchJump,
-  onTouchPunch,
+  onTouchPunch: _onTouchPunch,
+  onTouchPunchStick,
   onPause,
   onResume,
   onReturnToHub,
@@ -202,7 +317,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   // Inspector local form state
   const [editorInput, setEditorInput] = useState('');
   const [signDraft, setSignDraft] = useState('');
-  const [vmItemId, setVmItemId] = useState<number>(ITEM_IDS.RICH_SOIL);
+  const [vmItemId, setVmItemId] = useState<number>(ITEM_IDS.GP_DIRT);
   const [vmStockQty, setVmStockQty] = useState<number>(5);
   const [vmPriceItemId, setVmPriceItemId] = useState<number>(ITEM_IDS.SMALL_LOCK);
   const [vmPriceQty, setVmPriceQty] = useState<number>(1);
@@ -251,246 +366,77 @@ export const GameHud: React.FC<GameHudProps> = ({
 
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-2.5">
-      {/* Top Perimeter Bar */}
-      <div className="flex items-start justify-between gap-2">
+      {/* Top Perimeter Bar (Responsive status + single Menu button) */}
+      <div className="flex items-start justify-between gap-1.5 sm:gap-2">
         {/* Top-left: Identity, Level/XP, Gems, World */}
-        <div className="pointer-events-auto flex items-center gap-2 bg-[#0f1d2c]/92 border-2 border-[#314a66] rounded-md px-2.5 py-1.5 shadow-[0_3px_0_rgba(6,12,20,0.8)]">
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('profile');
-            }}
-            className="flex flex-col text-left cursor-pointer"
-          >
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-[#f7f4eb] whitespace-nowrap">{playerName}</span>
-              <span className="text-[11px] font-mono-num font-bold text-[#89d6ff] whitespace-nowrap">
+        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 bg-[#0f1d2c]/92 border-2 border-[#314a66] rounded-md px-2 py-1 sm:px-2.5 sm:py-1.5 shadow-[0_3px_0_rgba(6,12,20,0.8)] max-w-[calc(100vw-6.5rem)] overflow-hidden">
+          <div className="flex flex-col text-left min-w-0">
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <span className="text-[11px] sm:text-xs font-bold text-[#f7f4eb] whitespace-nowrap truncate max-w-[74px] sm:max-w-none">
+                {playerName}
+              </span>
+              <span className="text-[10px] sm:text-[11px] font-mono-num font-bold text-[#89d6ff] whitespace-nowrap">
                 LVL {level}
               </span>
             </div>
-            <div className="w-24 h-1.5 bg-[#08101a] rounded-sm overflow-hidden mt-0.5">
+            <div className="w-14 sm:w-24 h-1.5 bg-[#08101a] rounded-sm overflow-hidden mt-0.5">
               <div
                 className="h-full bg-[#4ec46a] transition-[width] duration-150"
                 style={{ width: `${xpPct}%` }}
               />
             </div>
-          </button>
+          </div>
 
-          <div className="h-6 w-px bg-[#2a4057]" />
+          <div className="h-6 w-px bg-[#2a4057] shrink-0" />
 
-          {/* Gems Counter (clicks open Gem Store) */}
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label={`Gems ${gems}`}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('store');
-            }}
-            className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-[#182c42] cursor-pointer"
-          >
-            <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" aria-hidden="true">
+          {/* Gems Counter */}
+          <div aria-label={`Gems ${gems}`} className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1 py-0.5 shrink-0">
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" aria-hidden="true">
               <polygon points="12,2 21,9 12,22 3,9" fill="#38e8d8" stroke="#0b2430" strokeWidth="2" />
               <polygon points="12,4 17,9 12,18 7,9" fill="#a8fff7" />
             </svg>
-            <span className="text-xs font-mono-num font-bold text-[#8cf7ee]">{Math.round(gems)}</span>
-          </button>
+            <span className="text-[11px] sm:text-xs font-mono-num font-bold text-[#8cf7ee]">{Math.round(gems)}</span>
+          </div>
 
-          <div className="h-6 w-px bg-[#2a4057]" />
+          <div className="h-6 w-px bg-[#2a4057] shrink-0" />
 
-          {/* Active World Button */}
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('worlds');
-            }}
-            className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#182c42] hover:bg-[#213b57] border border-[#3a597a] text-xs font-bold text-[#ffe18c] cursor-pointer whitespace-nowrap"
-          >
-            {worldOwner ? <Lock className="w-3 h-3 text-[#f2b738]" /> : <Globe className="w-3 h-3 text-[#78c8f5]" />}
-            <span>{worldName}</span>
-            <span className="text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/20)</span>
-          </button>
+          {/* Active World Status */}
+          <div className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1.5 py-0.5 text-[11px] sm:text-xs font-bold text-[#ffe18c] whitespace-nowrap truncate">
+            {worldOwner ? <Lock className="w-3 h-3 text-[#f2b738] shrink-0" /> : <Globe className="w-3 h-3 text-[#78c8f5] shrink-0" />}
+            <span className="truncate max-w-[64px] sm:max-w-none">{worldName}</span>
+            <span className="hidden sm:inline text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/20)</span>
+          </div>
 
           <span className="hidden md:inline text-[11px] font-mono-num text-[#8aa4bd] whitespace-nowrap">
             {coords.tx},{coords.ty}
           </span>
         </div>
 
-        {/* Top-right: Utility Icon Buttons */}
-        <div className="pointer-events-auto flex items-center gap-1">
+        {/* Top-right: Single Menu Button (all navigation lives in Menu View) */}
+        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
           {!connected && (
             <span className="px-2 py-1 rounded bg-[#3b181b] border border-[#80333a] text-[11px] font-bold text-[#ffb0b0] whitespace-nowrap">
               Reconnecting
             </span>
           )}
-          {role === 'admin' && (
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-label="Admin Dev Panel"
-              onClick={(e) => {
-                e.currentTarget.blur();
-                togglePanel('admin');
-              }}
-              className={`h-9 px-2.5 rounded-md border-2 flex items-center gap-1 text-xs font-bold cursor-pointer ${
-                activePanel === 'admin'
-                  ? 'bg-[#362b12] border-[#f2b738] text-[#ffe18c]'
-                  : 'bg-[#0f1d2c]/90 border-[#f2b738]/70 text-[#ffe18c] hover:bg-[#192f47]'
-              }`}
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Admin</span>
-            </button>
-          )}
           <button
             type="button"
             tabIndex={-1}
-            aria-label="Gem Store"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('store');
-            }}
-            className={`w-9 h-9 rounded-md border-2 flex items-center justify-center cursor-pointer ${
-              activePanel === 'store'
-                ? 'bg-[#2a4a6b] border-[#38e8d8] text-[#8cf7ee]'
-                : 'bg-[#0f1d2c]/90 border-[#314a66] text-[#8cf7ee] hover:bg-[#192f47]'
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Backpack"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('backpack');
-            }}
-            className={`w-9 h-9 rounded-md border-2 flex items-center justify-center cursor-pointer ${
-              activePanel === 'backpack'
-                ? 'bg-[#2a4a6b] border-[#82c6f7] text-white'
-                : 'bg-[#0f1d2c]/90 border-[#314a66] text-[#d0e2f2] hover:bg-[#192f47]'
-            }`}
-          >
-            <Backpack className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Splice Seeds"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('splice');
-            }}
-            className={`w-9 h-9 rounded-md border-2 flex items-center justify-center cursor-pointer ${
-              activePanel === 'splice'
-                ? 'bg-[#2a4a6b] border-[#82c6f7] text-white'
-                : 'bg-[#0f1d2c]/90 border-[#314a66] text-[#d0e2f2] hover:bg-[#192f47]'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Friends"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('friends');
-            }}
-            className={`relative w-9 h-9 rounded-md border-2 flex items-center justify-center cursor-pointer ${
-              activePanel === 'friends'
-                ? 'bg-[#2a4a6b] border-[#82c6f7] text-white'
-                : 'bg-[#0f1d2c]/90 border-[#314a66] text-[#d0e2f2] hover:bg-[#192f47]'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            {incomingRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#e6482e] text-[9px] font-mono-num font-bold text-white flex items-center justify-center">
-                {incomingRequests.length}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Achievements & Profile"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('profile');
-            }}
-            className={`relative w-9 h-9 rounded-md border-2 flex items-center justify-center cursor-pointer ${
-              activePanel === 'profile'
-                ? 'bg-[#2a4a6b] border-[#f2b738] text-[#ffe18c]'
-                : 'bg-[#0f1d2c]/90 border-[#314a66] text-[#ffe18c] hover:bg-[#192f47]'
-            }`}
-          >
-            <Trophy className="w-4 h-4" />
-            {claimableCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#4aa64d] text-[9px] font-mono-num font-bold text-[#081709] flex items-center justify-center">
-                {claimableCount}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="World Chat"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              togglePanel('chat');
-            }}
-            className={`w-9 h-9 rounded-md border-2 flex items-center justify-center cursor-pointer ${
-              activePanel === 'chat'
-                ? 'bg-[#2a4a6b] border-[#82c6f7] text-white'
-                : 'bg-[#0f1d2c]/90 border-[#314a66] text-[#d0e2f2] hover:bg-[#192f47]'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Toggle Touch Controls"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onToggleTouch();
-            }}
-            className={`w-9 h-9 rounded-md border-2 flex items-center justify-center cursor-pointer ${
-              touchEnabled
-                ? 'bg-[#2a4a6b] border-[#82c6f7] text-white'
-                : 'bg-[#0f1d2c]/90 border-[#314a66] text-[#d0e2f2] hover:bg-[#192f47]'
-            }`}
-          >
-            <Smartphone className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label={muted ? 'Unmute Audio' : 'Mute Audio'}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onToggleMute();
-            }}
-            className="w-9 h-9 rounded-md bg-[#0f1d2c]/90 hover:bg-[#192f47] border-2 border-[#314a66] text-[#d0e2f2] flex items-center justify-center cursor-pointer"
-          >
-            {muted ? <VolumeX className="w-4 h-4 text-[#ff9b9b]" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Pause Game"
+            data-testid="hud-menu-button"
+            aria-label="Menu"
             onClick={(e) => {
               e.currentTarget.blur();
               onPause();
             }}
-            className="w-9 h-9 rounded-md bg-[#0f1d2c]/90 hover:bg-[#192f47] border-2 border-[#314a66] text-[#d0e2f2] flex items-center justify-center cursor-pointer"
+            className="relative h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-md bg-[#0f1d2c]/92 hover:bg-[#192f47] border-2 border-[#46678a] text-[#f4f1ea] flex items-center gap-1.5 sm:gap-2 font-bold text-xs shadow-[0_3px_0_rgba(6,12,20,0.8)] cursor-pointer"
           >
-            <Pause className="w-4 h-4" />
+            <Menu className="w-4 h-4 text-[#ffe18c]" />
+            <span>Menu</span>
+            {incomingRequests.length + claimableCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-[#e6482e] text-[9px] font-mono-num font-bold text-white flex items-center justify-center">
+                {incomingRequests.length + claimableCount}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -690,7 +636,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                       >
                         <option value={ITEM_IDS.SMALL_LOCK}>Price in: Area Lock</option>
                         <option value={ITEM_IDS.WORLD_LOCK}>Price in: World Lock</option>
-                        <option value={ITEM_IDS.CRYSTAL_VEIN}>Price in: Crystal Vein</option>
+                        <option value={ITEM_IDS.GP_RED_BRICKS}>Price in: Red Bricks</option>
                       </select>
                       <input
                         type="number"
@@ -768,46 +714,16 @@ export const GameHud: React.FC<GameHudProps> = ({
         )}
       </div>
 
-      {/* Bottom Perimeter: Touch Pads + 6-Slot Hotbar */}
-      <div className="flex items-end justify-between gap-2">
-        {/* Left Touch D-Pad */}
-        <div className="w-32 flex items-end gap-2">
-          {touchEnabled && (
-            <div className="pointer-events-auto flex items-center gap-2" data-testid="touch-left-controls">
-              <button
-                type="button"
-                aria-label="Move Left"
-                onPointerDown={() => onTouchMove('left', true)}
-                onPointerUp={() => onTouchMove('left', false)}
-                onPointerLeave={() => onTouchMove('left', false)}
-                onPointerCancel={() => onTouchMove('left', false)}
-                className="w-12 h-12 rounded-md bg-[#0f1d2c]/85 active:bg-[#2a4a6b] border-2 border-[#46678a] text-white font-bold text-base flex items-center justify-center"
-              >
-                ◀
-              </button>
-              <button
-                type="button"
-                aria-label="Move Right"
-                onPointerDown={() => onTouchMove('right', true)}
-                onPointerUp={() => onTouchMove('right', false)}
-                onPointerLeave={() => onTouchMove('right', false)}
-                onPointerCancel={() => onTouchMove('right', false)}
-                className="w-12 h-12 rounded-md bg-[#0f1d2c]/85 active:bg-[#2a4a6b] border-2 border-[#46678a] text-white font-bold text-base flex items-center justify-center"
-              >
-                ▶
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Center Hotbar */}
-        <div className="pointer-events-auto flex flex-col items-center gap-1">
+      {/* Bottom Perimeter: Portrait-friendly 2-row stack (<700px) & Single Row (>=700px Landscape) */}
+      <div className="flex flex-col min-[700px]:flex-row min-[700px]:items-end min-[700px]:justify-between gap-2">
+        {/* Center Hotbar (top row in portrait, middle in landscape) */}
+        <div className="pointer-events-auto order-1 min-[700px]:order-2 flex flex-col items-center gap-1 self-center">
           {selectedDef && (
             <div className="text-[11px] font-semibold text-[#f4f1ea] bg-[#0f1d2c]/85 border border-[#314a66] px-2.5 py-0.5 rounded whitespace-nowrap">
               {selectedDef.name} · {selectedDef.category}
             </div>
           )}
-          <div className="flex items-center gap-1.5 bg-[#0f1d2c]/92 border-2 border-[#314a66] rounded-md p-1.5 shadow-[0_4px_0_rgba(6,12,20,0.85)]">
+          <div className="flex items-center gap-1 sm:gap-1.5 bg-[#0f1d2c]/92 border-2 border-[#314a66] rounded-md p-1 sm:p-1.5 shadow-[0_4px_0_rgba(6,12,20,0.85)]">
             {hotbarItemIds.map((itemId, idx) => {
               const def = getItemDef(itemId);
               const qty = itemId === ITEM_IDS.FIST || itemId === ITEM_IDS.WRENCH ? null : getQty(itemId);
@@ -823,7 +739,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     setAssignSlot(idx);
                     if (itemId !== ITEM_IDS.AIR) onSelectItem(itemId);
                   }}
-                  className={`relative w-11 h-11 rounded border-2 flex items-center justify-center cursor-pointer transition-transform ${
+                  className={`relative w-10 h-10 sm:w-11 sm:h-11 rounded border-2 flex items-center justify-center cursor-pointer transition-transform ${
                     active
                       ? 'bg-[#254463] border-[#f2b738] -translate-y-0.5'
                       : 'bg-[#09131d] border-[#263c52] hover:border-[#4b7299]'
@@ -836,7 +752,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <img
                       src={getItemIconUrl(itemId)}
                       alt={def?.name ?? 'Item'}
-                      className="w-7 h-7 pixelated"
+                      className="w-6 h-6 sm:w-7 sm:h-7 pixelated"
                       referrerPolicy="no-referrer"
                     />
                   )}
@@ -851,34 +767,61 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
         </div>
 
-        {/* Right Touch Jump & Action */}
-        <div className="w-32 flex items-end justify-end gap-2">
-          {touchEnabled && (
-            <div className="pointer-events-auto flex items-center gap-2" data-testid="touch-right-controls">
-              <button
-                type="button"
-                aria-label="Punch or Use"
-                onPointerDown={() => onTouchPunch(true)}
-                onPointerUp={() => onTouchPunch(false)}
-                onPointerLeave={() => onTouchPunch(false)}
-                onPointerCancel={() => onTouchPunch(false)}
-                className="w-12 h-12 rounded-md bg-[#94422c]/90 active:bg-[#b8563b] border-2 border-[#e0896b] text-white font-bold text-xs flex items-center justify-center"
-              >
-                Use
-              </button>
-              <button
-                type="button"
-                aria-label="Jump"
-                onPointerDown={() => onTouchJump(true)}
-                onPointerUp={() => onTouchJump(false)}
-                onPointerLeave={() => onTouchJump(false)}
-                onPointerCancel={() => onTouchJump(false)}
-                className="w-12 h-12 rounded-md bg-[#2d703b]/90 active:bg-[#3f9450] border-2 border-[#7ae086] text-white font-bold text-base flex items-center justify-center"
-              >
-                ▲
-              </button>
-            </div>
-          )}
+        {/* Touch Controls Row in Portrait; split left/right of Hotbar in Landscape */}
+        <div className="order-2 w-full flex items-end justify-between gap-2 min-[700px]:contents">
+          {/* Left Touch Movement Controls */}
+          <div className="min-[700px]:order-1 flex-1 flex items-end justify-start">
+            {touchEnabled && (
+              <div className="pointer-events-auto flex items-center gap-2 sm:gap-2.5" data-testid="touch-left-controls">
+                <button
+                  type="button"
+                  aria-label="Move Left"
+                  onPointerDown={() => onTouchMove('left', true)}
+                  onPointerUp={() => onTouchMove('left', false)}
+                  onPointerLeave={() => onTouchMove('left', false)}
+                  onPointerCancel={() => onTouchMove('left', false)}
+                  className="w-[62px] h-[62px] sm:w-[82px] sm:h-[82px] rounded-xl bg-[#0f1d2c]/88 active:bg-[#2a4a6b] border-2 border-[#46678a] text-white font-bold text-xl sm:text-2xl flex items-center justify-center shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
+                >
+                  ◀
+                </button>
+                <button
+                  type="button"
+                  aria-label="Move Right"
+                  onPointerDown={() => onTouchMove('right', true)}
+                  onPointerUp={() => onTouchMove('right', false)}
+                  onPointerLeave={() => onTouchMove('right', false)}
+                  onPointerCancel={() => onTouchMove('right', false)}
+                  className="w-[62px] h-[62px] sm:w-[82px] sm:h-[82px] rounded-xl bg-[#0f1d2c]/88 active:bg-[#2a4a6b] border-2 border-[#46678a] text-white font-bold text-xl sm:text-2xl flex items-center justify-center shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
+                >
+                  ▶
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Right Touch Punch Joystick & Jump Button */}
+          <div className="min-[700px]:order-3 flex-1 flex items-end justify-end">
+            {touchEnabled && (
+              <div className="pointer-events-auto flex items-end gap-2 sm:gap-3" data-testid="touch-right-controls">
+                <PunchJoystick
+                  selectedItemId={selectedItemId}
+                  onChange={onTouchPunchStick}
+                />
+                <button
+                  type="button"
+                  aria-label="Jump"
+                  onPointerDown={() => onTouchJump(true)}
+                  onPointerUp={() => onTouchJump(false)}
+                  onPointerLeave={() => onTouchJump(false)}
+                  onPointerCancel={() => onTouchJump(false)}
+                  className="w-[62px] h-[62px] sm:w-[82px] sm:h-[82px] rounded-xl bg-[#2d703b]/90 active:bg-[#3f9450] border-2 border-[#7ae086] text-white font-bold flex flex-col items-center justify-center gap-0.5 shadow-[0_5px_0_rgba(6,12,20,0.85)] touch-none select-none cursor-pointer"
+                >
+                  <span className="text-xl sm:text-2xl leading-none">▲</span>
+                  <span className="text-[9px] sm:text-[10px] uppercase tracking-wider leading-none">Jump</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -915,8 +858,10 @@ export const GameHud: React.FC<GameHudProps> = ({
             ))}
           </div>
           <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
-            {GEM_STORE_LISTINGS.filter((l) => l.section === storeCategory).map((listing) => {
-              const canAfford = gems >= listing.gemPrice;
+            {(gameConfig.storeListings ?? GEM_STORE_LISTINGS)
+              .filter((l) => l.section === storeCategory)
+              .map((listing) => {
+                const canAfford = gems >= listing.gemPrice;
               return (
                 <div
                   key={listing.id}
@@ -951,7 +896,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Backpack Drawer */}
       {activePanel === 'backpack' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-80 max-h-[65vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
+        <div className="pointer-events-auto fixed right-3 top-14 w-80 max-w-[92vw] max-h-[65vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h2 className="font-pixel text-xs text-[#ffe18c]">Backpack</h2>
             <button
@@ -1018,7 +963,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Seed Splicer Drawer */}
       {activePanel === 'splice' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-80 bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
+        <div className="pointer-events-auto fixed right-3 top-14 w-80 max-w-[92vw] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <h2 className="font-pixel text-xs text-[#82e068]">Seed Splicer</h2>
             <button
@@ -1491,7 +1436,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* World Chat Drawer */}
       {activePanel === 'chat' && (
-        <div className="pointer-events-auto fixed left-3 bottom-20 w-80 bg-[#0f1d2c]/94 border-2 border-[#46678a] rounded-md p-2.5 shadow-[0_6px_0_rgba(6,12,20,0.85)] flex flex-col gap-2">
+        <div className="pointer-events-auto fixed left-3 top-14 z-20 w-80 max-w-[92vw] bg-[#0f1d2c]/94 border-2 border-[#46678a] rounded-md p-2.5 shadow-[0_6px_0_rgba(6,12,20,0.85)] flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-[#89d6ff]">World Chat · {worldName}</span>
             <button
@@ -1540,7 +1485,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* In-World Administrator Dev Config Panel */}
       {activePanel === 'admin' && role === 'admin' && (
-        <div className="pointer-events-auto fixed right-3 top-14 w-[520px] max-w-[94vw] h-[74vh] max-h-[540px] bg-[#0f1d2c]/96 border-2 border-[#f2b738] rounded-md p-3.5 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col">
+        <div className="pointer-events-auto fixed inset-x-3 top-14 bottom-3 md:inset-x-auto md:bottom-auto md:right-3 md:w-[680px] md:max-w-[92vw] md:h-[78vh] md:max-h-[580px] z-30 bg-[#0f1d2c]/96 border-2 border-[#f2b738] rounded-md p-3.5 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col">
           <AdminPanel
             gameConfig={gameConfig}
             inWorld={true}
@@ -1551,23 +1496,20 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Pause Modal */}
+      {/* Menu View (houses all navigation & controls previously in top bar) */}
       {mode === 'paused' && (
-        <div className="pointer-events-auto fixed inset-0 z-30 bg-[#070f18]/75 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-[#101e2e] border-2 border-[#46678a] rounded-lg p-5 shadow-[0_10px_0_rgba(5,10,16,0.9)] flex flex-col gap-3">
-            <h2 className="font-pixel text-base text-[#fff8e8] text-center">Paused</h2>
-            <div className="grid grid-cols-2 gap-2 text-center bg-[#09131d] border border-[#263c52] rounded p-2.5 text-xs">
-              <div>
-                <div className="text-[#8aa4bd]">World</div>
-                <div className="font-bold text-[#ffe18c]">{worldName}</div>
-              </div>
-              <div>
-                <div className="text-[#8aa4bd]">Level / Gems</div>
-                <div className="font-mono-num font-bold text-[#8cf7ee]">
-                  {level} · {Math.round(gems)}
-                </div>
-              </div>
+        <div
+          data-testid="game-menu-view"
+          className="pointer-events-auto fixed inset-0 z-30 bg-[#070f18]/78 flex items-center justify-center p-3"
+        >
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-[#101e2e] border-2 border-[#46678a] rounded-lg p-4 shadow-[0_10px_0_rgba(5,10,16,0.9)] flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-[#243d57] pb-2">
+              <h2 className="font-pixel text-sm text-[#fff8e8]">Game Menu</h2>
+              <span className="text-xs font-mono-num text-[#8cf7ee]">
+                {worldName} · LVL {level} · {Math.round(gems)} G
+              </span>
             </div>
+
             <button
               type="button"
               onClick={onResume}
@@ -1575,53 +1517,168 @@ export const GameHud: React.FC<GameHudProps> = ({
             >
               Resume World
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                onResume();
-                togglePanel('worlds');
-              }}
-              className="w-full py-2 rounded bg-[#1b334d] hover:bg-[#244466] border border-[#3d6085] text-[#e6f1fc] font-bold text-sm cursor-pointer"
-            >
-              Switch World
-            </button>
-            <button
-              type="button"
-              onClick={onReturnToHub}
-              className="w-full py-2 rounded bg-[#214463] hover:bg-[#2d5b82] border border-[#78c8f5] text-white font-bold text-sm cursor-pointer"
-            >
-              Return to World Hub
-            </button>
-            <button
-              type="button"
-              onClick={onLeaveWorld}
-              className="w-full py-2 rounded bg-[#3b1b1f] hover:bg-[#52242a] border border-[#7a343d] text-[#ffd4d4] font-bold text-sm cursor-pointer"
-            >
-              Sign Out
-            </button>
+
+            {/* Navigation Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onResume();
+                  setActivePanel('backpack');
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
+              >
+                <Backpack className="w-4 h-4 text-[#89d6ff]" />
+                <span>Backpack</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onResume();
+                  setActivePanel('store');
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#8cf7ee] cursor-pointer"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Gem Store</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onResume();
+                  setActivePanel('splice');
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-[#ffe18c]" />
+                <span>Splice Seeds</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onResume();
+                  setActivePanel('profile');
+                }}
+                className="relative flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#ffe18c] cursor-pointer"
+              >
+                <Trophy className="w-4 h-4" />
+                <span>Profile</span>
+                {claimableCount > 0 && (
+                  <span className="ml-auto px-1.5 py-0.2 rounded-full bg-[#4aa64d] text-[10px] font-mono-num text-[#081709]">
+                    {claimableCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onResume();
+                  setActivePanel('friends');
+                }}
+                className="relative flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
+              >
+                <Users className="w-4 h-4 text-[#89d6ff]" />
+                <span>Friends</span>
+                {incomingRequests.length > 0 && (
+                  <span className="ml-auto px-1.5 py-0.2 rounded-full bg-[#e6482e] text-[10px] font-mono-num text-white">
+                    {incomingRequests.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onResume();
+                  setActivePanel('chat');
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4 text-[#89d6ff]" />
+                <span>World Chat</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onResume();
+                  onRefreshWorlds();
+                  setActivePanel('worlds');
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded bg-[#14263a] hover:bg-[#1e3754] border border-[#314e6b] text-xs font-bold text-[#eaf2fa] cursor-pointer"
+              >
+                <Globe className="w-4 h-4 text-[#78c8f5]" />
+                <span>Switch World</span>
+              </button>
+
+              {role === 'admin' && (
+                <button
+                  type="button"
+                  aria-label="Admin Dev Panel"
+                  onClick={() => {
+                    onResume();
+                    setActivePanel('admin');
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 rounded bg-[#332710] hover:bg-[#473717] border border-[#f2b738] text-xs font-bold text-[#ffe18c] cursor-pointer"
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>Admin Panel</span>
+                </button>
+              )}
+            </div>
+
+            {/* Settings Toggles */}
+            <div className="grid grid-cols-2 gap-2 border-t border-[#243d57] pt-2.5">
+              <button
+                type="button"
+                onClick={onToggleTouch}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded border text-xs font-bold cursor-pointer ${
+                  touchEnabled
+                    ? 'bg-[#1c3d5c] border-[#78c8f5] text-white'
+                    : 'bg-[#0b1622] border-[#263c52] text-[#9cb5cc]'
+                }`}
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Touch Pad: {touchEnabled ? 'ON' : 'OFF'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onToggleMute}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded border text-xs font-bold cursor-pointer ${
+                  muted
+                    ? 'bg-[#331a1d] border-[#80333a] text-[#ffb0b0]'
+                    : 'bg-[#1c3d5c] border-[#78c8f5] text-white'
+                }`}
+              >
+                {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                <span>Audio: {muted ? 'MUTED' : 'ON'}</span>
+              </button>
+            </div>
+
+            {/* Hub & Sign Out */}
+            <div className="grid grid-cols-2 gap-2 border-t border-[#243d57] pt-2.5">
+              <button
+                type="button"
+                onClick={onReturnToHub}
+                className="py-2 rounded bg-[#214463] hover:bg-[#2d5b82] border border-[#78c8f5] text-white font-bold text-xs cursor-pointer"
+              >
+                Return to World Hub
+              </button>
+              <button
+                type="button"
+                onClick={onLeaveWorld}
+                className="py-2 rounded bg-[#3b1b1f] hover:bg-[#52242a] border border-[#7a343d] text-[#ffd4d4] font-bold text-xs cursor-pointer"
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 };
-
-export const PortraitBlocker: React.FC<{ onTryLock: () => void }> = ({ onTryLock }) => (
-  <div
-    data-orientation="portrait"
-    className="fixed inset-0 z-50 bg-[#0b1622] text-[#f4f1ea] flex flex-col items-center justify-center p-6 text-center gap-4"
-  >
-    <RotateCw className="w-12 h-12 text-[#f2b738]" />
-    <h1 className="font-pixel text-lg text-[#fff8e8]">Landscape Required</h1>
-    <p className="text-sm text-[#b5cde3] max-w-xs">
-      Blockgrove is designed exclusively for landscape play. Rotate your device horizontally to continue.
-    </p>
-    <button
-      type="button"
-      onClick={onTryLock}
-      className="px-4 py-2 rounded bg-[#4aa64d] border-2 border-[#82e068] text-[#081709] font-bold text-sm cursor-pointer"
-    >
-      Request Landscape Mode
-    </button>
-  </div>
-);

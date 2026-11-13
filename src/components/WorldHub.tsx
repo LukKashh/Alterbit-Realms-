@@ -92,24 +92,24 @@ export const WorldHub: React.FC<WorldHubProps> = ({
   return (
     <div
       data-testid="world-hub"
-      className="fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#07101a]/70"
+      className="fixed inset-0 z-20 flex items-center justify-center p-2 sm:p-4 bg-[#07101a]/70 overflow-hidden"
     >
-      <div className="w-full max-w-4xl h-[88vh] max-h-[640px] bg-[#0f1d2c]/96 border-2 border-[#3b5978] rounded-lg shadow-[0_10px_0_rgba(6,12,20,0.9)] flex flex-col overflow-hidden">
+      <div className="w-full max-w-4xl h-[94vh] sm:h-[88vh] sm:max-h-[660px] bg-[#0f1d2c]/96 border-2 border-[#3b5978] rounded-lg shadow-[0_10px_0_rgba(6,12,20,0.9)] flex flex-col overflow-hidden">
         {/* Top Hub Header */}
-        <header className="flex items-center justify-between gap-3 px-4 py-3 bg-[#09131d] border-b border-[#28425e]">
-          <div className="flex items-center gap-3">
-            <h1 className="font-pixel text-sm text-[#fff8e8]">BLOCKGROVE HUB</h1>
-            <div className="h-5 w-px bg-[#2a4057]" />
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-[#ffe18c]">{playerName}</span>
+        <header className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 sm:py-3 bg-[#09131d] border-b border-[#28425e]">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <h1 className="font-pixel text-xs sm:text-sm text-[#fff8e8] whitespace-nowrap">BLOCKGROVE HUB</h1>
+            <div className="hidden sm:block h-5 w-px bg-[#2a4057]" />
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="text-xs font-bold text-[#ffe18c] whitespace-nowrap">{playerName}</span>
               {role === 'admin' && (
-                <span className="px-1.5 py-0.5 rounded bg-[#f2b738] text-[#1a1204] font-pixel text-[9px]">
+                <span className="px-1.5 py-0.5 rounded bg-[#f2b738] text-[#1a1204] font-pixel text-[9px] whitespace-nowrap">
                   ADMIN
                 </span>
               )}
-              <span className="text-[11px] font-mono-num font-bold text-[#89d6ff]">LVL {level}</span>
+              <span className="text-[11px] font-mono-num font-bold text-[#89d6ff] whitespace-nowrap">LVL {level}</span>
               <span className="text-[#4a6988]">·</span>
-              <span className="text-[11px] font-mono-num font-bold text-[#8cf7ee]">
+              <span className="text-[11px] font-mono-num font-bold text-[#8cf7ee] whitespace-nowrap">
                 {Math.round(gems)} Gems
               </span>
             </div>
@@ -124,7 +124,7 @@ export const WorldHub: React.FC<WorldHubProps> = ({
             <button
               type="button"
               onClick={onSignOut}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#3b1b1f] hover:bg-[#52242a] border border-[#7a343d] text-xs font-bold text-[#ffd4d4] cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#3b1b1f] hover:bg-[#52242a] border border-[#7a343d] text-xs font-bold text-[#ffd4d4] cursor-pointer whitespace-nowrap"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Sign Out</span>
@@ -133,14 +133,14 @@ export const WorldHub: React.FC<WorldHubProps> = ({
         </header>
 
         {/* Main Navigation Tabs */}
-        <nav className="flex items-center gap-1.5 px-4 py-2 bg-[#0c1824] border-b border-[#243c54]">
+        <nav className="flex items-center gap-1 sm:gap-1.5 px-3 sm:px-4 py-2 bg-[#0c1824] border-b border-[#243c54] overflow-x-auto whitespace-nowrap scrollbar-none">
           <button
             type="button"
             onClick={() => {
               setActiveTab('worlds');
               onRefreshWorlds();
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
               activeTab === 'worlds'
                 ? 'bg-[#214463] border border-[#78c8f5] text-white'
                 : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
@@ -152,7 +152,7 @@ export const WorldHub: React.FC<WorldHubProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
               activeTab === 'profile'
                 ? 'bg-[#214463] border border-[#f2b738] text-[#ffe18c]'
                 : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
@@ -164,7 +164,7 @@ export const WorldHub: React.FC<WorldHubProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('store')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
               activeTab === 'store'
                 ? 'bg-[#214463] border border-[#38e8d8] text-[#8cf7ee]'
                 : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc] hover:text-white'
@@ -177,7 +177,7 @@ export const WorldHub: React.FC<WorldHubProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('admin')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded text-xs font-bold cursor-pointer ${
                 activeTab === 'admin'
                   ? 'bg-[#362b12] border border-[#f2b738] text-[#ffe18c]'
                   : 'bg-[#09131d] border border-[#263c52] text-[#f2b738] hover:bg-[#192838]'
@@ -200,9 +200,9 @@ export const WorldHub: React.FC<WorldHubProps> = ({
                   const clean = worldInput.trim().toUpperCase();
                   if (clean) onEnterWorld(clean);
                 }}
-                className="flex items-end gap-2.5 bg-[#09131d] border border-[#28425e] rounded-md p-3"
+                className="flex flex-col sm:flex-row sm:items-end gap-2.5 bg-[#09131d] border border-[#28425e] rounded-md p-3"
               >
-                <label className="flex-1 flex flex-col gap-1 text-xs font-semibold text-[#b9d2e8]">
+                <label className="flex-1 min-w-0 flex flex-col gap-1 text-xs font-semibold text-[#b9d2e8]">
                   <span>Enter or Create Named World (100×60)</span>
                   <input
                     type="text"
@@ -210,12 +210,12 @@ export const WorldHub: React.FC<WorldHubProps> = ({
                     value={worldInput}
                     onChange={(e) => setWorldInput(e.target.value.toUpperCase())}
                     placeholder="START, TRADE, FARM, or new world name..."
-                    className="px-3 py-2 rounded bg-[#08101a] border border-[#2d4863] text-sm font-bold uppercase tracking-wide text-white focus:outline-none focus:border-[#f2b738]"
+                    className="w-full min-w-0 px-3 py-2 rounded bg-[#08101a] border border-[#2d4863] text-sm font-bold uppercase tracking-wide text-white focus:outline-none focus:border-[#f2b738]"
                   />
                 </label>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border-2 border-[#82e068] text-[#081709] font-pixel text-xs cursor-pointer whitespace-nowrap"
+                  className="px-5 py-2.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border-2 border-[#82e068] text-[#081709] font-pixel text-xs cursor-pointer whitespace-nowrap shrink-0"
                 >
                   Enter World
                 </button>
@@ -500,8 +500,10 @@ export const WorldHub: React.FC<WorldHubProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {GEM_STORE_LISTINGS.filter((l) => l.section === storeCategory).map((listing) => {
-                  const canAfford = gems >= listing.gemPrice;
+                {(gameConfig.storeListings ?? GEM_STORE_LISTINGS)
+                  .filter((l) => l.section === storeCategory)
+                  .map((listing) => {
+                    const canAfford = gems >= listing.gemPrice;
                   return (
                     <div
                       key={listing.id}

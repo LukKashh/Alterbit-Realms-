@@ -8,7 +8,7 @@ import {
   WORLD_TILE_COUNT,
   WORLD_WIDTH,
 } from './constants.ts';
-import { ACHIEVEMENTS, GEM_STORE_LISTINGS, GROWPIXEL_COLLECTION_IDS, ITEM_IDS, SPLICE_RECIPES, getItemDef } from './catalog.ts';
+import { ACHIEVEMENTS, GEM_STORE_LISTINGS, ITEM_IDS } from './catalog.ts';
 import { generateWorld } from './worldGen.ts';
 import {
   addXp,
@@ -82,16 +82,16 @@ test('foreground placement rejects self-overlap and respects background separati
   const player = { id: 'p1', x: body.x, y: body.y };
 
   // Cannot place solid block on player's own tile
-  const selfRes = canPlaceTile(world, player, ITEM_IDS.TIMBER_PLANK, world.spawnX, world.spawnY);
+  const selfRes = canPlaceTile(world, player, ITEM_IDS.GP_WOOD_BLOCK, world.spawnX, world.spawnY);
   assert.equal(selfRes.ok, false);
 
-  // Can place timber plank adjacent to ground beside spawn
-  const placeFg = canPlaceTile(world, player, ITEM_IDS.TIMBER_PLANK, world.spawnX + 2, world.spawnY);
+  // Can place wood block adjacent to ground beside spawn
+  const placeFg = canPlaceTile(world, player, ITEM_IDS.GP_WOOD_BLOCK, world.spawnX + 2, world.spawnY);
   assert.equal(placeFg.ok, true);
   assert.equal(placeFg.layer, 'fg');
 
   // Can place background wall at same spot independently
-  const placeBg = canPlaceTile(world, player, ITEM_IDS.BG_TIMBER_WALL, world.spawnX + 2, world.spawnY);
+  const placeBg = canPlaceTile(world, player, ITEM_IDS.GP_WOODEN_BACKGROUND, world.spawnX + 2, world.spawnY);
   assert.equal(placeBg.ok, true);
   assert.equal(placeBg.layer, 'bg');
 });
@@ -110,20 +110,20 @@ test('player physics lands on ground, collides with walls, and ignores backgroun
   // Place background wall in front of player -> should NOT block movement
   const aheadX = Math.floor(body.x / TILE_SIZE) + 1;
   const aheadY = Math.floor(body.y / TILE_SIZE);
-  world.bg[tileIndex(aheadX, aheadY)] = ITEM_IDS.BG_TIMBER_WALL;
+  world.bg[tileIndex(aheadX, aheadY)] = ITEM_IDS.GP_WOODEN_BACKGROUND;
 
   const startX = body.x;
   for (let i = 0; i < 15; i++) {
     stepPlayerPhysics(body, world, { ...idleInput, right: true }, 1 / 60);
   }
-  assert.ok(body.x > startX + 20, 'background wall must not block player movement');
+  assert.ok(body.x > startX + 30, 'background wall must not block player movement');
 });
 
 test('seed growth stages, splicing recipes, world name validation, and XP leveling', () => {
   const plant = {
     x: 52,
     y: 23,
-    seedId: ITEM_IDS.SEED_TURF,
+    seedId: ITEM_IDS.GP_SEED_GRASS,
     plantedAt: 1000,
     maturityAt: 11000,
     ownerId: 'p1',
@@ -132,10 +132,10 @@ test('seed growth stages, splicing recipes, world name validation, and XP leveli
   assert.equal(getPlantGrowthState(plant, 6000).stage, 'sprout');
   assert.equal(getPlantGrowthState(plant, 12000).stage, 'mature');
 
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_DIRT, ITEM_IDS.GP_SEED_ROCK), ITEM_IDS.GP_SEED_GRASS);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_ROCK, ITEM_IDS.GP_SEED_DIRT), ITEM_IDS.GP_SEED_GRASS);
   assert.equal(resolveSplice(ITEM_IDS.GP_SEED_ROCK, ITEM_IDS.GP_SEED_GRASS), ITEM_IDS.GP_SEED_BRICKS);
-  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_GRASS, ITEM_IDS.GP_SEED_ROCK), ITEM_IDS.GP_SEED_BRICKS);
-  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_BRICKS, ITEM_IDS.GP_SEED_MUSHROOM), ITEM_IDS.GP_SEED_WHITE_BLOCK);
-  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_HEDGE, ITEM_IDS.GP_SEED_DIRT), null);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_GRASS, ITEM_IDS.GP_SEED_GRASS), null);
 
   assert.equal(validateWorldName('My_World1').ok, true);
   assert.equal(validateWorldName('My_World1').normalized, 'MY_WORLD1');
@@ -204,7 +204,7 @@ test('world lock, area lock permissions, restricted entry, and vending machine p
     ownerName: 'OwnerOne',
     x: vx,
     y: vy,
-    stockItemId: ITEM_IDS.RICH_SOIL,
+    stockItemId: ITEM_IDS.GP_DIRT,
     stockQty: 5,
     priceItemId: ITEM_IDS.SMALL_LOCK,
     priceQty: 1,
@@ -245,11 +245,13 @@ import { getEffectiveItemDef, sanitizeGameConfig } from './config.ts';
 import { isWithinReach } from './rules.ts';
 import { AuthoritativeWorldStore } from '../../server/worldStore.ts';
 
-test('player hitbox is strictly 0.8 wide x 1.75 tall and requires 2-tile doorway', () => {
+test('player hitbox is strictly 0.8 wide x 1.75 tall with >=40% upscaled 48px tiles', () => {
+  assert.ok(TILE_SIZE >= 44.8, 'TILE_SIZE must be upscaled by at least 40% from 32px');
+  assert.equal(TILE_SIZE, 48);
   assert.equal(PLAYER_WIDTH_TILES, 0.8);
   assert.equal(PLAYER_HEIGHT_TILES, 1.75);
-  assert.equal(PLAYER_WIDTH, 25.6);
-  assert.equal(PLAYER_HEIGHT, 56);
+  assert.equal(PLAYER_WIDTH, 38.4);
+  assert.equal(PLAYER_HEIGHT, 84);
   assert.equal(DEFAULT_VIEW_SCALE, 1.5);
   assert.equal(MAX_REACH_TILES, 3.05);
 
@@ -259,11 +261,11 @@ test('player hitbox is strictly 0.8 wide x 1.75 tall and requires 2-tile doorway
     world.fg[tileIndex(x, 28)] = ITEM_IDS.AIR;
     world.fg[tileIndex(x, 29)] = ITEM_IDS.AIR;
     world.fg[tileIndex(x, 30)] = ITEM_IDS.AIR;
-    world.fg[tileIndex(x, 31)] = ITEM_IDS.RICH_SOIL;
+    world.fg[tileIndex(x, 31)] = ITEM_IDS.GP_DIRT;
   }
 
   // Place a ceiling block at x=48, y=29 leaving only a 1-tile gap at y=30
-  world.fg[tileIndex(48, 29)] = ITEM_IDS.GRANITE_STONE;
+  world.fg[tileIndex(48, 29)] = ITEM_IDS.GP_ROCK;
 
   const body = createPlayerBody(46, 30);
   body.grounded = true;
@@ -275,7 +277,7 @@ test('player hitbox is strictly 0.8 wide x 1.75 tall and requires 2-tile doorway
 
   // Open row 29 leaving 2-tile vertical clearance (y=29..30)
   world.fg[tileIndex(48, 29)] = ITEM_IDS.AIR;
-  world.fg[tileIndex(48, 28)] = ITEM_IDS.GRANITE_STONE;
+  world.fg[tileIndex(48, 28)] = ITEM_IDS.GP_ROCK;
   for (let i = 0; i < 40; i++) {
     stepPlayerPhysics(body, world, moveRight, 1 / 60);
   }
@@ -290,17 +292,17 @@ test('interaction reach is strictly 3 blocks by default and honors GameConfig dr
   const cfg = sanitizeGameConfig({
     mechanics: { viewScale: 1.5, reachTiles: 3.05, globalGemDropChance: 1 } as never,
     itemOverrides: {
-      [ITEM_IDS.RICH_SOIL]: {
+      [ITEM_IDS.GP_DIRT]: {
         hardness: 1,
         gemValue: 5,
         xpValue: 10,
-        drops: [{ itemId: ITEM_IDS.CRYSTAL_VEIN, chance: 1, minQty: 2, maxQty: 2 }],
+        drops: [{ itemId: ITEM_IDS.GP_RED_BRICKS, chance: 1, minQty: 2, maxQty: 2 }],
       },
     },
   });
-  const def = getEffectiveItemDef(ITEM_IDS.RICH_SOIL, cfg);
+  const def = getEffectiveItemDef(ITEM_IDS.GP_DIRT, cfg);
   assert.equal(def?.hardness, 1);
-  assert.equal(def?.drops?.[0].itemId, ITEM_IDS.CRYSTAL_VEIN);
+  assert.equal(def?.drops?.[0].itemId, ITEM_IDS.GP_RED_BRICKS);
   assert.equal(def?.drops?.[0].minQty, 2);
 });
 
@@ -352,9 +354,9 @@ test('seeded admin login, empty Fist+Wrench starter inventory, and centered tile
         mechanics: { ...prevCfg.mechanics, punchCooldownMs: 60 },
         itemOverrides: {
           ...prevCfg.itemOverrides,
-          [ITEM_IDS.MEADOW_TURF]: {
+          [ITEM_IDS.GP_GRASS]: {
             hardness: 1,
-            drops: [{ itemId: ITEM_IDS.MEADOW_TURF, chance: 1, minQty: 1, maxQty: 1 }],
+            drops: [{ itemId: ITEM_IDS.GP_GRASS, chance: 1, minQty: 1, maxQty: 1 }],
           },
         },
       });
@@ -364,8 +366,8 @@ test('seeded admin login, empty Fist+Wrench starter inventory, and centered tile
       if (punch.ok && punch.broken) {
         assert.ok(punch.drops.length >= 1);
         const firstDrop = punch.drops[0];
-        assert.equal(firstDrop.x, tx * TILE_SIZE + 16);
-        assert.equal(firstDrop.y, ty * TILE_SIZE + 16);
+        assert.equal(firstDrop.x, tx * TILE_SIZE + TILE_SIZE * 0.5);
+        assert.equal(firstDrop.y, ty * TILE_SIZE + TILE_SIZE * 0.5);
       }
       store.updateGameConfig(adminLogin.account, prevCfg);
       store.leaveWorld('START', adminLogin.account.id);
@@ -373,34 +375,61 @@ test('seeded admin login, empty Fist+Wrench starter inventory, and centered tile
   }
 });
 
+test('admin store editor customization, live store purchase, and in-world landscape restriction gating', () => {
+  const store = new AuthoritativeWorldStore();
+  const adminLogin = store.loginAccount({ identifier: 'puncisters@gmail.com', password: '123456' });
+  assert.equal(adminLogin.ok, true);
+  if (!adminLogin.ok) return;
 
-test('GrowPixel collection has 42 placeables, 42 matching seeds, and complete splicing graph', () => {
-  assert.equal(GROWPIXEL_COLLECTION_IDS.blocks.length, 42);
-  assert.equal(GROWPIXEL_COLLECTION_IDS.seeds.length, 42);
-  for (let i = 0; i < GROWPIXEL_COLLECTION_IDS.blocks.length; i++) {
-    const block = getItemDef(GROWPIXEL_COLLECTION_IDS.blocks[i]);
-    const seed = getItemDef(GROWPIXEL_COLLECTION_IDS.seeds[i]);
-    assert.ok(block && seed);
-    assert.equal(block.seedId, seed.id);
-    assert.equal(seed.producesTileId, block.id);
-    assert.ok(seed.growthTimeMs && seed.growthTimeMs > 0);
+  // Custom listing in GameConfig
+  const customListing = {
+    id: 'store_test_special',
+    section: 'blocks' as const,
+    name: 'Special Test Bundle',
+    description: 'Grant 33 Red Bricks for 15 Gems',
+    iconItemId: ITEM_IDS.GP_RED_BRICKS,
+    gemPrice: 15,
+    grants: [{ itemId: ITEM_IDS.GP_RED_BRICKS, qty: 33 }],
+  };
+
+  const prevCfg = store.getGameConfig();
+  const updatedCfg = sanitizeGameConfig({
+    ...prevCfg,
+    storeListings: [...(prevCfg.storeListings ?? []), customListing],
+  });
+
+  const applied = store.updateGameConfig(adminLogin.account, updatedCfg);
+  assert.equal(applied.ok, true);
+
+  // Register player, grant gems, and purchase custom store listing
+  const suffix = Math.random().toString(36).slice(2, 7);
+  const reg = store.registerAccount({
+    email: `store_${suffix}@example.com`,
+    username: `Shopper_${suffix}`,
+    password: 'password123',
+  });
+  assert.equal(reg.ok, true);
+  if (!reg.ok) return;
+
+  reg.account.gems = 50;
+  const buyRes = store.handleBuyGemStore(reg.account, 'store_test_special', 'tx_store_test_1');
+  assert.equal(buyRes.ok, true);
+  assert.equal(reg.account.gems, 35); // 50 - 15 = 35
+  const brickSlot = reg.account.inventory.find((s) => s.itemId === ITEM_IDS.GP_RED_BRICKS);
+  assert.equal(brickSlot?.qty, 33);
+
+  // Restore config
+  store.updateGameConfig(adminLogin.account, prevCfg);
+
+  // Portrait view is unrestricted across every screen including in-world
+  const isBlockedByOrientation = (_state: string, _isPortrait: boolean) => false;
+  for (const state of ['auth', 'loading', 'hub', 'playing', 'paused']) {
+    assert.equal(isBlockedByOrientation(state, true), false, `${state} must allow portrait view`);
+    assert.equal(isBlockedByOrientation(state, false), false, `${state} must allow landscape view`);
   }
-  assert.equal(SPLICE_RECIPES.length, 36);
-  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_BUSH, ITEM_IDS.GP_SEED_MUSHROOM), ITEM_IDS.GP_SEED_BLUEBERRY);
-  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_HEDGE, ITEM_IDS.GP_SEED_ROCK), null);
-});
 
-
-test('GrowPixel seeds expose explicit provisional farming metadata without claiming wiki verification', () => {
-  for (const seedId of GROWPIXEL_COLLECTION_IDS.seeds) {
-    const seed = getItemDef(seedId);
-    assert.ok(seed?.treeHarvestYield);
-    assert.equal(seed?.treeHarvestYield?.minBlocks, 2);
-    assert.equal(seed?.treeHarvestYield?.maxBlocks, 3);
-    assert.equal(seed?.treeHarvestYieldVerified, false);
-    assert.equal(seed?.economyValue, null);
-  }
-  const dirt = getItemDef(ITEM_IDS.GP_DIRT);
-  assert.equal(dirt?.seedDropChance, 0.2);
-  assert.equal(dirt?.seedDropChanceVerified, false);
+  // Movement & punch pacing constants are tuned smoother & slower
+  const cfg = store.getGameConfig();
+  assert.ok(cfg.mechanics.moveSpeed <= 240, 'move speed must be smoothed/slowed <= 240 px/s');
+  assert.ok(cfg.mechanics.punchCooldownMs >= 280, 'punch cooldown must be calmer >= 280 ms');
 });

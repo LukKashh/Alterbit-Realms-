@@ -17,7 +17,7 @@ import { soundEngine } from './game/audio.ts';
 import { TitleScreen } from './components/TitleScreen.tsx';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
 import { WorldHub } from './components/WorldHub.tsx';
-import { GameHud, PortraitBlocker } from './components/GameHud.tsx';
+import { GameHud } from './components/GameHud.tsx';
 
 type AppState = 'auth' | 'loading' | 'hub' | 'playing' | 'paused';
 
@@ -60,10 +60,6 @@ export default function App() {
   });
   const [authSubmitting, setAuthSubmitting] = useState(false);
 
-  const [isPortrait, setIsPortrait] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? window.innerHeight > window.innerWidth : false
-  );
-
   const [playerId, setPlayerId] = useState<string>('');
   const [playerName, setPlayerName] = useState<string>('Explorer');
   const [email, setEmail] = useState<string>('');
@@ -91,7 +87,10 @@ export default function App() {
   const [gameConfig, setGameConfig] = useState<GameConfig>(() => cloneGameConfig(DEFAULT_GAME_CONFIG));
   const [muted, setMuted] = useState<boolean>(false);
   const [touchEnabled, setTouchEnabled] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(pointer: coarse)').matches : false
+    typeof window !== 'undefined'
+      ? window.matchMedia('(pointer: coarse)').matches ||
+        (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+      : false
   );
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -158,38 +157,6 @@ export default function App() {
     },
     [syncHotbarWithInventory]
   );
-
-  const requestLandscapeLock = useCallback(async () => {
-    try {
-      const isCoarseMobile =
-        typeof window !== 'undefined' &&
-        window.matchMedia('(pointer: coarse)').matches;
-      if (!isCoarseMobile) return;
-      if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-        await document.documentElement.requestFullscreen().catch(() => {});
-      }
-      const orientation = screen.orientation as unknown as { lock?: (mode: string) => Promise<void> };
-      if (orientation?.lock) {
-        await orientation.lock('landscape').catch(() => {});
-      }
-    } catch {
-      // Browser policy may block orientation lock outside fullscreen mobile; portrait blocker handles fallback.
-    }
-  }, []);
-
-  // Orientation monitor (strictly landscape-only)
-  useEffect(() => {
-    const check = () => {
-      setIsPortrait(window.innerHeight > window.innerWidth);
-    };
-    window.addEventListener('resize', check);
-    window.addEventListener('orientationchange', check);
-    check();
-    return () => {
-      window.removeEventListener('resize', check);
-      window.removeEventListener('orientationchange', check);
-    };
-  }, []);
 
   // Sync body dataset state & engine mode
   useEffect(() => {
@@ -441,7 +408,6 @@ export default function App() {
       setAuthSubmitting(true);
       setErrorMessage(null);
       soundEngine.uiClick();
-      void requestLandscapeLock();
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -460,7 +426,7 @@ export default function App() {
         setAuthSubmitting(false);
       }
     },
-    [finishAuthSuccess, requestLandscapeLock]
+    [finishAuthSuccess]
   );
 
   const handleRegister = useCallback(
@@ -468,7 +434,6 @@ export default function App() {
       setAuthSubmitting(true);
       setErrorMessage(null);
       soundEngine.uiClick();
-      void requestLandscapeLock();
       try {
         const res = await fetch('/api/auth/register', {
           method: 'POST',
@@ -487,19 +452,22 @@ export default function App() {
         setAuthSubmitting(false);
       }
     },
-    [finishAuthSuccess, requestLandscapeLock]
+    [finishAuthSuccess]
   );
 
-  const handleEnterWorld = useCallback((targetWorldName: string) => {
-    const cleanWorld = (targetWorldName || 'START').trim().toUpperCase();
-    soundEngine.uiClick();
-    setLoadingText({
-      title: `Entering ${cleanWorld}...`,
-      subtitle: 'Loading 100×60 tiles, trees, locks & active players',
-    });
-    setAppState('loading');
-    socketRef.current?.joinWorld(cleanWorld);
-  }, []);
+  const handleEnterWorld = useCallback(
+    (targetWorldName: string) => {
+      const cleanWorld = (targetWorldName || 'START').trim().toUpperCase();
+      soundEngine.uiClick();
+      setLoadingText({
+        title: `Entering ${cleanWorld}...`,
+        subtitle: 'Loading 100×60 tiles, trees, locks & active players',
+      });
+      setAppState('loading');
+      socketRef.current?.joinWorld(cleanWorld);
+    },
+    []
+  );
 
   const handleReturnToHub = useCallback(() => {
     socketRef.current?.leaveWorld();
@@ -668,6 +636,9 @@ export default function App() {
           onTouchMove={(dir, active) => engineRef.current?.setTouchMove(dir, active)}
           onTouchJump={(active) => engineRef.current?.setTouchJump(active)}
           onTouchPunch={(active) => engineRef.current?.setTouchPunch(active)}
+          onTouchPunchStick={(active, dx, dy) =>
+            engineRef.current?.setTouchPunchStick(active, dx, dy)
+          }
           onPause={() => setAppState('paused')}
           onResume={() => setAppState('playing')}
           onReturnToHub={handleReturnToHub}
@@ -711,8 +682,6 @@ export default function App() {
           connected={connected}
         />
       )}
-
-      {isPortrait && <PortraitBlocker onTryLock={requestLandscapeLock} />}
     </main>
   );
 }

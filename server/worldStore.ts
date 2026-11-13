@@ -392,66 +392,6 @@ export class AuthoritativeWorldStore {
     return { ok: true, token, account };
   }
 
-  loginOrCreateFirebaseAccount(input: {
-    uid: string;
-    email: string;
-    displayName?: string;
-    emailVerified?: boolean;
-  }): { ok: true; token: string; account: PlayerAccount } | { ok: false; message: string } {
-    const uid = this.safeFileId(input.uid || '');
-    const email = (input.email ?? '').trim().toLowerCase();
-    if (!uid || !email) {
-      return { ok: false, message: 'Firebase account must include a verified UID and email.' };
-    }
-
-    const isVerifiedAdminEmail = email === 'puncisters@gmail.com' && Boolean(input.emailVerified);
-    let cred = this.credentials.find((c) => c.email === email || c.accountId === `fb_${uid}`);
-
-    if (!cred) {
-      const accountId = isVerifiedAdminEmail ? 'admin_gamedev' : `fb_${uid}`;
-      const baseName = (input.displayName || email.split('@')[0] || 'Explorer')
-        .replace(/[^a-zA-Z0-9_-]/g, '')
-        .slice(0, 12) || 'Explorer';
-      let candidate = baseName.length >= 2 ? baseName : `Player_${uid.slice(0, 4)}`;
-      let suffix = 1;
-      while (this.credentials.some((c) => c.usernameLower === candidate.toLowerCase())) {
-        candidate = `${baseName.slice(0, 11)}_${suffix++}`;
-      }
-      cred = {
-        accountId,
-        email,
-        username: candidate,
-        usernameLower: candidate.toLowerCase(),
-        passwordHash: this.hashPassword(crypto.randomBytes(24).toString('hex')),
-        role: isVerifiedAdminEmail ? 'admin' : 'player',
-        createdAt: Date.now(),
-      };
-      this.credentials.push(cred);
-      this.saveCredentials();
-    } else if (isVerifiedAdminEmail && cred.role !== 'admin') {
-      cred.role = 'admin';
-      this.saveCredentials();
-    }
-
-    let account = this.loadPlayerById(cred.accountId);
-    if (!account) {
-      account = this.createEmptyPlayerAccount(cred.accountId, cred.username, cred.email, cred.role);
-      this.players.set(cred.accountId, account);
-      this.savePlayer(account);
-    } else {
-      account.role = cred.role;
-      account.email = cred.email;
-      account.name = cred.username;
-      this.savePlayer(account);
-    }
-
-    const token = crypto.randomBytes(24).toString('hex');
-    this.sessions.set(token, { token, accountId: account.id, createdAt: Date.now() });
-    this.saveSessions();
-
-    return { ok: true, token, account };
-  }
-
   loginAccount(input: {
     identifier: string;
     password: string;
@@ -478,6 +418,75 @@ export class AuthoritativeWorldStore {
       account.role = cred.role;
       account.email = cred.email;
       account.name = cred.username;
+    }
+
+    const token = crypto.randomBytes(24).toString('hex');
+    this.sessions.set(token, { token, accountId: account.id, createdAt: Date.now() });
+    this.saveSessions();
+
+    return { ok: true, token, account };
+  }
+
+  loginOrCreateFirebaseAccount(input: {
+    uid: string;
+    email: string;
+    displayName?: string;
+    emailVerified?: boolean;
+  }): { ok: true; token: string; account: PlayerAccount } | { ok: false; message: string } {
+    const uid = (input.uid ?? '').trim();
+    if (!uid) {
+      return { ok: false, message: 'Missing Firebase user ID.' };
+    }
+
+    const email = (input.email ?? '').trim().toLowerCase();
+    const fbAccountId = `fb_${this.safeFileId(uid)}`;
+
+    let cred = this.credentials.find(
+      (c) => (email && c.email === email) || c.accountId === fbAccountId
+    );
+
+    if (!cred) {
+      const rawBase = (input.displayName || email.split('@')[0] || 'Player')
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .slice(0, 12);
+      const baseName = rawBase.length >= 2 ? rawBase : `Player_${uid.slice(0, 4)}`;
+      let candidate = baseName;
+      let suffix = 1;
+      while (this.credentials.some((c) => c.usernameLower === candidate.toLowerCase())) {
+        const suffixStr = String(suffix++);
+        candidate = `${baseName.slice(0, Math.max(2, 16 - suffixStr.length))}${suffixStr}`;
+      }
+
+      const role: UserRole = email === 'puncisters@gmail.com' ? 'admin' : 'player';
+      cred = {
+        accountId: fbAccountId,
+        email,
+        username: candidate,
+        usernameLower: candidate.toLowerCase(),
+        passwordHash: this.hashPassword(crypto.randomBytes(24).toString('hex')),
+        role,
+        createdAt: Date.now(),
+      };
+      this.credentials.push(cred);
+      this.saveCredentials();
+    } else if (email && cred.email !== email) {
+      cred.email = email;
+      if (email === 'puncisters@gmail.com') {
+        cred.role = 'admin';
+      }
+      this.saveCredentials();
+    }
+
+    let account = this.loadPlayerById(cred.accountId);
+    if (!account) {
+      account = this.createEmptyPlayerAccount(cred.accountId, cred.username, cred.email, cred.role);
+      this.players.set(cred.accountId, account);
+      this.savePlayer(account);
+    } else {
+      account.role = cred.role;
+      account.email = cred.email;
+      account.name = cred.username;
+      this.savePlayer(account);
     }
 
     const token = crypto.randomBytes(24).toString('hex');
@@ -866,7 +875,7 @@ export class AuthoritativeWorldStore {
     const idx = tileIndex(tx, ty);
 
     let maxHits = 3;
-    let targetDef = getEffectiveItemDef(ITEM_IDS.RICH_SOIL, this.gameConfig);
+    let targetDef = getEffectiveItemDef(ITEM_IDS.GP_DIRT, this.gameConfig);
     if (check.layer === 'plant') {
       const plant = live.state.plants[key];
       const growth = getPlantGrowthState(plant, now);
@@ -913,23 +922,14 @@ export class AuthoritativeWorldStore {
       delete live.state.plants[key];
       if (growth.stage === 'mature' && targetDef?.producesTileId) {
         account.stats.treesHarvested = (account.stats.treesHarvested ?? 0) + 1;
-        const harvestYield = targetDef?.treeHarvestYield ?? { minBlocks: 2, maxBlocks: 3, seedChance: 0.65 };
-        const yieldQty = harvestYield.minBlocks + Math.floor(Math.random() * (harvestYield.maxBlocks - harvestYield.minBlocks + 1));
+        const yieldQty = 2 + Math.floor(Math.random() * 2);
         spawnedDrops.push(
           this.createDrop(live, targetDef.producesTileId, yieldQty, tx, ty, spawnedDrops.length)
         );
-        if (Math.random() < harvestYield.seedChance) {
+        if (Math.random() < 0.65) {
           spawnedDrops.push(
             this.createDrop(live, plant.seedId, 1, tx, ty, spawnedDrops.length)
           );
-        }
-        if (targetDef?.bonusHarvestDrops) {
-          for (const bonus of targetDef.bonusHarvestDrops) {
-            if (Math.random() <= bonus.chance) {
-              const qty = bonus.minQty + Math.floor(Math.random() * (bonus.maxQty - bonus.minQty + 1));
-              if (qty > 0) spawnedDrops.push(this.createDrop(live, bonus.itemId, qty, tx, ty, spawnedDrops.length));
-            }
-          }
         }
         gemsGained = 2 + Math.floor(Math.random() * 4);
         xpGained += 4;
@@ -950,7 +950,7 @@ export class AuthoritativeWorldStore {
       if (prevFg === ITEM_IDS.VENDING_MACHINE && live.state.vendingMachines) {
         delete live.state.vendingMachines[key];
       }
-      if (prevFg === ITEM_IDS.SIGN_POST && live.state.signs) {
+      if (getItemDef(prevFg)?.key.includes('sign') && live.state.signs) {
         delete live.state.signs[key];
       }
 
@@ -999,8 +999,8 @@ export class AuthoritativeWorldStore {
         id: `gem_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         itemId: 0,
         qty: gemsGained,
-        x: tx * TILE_SIZE + 16 + slotOffset,
-        y: ty * TILE_SIZE + 16,
+        x: tx * TILE_SIZE + TILE_SIZE * 0.5 + slotOffset,
+        y: ty * TILE_SIZE + TILE_SIZE * 0.5,
         isGem: true,
       };
       spawnedDrops.push(gemDrop);
@@ -1047,8 +1047,8 @@ export class AuthoritativeWorldStore {
       id: `drp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       itemId,
       qty,
-      x: tx * TILE_SIZE + 16 + ox,
-      y: ty * TILE_SIZE + 16 + oy,
+      x: tx * TILE_SIZE + TILE_SIZE * 0.5 + ox,
+      y: ty * TILE_SIZE + TILE_SIZE * 0.5 + oy,
     };
     live.drops.set(drop.id, drop);
     return drop;
@@ -1149,7 +1149,7 @@ export class AuthoritativeWorldStore {
           earningsQty: 0,
         };
         notice = 'Vending Machine placed! Use Tinker Wrench to stock items.';
-      } else if (itemId === ITEM_IDS.SIGN_POST) {
+      } else if (getItemDef(itemId)?.key.includes('sign')) {
         live.state.signs = live.state.signs ?? {};
         live.state.signs[key] = `Sign by ${account.name}`;
         notice = 'Signboard placed! Use Tinker Wrench to edit inscription.';
@@ -1225,7 +1225,8 @@ export class AuthoritativeWorldStore {
     if (!txId || account.processedTxIds.includes(txId)) {
       return { ok: false, message: 'Duplicate transaction ignored.' };
     }
-    const listing = GEM_STORE_LISTINGS.find((l) => l.id === listingId);
+    const storeListings = this.gameConfig.storeListings ?? GEM_STORE_LISTINGS;
+    const listing = storeListings.find((l) => l.id === listingId);
     if (!listing) {
       return { ok: false, message: 'Store item not found.' };
     }
@@ -1462,7 +1463,7 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: 'You do not have permission to edit this sign.' };
     }
     const idx = tileIndex(tx, ty);
-    if (live.state.fg[idx] !== ITEM_IDS.SIGN_POST) {
+    if (!getItemDef(live.state.fg[idx])?.key.includes('sign')) {
       return { ok: false, message: 'No Signboard at that location.' };
     }
     const cleanText = rawText.trim().slice(0, 80) || 'Empty Sign';

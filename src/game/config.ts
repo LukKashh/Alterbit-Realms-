@@ -7,7 +7,13 @@ import {
   MAX_RUN_SPEED,
   PUNCH_COOLDOWN_MS,
 } from './constants.ts';
-import { CATALOG, type DropEntry, type ItemDefinition } from './catalog.ts';
+import {
+  CATALOG,
+  GEM_STORE_LISTINGS,
+  type DropEntry,
+  type GemStoreListing,
+  type ItemDefinition,
+} from './catalog.ts';
 
 export interface GameMechanicsConfig {
   viewScale: number;
@@ -31,6 +37,7 @@ export interface ItemConfigOverride {
 export interface GameConfig {
   mechanics: GameMechanicsConfig;
   itemOverrides: Record<number, ItemConfigOverride>;
+  storeListings?: GemStoreListing[];
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
@@ -46,6 +53,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     globalGemDropChance: 0.55,
   },
   itemOverrides: {},
+  storeListings: [...GEM_STORE_LISTINGS],
 };
 
 export function cloneGameConfig(cfg: GameConfig): GameConfig {
@@ -64,10 +72,10 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
     viewScale: clamp(m.viewScale, DEFAULT_GAME_CONFIG.mechanics.viewScale, 1, 2.5),
     reachTiles: clamp(m.reachTiles, DEFAULT_GAME_CONFIG.mechanics.reachTiles, 1.5, 8),
     punchCooldownMs: clamp(m.punchCooldownMs, DEFAULT_GAME_CONFIG.mechanics.punchCooldownMs, 60, 600),
-    moveSpeed: clamp(m.moveSpeed, DEFAULT_GAME_CONFIG.mechanics.moveSpeed, 100, 480),
-    jumpVelocity: clamp(m.jumpVelocity, DEFAULT_GAME_CONFIG.mechanics.jumpVelocity, -750, -250),
-    gravity: clamp(m.gravity, DEFAULT_GAME_CONFIG.mechanics.gravity, 500, 2400),
-    dropMagnetRadius: clamp(m.dropMagnetRadius, DEFAULT_GAME_CONFIG.mechanics.dropMagnetRadius, 0, 140),
+    moveSpeed: clamp(m.moveSpeed, DEFAULT_GAME_CONFIG.mechanics.moveSpeed, 150, 720),
+    jumpVelocity: clamp(m.jumpVelocity, DEFAULT_GAME_CONFIG.mechanics.jumpVelocity, -1125, -375),
+    gravity: clamp(m.gravity, DEFAULT_GAME_CONFIG.mechanics.gravity, 750, 3600),
+    dropMagnetRadius: clamp(m.dropMagnetRadius, DEFAULT_GAME_CONFIG.mechanics.dropMagnetRadius, 0, 210),
     growthMultiplier: clamp(m.growthMultiplier, DEFAULT_GAME_CONFIG.mechanics.growthMultiplier, 0.1, 5),
     globalGemDropChance: clamp(
       m.globalGemDropChance,
@@ -101,7 +109,34 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
     }
   }
 
-  return { mechanics, itemOverrides };
+  let storeListings: GemStoreListing[] | undefined = undefined;
+  if (Array.isArray(raw?.storeListings)) {
+    storeListings = raw.storeListings
+      .filter((l) => l && typeof l === 'object' && typeof l.id === 'string' && l.id.trim().length > 0)
+      .map((l, idx) => ({
+        id: String(l.id).trim().slice(0, 48) || `store_${idx}`,
+        section: (['locks', 'blocks', 'seeds', 'wearables'].includes(l.section)
+          ? l.section
+          : 'blocks') as GemStoreListing['section'],
+        name: String(l.name ?? 'Store Item').slice(0, 48),
+        description: String(l.description ?? '').slice(0, 160),
+        iconItemId: CATALOG[Number(l.iconItemId)] ? Number(l.iconItemId) : 101,
+        gemPrice: Math.max(1, Math.min(100000, Math.round(Number(l.gemPrice) || 10))),
+        grants: Array.isArray(l.grants)
+          ? l.grants
+              .filter((g) => g && CATALOG[Number(g.itemId)])
+              .map((g) => ({
+                itemId: Number(g.itemId),
+                qty: Math.max(1, Math.min(250, Math.round(Number(g.qty) || 1))),
+              }))
+          : [{ itemId: 101, qty: 1 }],
+      }));
+    if (storeListings.length === 0) {
+      storeListings = [...GEM_STORE_LISTINGS];
+    }
+  }
+
+  return { mechanics, itemOverrides, storeListings: storeListings ?? [...GEM_STORE_LISTINGS] };
 }
 
 export function getEffectiveItemDef(

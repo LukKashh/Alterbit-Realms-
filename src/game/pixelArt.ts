@@ -1,12 +1,40 @@
+import {
+  BLOCKGROVE_ART_THEME as THEME,
+  deriveColorRamp,
+  mixHex,
+  shadeHex,
+} from './artTheme.ts';
 import { CATALOG, ITEM_IDS } from './catalog.ts';
 
-export type PlayerPose = 'idle' | 'walk0' | 'walk1' | 'walk2' | 'walk3' | 'jump' | 'fall' | 'punch';
+export type PlayerPose =
+  | 'idle'
+  | 'idle0'
+  | 'idle1'
+  | 'idle2'
+  | 'idle3'
+  | 'walk0'
+  | 'walk1'
+  | 'walk2'
+  | 'walk3'
+  | 'jump'
+  | 'fall'
+  | 'punch'
+  | 'punch0'
+  | 'punch1'
+  | 'punch2'
+  | 'punch3'
+  | 'place';
 
 export interface EquippedWearables {
   head?: number;
   face?: number;
   back?: number;
 }
+
+const TILE_PX = THEME.tileTextureSize; // 48x48
+const PLAYER_CANVAS_W = THEME.playerSpriteSize.width; // 68 (padded so extended arms never clip)
+const PLAYER_CANVAS_H = THEME.playerSpriteSize.height; // 84
+const PLAYER_BOX_W = THEME.playerBoxSize.width; // 38.4 exact hitbox width
 
 const tileCache = new Map<number, HTMLCanvasElement>();
 const iconDataUrls = new Map<number, string>();
@@ -22,309 +50,618 @@ function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingCo
   return [c, ctx];
 }
 
-function px(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, w = 1, h = 1) {
+// 3x pixel-art grid helper (16x16 crisp iconic tiles -> 48x48 canvas)
+function p3(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, w = 1, h = 1) {
   ctx.fillStyle = color;
-  ctx.fillRect(x, y, w, h);
+  ctx.fillRect(x * 3, y * 3, w * 3, h * 3);
 }
 
-function drawTile16(itemId: number): HTMLCanvasElement {
-  const [c, ctx] = makeCanvas(16, 16);
+// Clean 16x16 framed panel (one-tier simpler bevel & bold corner bolts)
+function drawFramedPanel16(
+  ctx: CanvasRenderingContext2D,
+  baseHex: string,
+  opts?: { recessed?: boolean; bolts?: boolean }
+) {
+  const ramp = deriveColorRamp(baseHex);
+  p3(ctx, 0, 0, ramp.outline, 16, 16);
+  p3(ctx, 1, 1, ramp.base, 14, 14);
+  p3(ctx, 1, 1, opts?.recessed ? ramp.shadow : ramp.highlight, 14, 1);
+  p3(ctx, 1, 1, opts?.recessed ? ramp.shadow : ramp.highlight, 1, 14);
+  p3(ctx, 1, 14, ramp.deep, 14, 1);
+  p3(ctx, 14, 1, ramp.deep, 1, 14);
+
+  p3(ctx, 3, 3, opts?.recessed ? ramp.deep : ramp.highlight, 10, 10);
+  p3(ctx, 4, 4, ramp.base, 8, 8);
+  if (!opts?.recessed) {
+    p3(ctx, 4, 4, ramp.highlight, 7, 1);
+    p3(ctx, 4, 4, ramp.highlight, 1, 7);
+    p3(ctx, 5, 11, ramp.shadow, 7, 1);
+    p3(ctx, 11, 5, ramp.shadow, 1, 7);
+  }
+  if (opts?.bolts) {
+    for (const [bx, by] of [
+      [2, 2],
+      [13, 2],
+      [2, 13],
+      [13, 13],
+    ]) {
+      p3(ctx, bx, by, ramp.deep, 1, 1);
+    }
+  }
+}
+
+// Calm low-noise dirt body on a 16x16 grid
+function drawDirtBody16(ctx: CanvasRenderingContext2D, startRow: number) {
+  p3(ctx, 0, startRow, THEME.earth.dirtMid, 16, 16 - startRow);
+  const pebbles: Array<[number, number, number, number, string]> = [
+    [2, 5, 2, 1, THEME.earth.dirtDeep],
+    [3, 5, 1, 1, THEME.earth.dirtLit],
+    [10, 7, 3, 2, THEME.earth.dirtDeep],
+    [11, 7, 1, 1, THEME.earth.dirtLit],
+    [5, 11, 2, 2, THEME.earth.dirtPebble],
+    [13, 12, 2, 1, THEME.earth.dirtLit],
+    [1, 13, 2, 2, THEME.earth.dirtDeep],
+    [8, 14, 2, 1, THEME.earth.dirtPebble],
+  ];
+  for (const [px, py, pw, ph, col] of pebbles) {
+    if (py >= startRow) {
+      p3(ctx, px, py, col, pw, ph);
+    }
+  }
+  p3(ctx, 0, 15, THEME.earth.dirtDeep, 16, 1);
+}
+
+// Simplified 3-course masonry on 16x16 grid
+function drawMasonryBricks16(
+  ctx: CanvasRenderingContext2D,
+  lit: string,
+  mid: string,
+  deep: string,
+  mortar: string
+) {
+  p3(ctx, 0, 0, mortar, 16, 16);
+  const rows = [
+    { y: 1, h: 4, offset: 0 },
+    { y: 6, h: 4, offset: 4 },
+    { y: 11, h: 4, offset: 1 },
+  ];
+  rows.forEach((row, rIdx) => {
+    for (let bx = -8; bx < 16; bx += 8) {
+      const rx = bx + row.offset;
+      const sx = Math.max(0, rx + 1);
+      const ex = Math.min(16, rx + 8);
+      const w = ex - sx;
+      if (w <= 0) continue;
+      const body = (rIdx + Math.floor(bx / 8)) % 2 === 0 ? mid : mixHex(mid, deep, 0.25);
+      p3(ctx, sx, row.y, body, w, row.h);
+      p3(ctx, sx, row.y, lit, w, 1);
+      p3(ctx, sx, row.y + row.h - 1, deep, w, 1);
+    }
+  });
+}
+
+// Calmer 3-plank wood block / recessed vertical planks on 16x16 grid
+function drawWoodPlanks16(ctx: CanvasRenderingContext2D, recessed = false) {
+  const hi = recessed ? shadeHex(THEME.wood.lit, -0.25) : THEME.wood.highlight;
+  const mid = recessed ? shadeHex(THEME.wood.mid, -0.28) : THEME.wood.mid;
+  const sh = recessed ? shadeHex(THEME.wood.shadow, -0.28) : THEME.wood.shadow;
+  const deep = recessed ? '#1c1411' : THEME.wood.deep;
+
+  p3(ctx, 0, 0, mid, 16, 16);
+  if (recessed) {
+    for (let x = 0; x < 16; x += 4) {
+      p3(ctx, x, 0, deep, 1, 16);
+      p3(ctx, x + 1, 0, hi, 1, 16);
+      p3(ctx, x + 2, 4, sh, 1, 6);
+    }
+    p3(ctx, 0, 0, deep, 16, 1);
+    p3(ctx, 0, 15, deep, 16, 1);
+  } else {
+    for (let y = 0; y < 16; y += 5) {
+      p3(ctx, 0, y, deep, 16, 1);
+      p3(ctx, 0, y + 1, hi, 16, 1);
+      p3(ctx, 0, y + 4, sh, 16, 1);
+      const joint = (y * 2 + 6) % 12 + 2;
+      p3(ctx, joint, y + 1, deep, 1, 4);
+      p3(ctx, (joint + 5) % 13 + 1, y + 2, sh, 3, 1);
+    }
+    p3(ctx, 0, 0, THEME.ink.outline, 1, 16);
+    p3(ctx, 15, 0, sh, 1, 16);
+  }
+}
+
+function drawSignPost16(
+  ctx: CanvasRenderingContext2D,
+  variant: 'oak' | 'crappy' | 'pointy' | 'danger'
+) {
+  p3(ctx, 6, 9, THEME.ink.outline, 4, 7);
+  p3(ctx, 7, 10, THEME.wood.mid, 2, 6);
+  p3(ctx, 7, 10, THEME.wood.lit, 1, 5);
+
+  if (variant === 'oak') {
+    p3(ctx, 1, 2, THEME.ink.outline, 14, 8);
+    p3(ctx, 2, 3, THEME.wood.lit, 12, 6);
+    p3(ctx, 2, 3, THEME.wood.highlight, 12, 1);
+    p3(ctx, 2, 8, THEME.wood.shadow, 12, 1);
+    p3(ctx, 4, 5, THEME.wood.deep, 8, 1);
+    p3(ctx, 4, 7, THEME.wood.deep, 6, 1);
+  } else if (variant === 'crappy') {
+    p3(ctx, 2, 2, THEME.ink.outline, 12, 4);
+    p3(ctx, 3, 3, '#9e7043', 10, 2);
+    p3(ctx, 1, 6, THEME.ink.outline, 13, 4);
+    p3(ctx, 2, 7, '#7c5330', 11, 2);
+    p3(ctx, 7, 3, THEME.metal.steelMid, 1, 1);
+    p3(ctx, 7, 7, THEME.metal.steelMid, 1, 1);
+  } else if (variant === 'pointy') {
+    p3(ctx, 1, 2, THEME.ink.outline, 11, 8);
+    p3(ctx, 12, 3, THEME.ink.outline, 2, 6);
+    p3(ctx, 14, 5, THEME.ink.outline, 1, 2);
+    p3(ctx, 2, 3, THEME.wood.lit, 10, 6);
+    p3(ctx, 12, 4, THEME.wood.lit, 1, 4);
+    p3(ctx, 2, 3, THEME.wood.highlight, 9, 1);
+    p3(ctx, 4, 6, THEME.wood.deep, 6, 1);
+  } else {
+    p3(ctx, 2, 1, THEME.ink.outline, 12, 9);
+    p3(ctx, 3, 2, '#d44832', 10, 7);
+    p3(ctx, 3, 2, '#ff9852', 10, 1);
+    p3(ctx, 7, 3, '#fff6b3', 2, 3);
+    p3(ctx, 7, 7, '#fff6b3', 2, 1);
+  }
+}
+
+function drawDoor16(ctx: CanvasRenderingContext2D, dungeon: boolean) {
+  const frameCol = dungeon ? THEME.stone.shadow : THEME.wood.deep;
+  const panelLit = dungeon ? '#725d52' : THEME.wood.lit;
+  const panelMid = dungeon ? '#54433b' : THEME.wood.mid;
+  const panelDeep = dungeon ? '#302521' : THEME.wood.shadow;
+
+  p3(ctx, 2, 1, THEME.ink.outline, 12, 15);
+  p3(ctx, 3, 2, frameCol, 10, 14);
+  p3(ctx, 4, 3, panelMid, 8, 13);
+  p3(ctx, 4, 3, panelLit, 8, 1);
+
+  if (dungeon) {
+    p3(ctx, 4, 5, THEME.stone.abyss, 8, 1);
+    p3(ctx, 4, 12, THEME.stone.abyss, 8, 1);
+    p3(ctx, 6, 7, THEME.ink.outline, 4, 4);
+    p3(ctx, 7, 8, '#1e2736', 2, 2);
+    p3(ctx, 10, 10, THEME.metal.goldMid, 1, 2);
+  } else {
+    p3(ctx, 5, 4, panelDeep, 6, 4);
+    p3(ctx, 6, 5, panelLit, 4, 2);
+    p3(ctx, 5, 10, panelDeep, 6, 5);
+    p3(ctx, 6, 11, panelLit, 4, 3);
+    p3(ctx, 10, 9, THEME.metal.goldLit, 1, 1);
+  }
+}
+
+function drawFlower16(
+  ctx: CanvasRenderingContext2D,
+  petalLit: string,
+  petalMid: string,
+  coreColor: string,
+  tall = false
+) {
+  p3(ctx, 5, 14, THEME.earth.grassDeep, 6, 2);
+  p3(ctx, 6, 13, THEME.earth.grassMid, 4, 2);
+  const stemTop = tall ? 5 : 6;
+  p3(ctx, 7, stemTop, THEME.earth.grassMid, 2, 14 - stemTop);
+  p3(ctx, 5, 10, THEME.earth.grassLit, 2, 1);
+  p3(ctx, 9, 9, THEME.earth.grassLit, 2, 1);
+  p3(ctx, 4, stemTop - 3, THEME.ink.outline, 8, 6);
+  p3(ctx, 5, stemTop - 2, petalMid, 6, 4);
+  p3(ctx, 6, stemTop - 3, petalLit, 4, 1);
+  p3(ctx, 7, stemTop - 1, coreColor, 2, 2);
+}
+
+// One-tier lower iconic 16x16 (3px cell -> 48x48) textures aligned with BLOCKGROVE_ART_THEME
+function drawTile48(itemId: number): HTMLCanvasElement {
+  const [c, ctx] = makeCanvas(TILE_PX, TILE_PX);
   const def = CATALOG[itemId];
   if (!def) return c;
 
   switch (itemId) {
+    case ITEM_IDS.BG_SKY: {
+      p3(ctx, 0, 0, THEME.sky.mid, 16, 16);
+      p3(ctx, 0, 10, THEME.sky.horizon, 16, 6);
+      break;
+    }
+
     case ITEM_IDS.BEDROCK: {
-      px(ctx, 0, 0, '#1c1f29', 16, 16);
-      px(ctx, 0, 0, '#2c3140', 16, 2);
-      for (let i = 0; i < 16; i += 4) {
-        px(ctx, i, 4, '#272b38', 3, 3);
-        px(ctx, (i + 2) % 16, 10, '#12141b', 3, 4);
-        px(ctx, (i + 1) % 16, 6, '#434a5e', 1, 1);
-      }
+      p3(ctx, 0, 0, THEME.stone.abyss, 16, 16);
+      p3(ctx, 0, 0, '#2a3040', 16, 2);
+      p3(ctx, 1, 4, '#252b3b', 5, 4);
+      p3(ctx, 9, 3, '#252b3b', 5, 5);
+      p3(ctx, 4, 10, '#252b3b', 6, 4);
+      p3(ctx, 12, 11, '#252b3b', 3, 4);
       break;
     }
-    case ITEM_IDS.MEADOW_TURF: {
-      px(ctx, 0, 4, '#7d5133', 16, 12);
-      px(ctx, 2, 7, '#5c3922', 2, 2);
-      px(ctx, 10, 9, '#5c3922', 3, 2);
-      px(ctx, 5, 12, '#996745', 2, 2);
-      px(ctx, 0, 0, '#4aa64d', 16, 5);
-      px(ctx, 0, 0, '#7de063', 16, 2);
-      px(ctx, 1, 5, '#3b873e', 2, 2);
-      px(ctx, 6, 5, '#3b873e', 3, 1);
-      px(ctx, 11, 5, '#3b873e', 2, 2);
-      px(ctx, 3, 1, '#a9f589', 2, 1);
-      px(ctx, 11, 1, '#a9f589', 3, 1);
-      break;
-    }
-    case ITEM_IDS.RICH_SOIL: {
-      px(ctx, 0, 0, '#7d5133', 16, 16);
-      px(ctx, 0, 0, '#8f603e', 16, 1);
-      px(ctx, 2, 3, '#5c3922', 3, 2);
-      px(ctx, 11, 5, '#5c3922', 2, 3);
-      px(ctx, 6, 10, '#5c3922', 4, 2);
-      px(ctx, 3, 12, '#9e6b48', 2, 2);
-      px(ctx, 12, 12, '#9e6b48', 2, 1);
-      break;
-    }
-    case ITEM_IDS.GRANITE_STONE: {
-      px(ctx, 0, 0, '#6a7482', 16, 16);
-      px(ctx, 0, 0, '#8d98a8', 16, 1);
-      px(ctx, 0, 0, '#8d98a8', 1, 16);
-      px(ctx, 0, 15, '#464e59', 16, 1);
-      px(ctx, 15, 0, '#464e59', 16, 16);
-      px(ctx, 3, 3, '#525b69', 5, 3);
-      px(ctx, 10, 8, '#525b69', 4, 4);
-      px(ctx, 2, 10, '#8792a3', 3, 2);
-      break;
-    }
-    case ITEM_IDS.BASALT: {
-      px(ctx, 0, 0, '#3a3e4d', 16, 16);
-      px(ctx, 0, 0, '#52576b', 16, 1);
-      px(ctx, 2, 2, '#272a36', 4, 5);
-      px(ctx, 9, 4, '#272a36', 5, 4);
-      px(ctx, 4, 10, '#4f5569', 6, 3);
-      break;
-    }
-    case ITEM_IDS.CRYSTAL_VEIN: {
-      px(ctx, 0, 0, '#455163', 16, 16);
-      px(ctx, 2, 2, '#303947', 12, 12);
-      px(ctx, 3, 4, '#1eb8ba', 4, 7);
-      px(ctx, 4, 3, '#7ef9f2', 2, 6);
-      px(ctx, 9, 6, '#1eb8ba', 4, 6);
-      px(ctx, 10, 5, '#7ef9f2', 2, 4);
-      px(ctx, 6, 11, '#4ce6e3', 3, 3);
-      break;
-    }
-    case ITEM_IDS.MAGMA_ROCK: {
-      px(ctx, 0, 0, '#2e1e21', 16, 16);
-      px(ctx, 2, 2, '#452829', 5, 4);
-      px(ctx, 9, 8, '#452829', 5, 5);
-      px(ctx, 1, 7, '#d9481c', 14, 2);
-      px(ctx, 6, 1, '#d9481c', 2, 14);
-      px(ctx, 3, 7, '#ffaa3b', 4, 1);
-      px(ctx, 6, 4, '#ffaa3b', 1, 5);
-      break;
-    }
-    case ITEM_IDS.TIMBER_PLANK: {
-      px(ctx, 0, 0, '#b57743', 16, 16);
-      for (let y = 0; y < 16; y += 4) {
-        px(ctx, 0, y, '#cf9057', 16, 1);
-        px(ctx, 0, y + 3, '#6e4220', 16, 1);
-      }
-      px(ctx, 7, 0, '#6e4220', 1, 4);
-      px(ctx, 3, 4, '#6e4220', 1, 4);
-      px(ctx, 11, 8, '#6e4220', 1, 4);
-      px(ctx, 6, 12, '#6e4220', 1, 4);
-      break;
-    }
-    case ITEM_IDS.COBBLE_BRICK: {
-      px(ctx, 0, 0, '#543531', 16, 16);
-      const drawBrick = (bx: number, by: number, bw: number, bh: number) => {
-        px(ctx, bx, by, '#946156', bw, bh);
-        px(ctx, bx, by, '#b57c70', bw, 1);
-        px(ctx, bx, by + bh - 1, '#6b423a', bw, 1);
-      };
-      drawBrick(0, 0, 7, 4);
-      drawBrick(8, 0, 8, 4);
-      drawBrick(0, 5, 3, 5);
-      drawBrick(4, 5, 8, 5);
-      drawBrick(13, 5, 3, 5);
-      drawBrick(0, 11, 7, 5);
-      drawBrick(8, 11, 8, 5);
-      break;
-    }
-    case ITEM_IDS.SUNLIT_GLASS: {
-      px(ctx, 0, 0, '#4d92b5', 16, 16);
-      px(ctx, 1, 1, '#9be0fa', 14, 14);
-      px(ctx, 2, 2, '#c7f1ff', 12, 12);
-      px(ctx, 3, 3, '#ffffff', 4, 1);
-      px(ctx, 3, 4, '#ffffff', 2, 3);
-      px(ctx, 10, 10, '#ffffff', 2, 2);
-      break;
-    }
-    case ITEM_IDS.CLOUD_PLATFORM: {
-      px(ctx, 0, 0, '#c79256', 16, 5);
-      px(ctx, 0, 0, '#f2c185', 16, 2);
-      px(ctx, 0, 4, '#6b4523', 16, 2);
-      px(ctx, 2, 6, '#573619', 2, 4);
-      px(ctx, 12, 6, '#573619', 2, 4);
-      break;
-    }
-    case ITEM_IDS.OAK_TRUNK: {
-      px(ctx, 4, 0, '#6d4428', 8, 16);
-      px(ctx, 5, 0, '#8c5a37', 2, 16);
-      px(ctx, 10, 0, '#4a2b17', 2, 16);
-      px(ctx, 6, 4, '#4a2b17', 2, 4);
-      px(ctx, 8, 10, '#4a2b17', 2, 4);
-      break;
-    }
-    case ITEM_IDS.MEADOW_LEAVES: {
-      px(ctx, 1, 1, '#27632d', 14, 14);
-      px(ctx, 0, 3, '#3f9147', 16, 10);
-      px(ctx, 2, 0, '#3f9147', 12, 15);
-      px(ctx, 3, 2, '#73cc68', 4, 4);
-      px(ctx, 9, 4, '#73cc68', 4, 3);
-      px(ctx, 5, 9, '#5db853', 5, 3);
-      break;
-    }
-    case ITEM_IDS.RUBY_BLOCK: {
-      px(ctx, 0, 0, '#7a1924', 16, 16);
-      px(ctx, 1, 1, '#d9384a', 14, 14);
-      px(ctx, 2, 2, '#ff6e7e', 12, 2);
-      px(ctx, 2, 2, '#ff6e7e', 2, 12);
-      px(ctx, 4, 4, '#a62131', 8, 8);
-      px(ctx, 5, 5, '#ff96a3', 4, 4);
-      break;
-    }
-    case ITEM_IDS.GOLD_BRICK: {
-      px(ctx, 0, 0, '#8c5a08', 16, 16);
-      px(ctx, 1, 1, '#f2b738', 14, 6);
-      px(ctx, 1, 2, '#fff0a6', 12, 2);
-      px(ctx, 1, 9, '#f2b738', 6, 6);
-      px(ctx, 8, 9, '#f2b738', 7, 6);
-      px(ctx, 2, 10, '#fff0a6', 4, 2);
-      px(ctx, 9, 10, '#fff0a6', 5, 2);
-      break;
-    }
-    case ITEM_IDS.LANTERN_LIGHT: {
-      px(ctx, 7, 0, '#382e24', 2, 3);
-      px(ctx, 4, 3, '#5c4b3b', 8, 2);
-      px(ctx, 5, 5, '#ffcf54', 6, 8);
-      px(ctx, 6, 6, '#fff8d6', 4, 6);
-      px(ctx, 4, 13, '#5c4b3b', 8, 2);
-      break;
-    }
+
     case ITEM_IDS.ENTRANCE_PORTAL: {
-      px(ctx, 2, 1, '#5e564a', 12, 15);
-      px(ctx, 1, 3, '#7d7364', 14, 13);
-      px(ctx, 4, 3, '#1e3547', 8, 13);
-      px(ctx, 5, 4, '#38b5db', 6, 11);
-      px(ctx, 6, 5, '#a6f3ff', 4, 8);
-      px(ctx, 7, 1, '#f2c75c', 2, 2);
+      p3(ctx, 1, 1, THEME.ink.outline, 14, 15);
+      p3(ctx, 2, 2, THEME.stone.mid, 12, 14);
+      p3(ctx, 2, 2, THEME.stone.lit, 12, 1);
+      p3(ctx, 2, 2, THEME.stone.lit, 1, 14);
+      p3(ctx, 4, 4, '#0f273b', 8, 12);
+      p3(ctx, 5, 5, THEME.arcane.aquaDeep, 6, 10);
+      p3(ctx, 6, 6, THEME.arcane.aquaMid, 4, 8);
+      p3(ctx, 7, 8, THEME.arcane.aquaRim, 2, 4);
+      p3(ctx, 7, 1, THEME.metal.goldMid, 2, 2);
       break;
     }
+
     case ITEM_IDS.WORLD_LOCK: {
-      px(ctx, 0, 0, '#8f5f14', 16, 16);
-      px(ctx, 1, 1, '#f2b738', 14, 14);
-      px(ctx, 2, 2, '#ffd966', 12, 3);
-      px(ctx, 6, 5, '#4f3206', 4, 4);
-      px(ctx, 7, 9, '#4f3206', 2, 4);
+      drawFramedPanel16(ctx, THEME.metal.goldMid, { bolts: true });
+      p3(ctx, 6, 3, THEME.metal.goldDeep, 4, 3);
+      p3(ctx, 5, 5, THEME.ink.outline, 6, 7);
+      p3(ctx, 6, 6, THEME.metal.goldLit, 4, 5);
+      p3(ctx, 7, 7, THEME.ink.outline, 2, 2);
+      p3(ctx, 7, 9, THEME.ink.outline, 2, 2);
       break;
     }
+
     case ITEM_IDS.SMALL_LOCK: {
-      px(ctx, 1, 1, '#1e523a', 14, 14);
-      px(ctx, 2, 2, '#52b888', 12, 12);
-      px(ctx, 3, 3, '#a8f5d0', 10, 2);
-      px(ctx, 6, 6, '#133826', 4, 4);
-      px(ctx, 7, 10, '#133826', 2, 3);
+      drawFramedPanel16(ctx, THEME.arcane.emeraldMid, { bolts: true });
+      p3(ctx, 5, 5, THEME.ink.outline, 6, 6);
+      p3(ctx, 6, 6, THEME.arcane.emeraldRim, 4, 4);
+      p3(ctx, 7, 7, THEME.arcane.emeraldDeep, 2, 2);
       break;
     }
+
     case ITEM_IDS.VENDING_MACHINE: {
-      px(ctx, 1, 0, '#1c4166', 14, 16);
-      px(ctx, 2, 1, '#3b82c4', 12, 14);
-      // Display glass window
-      px(ctx, 3, 2, '#a6f0ff', 7, 7);
-      px(ctx, 4, 3, '#ffffff', 3, 2);
-      // Coin slot & dispenser
-      px(ctx, 11, 3, '#f2b738', 2, 3);
-      px(ctx, 11, 7, '#52b888', 2, 2);
-      px(ctx, 3, 11, '#0f253d', 10, 3);
+      p3(ctx, 1, 0, THEME.ink.outline, 14, 16);
+      p3(ctx, 2, 1, '#2d68a1', 12, 14);
+      p3(ctx, 2, 1, '#5ca8e6', 12, 1);
+      p3(ctx, 3, 3, THEME.ink.outline, 7, 7);
+      p3(ctx, 4, 4, '#bceeff', 5, 5);
+      p3(ctx, 11, 3, THEME.metal.goldMid, 2, 3);
+      p3(ctx, 11, 7, THEME.arcane.emeraldLit, 2, 2);
+      p3(ctx, 4, 12, THEME.ink.outline, 7, 2);
       break;
     }
-    case ITEM_IDS.SIGN_POST: {
-      px(ctx, 7, 9, '#5c3922', 2, 7);
-      px(ctx, 1, 2, '#734a22', 14, 8);
-      px(ctx, 2, 3, '#c48a4f', 12, 6);
-      px(ctx, 3, 4, '#f2cfa7', 8, 1);
-      px(ctx, 3, 6, '#f2cfa7', 10, 1);
+
+    case ITEM_IDS.FIST: {
+      p3(ctx, 3, 4, THEME.ink.outline, 10, 8);
+      p3(ctx, 4, 5, THEME.character.skinMid, 8, 6);
+      p3(ctx, 4, 5, THEME.character.skinHighlight, 6, 2);
+      p3(ctx, 6, 5, THEME.character.skinShade, 1, 3);
+      p3(ctx, 9, 5, THEME.character.skinShade, 1, 3);
+      p3(ctx, 3, 9, THEME.character.skinHighlight, 4, 2);
       break;
     }
-    case ITEM_IDS.BG_SOIL_WALL: {
-      px(ctx, 0, 0, '#473021', 16, 16);
-      px(ctx, 2, 3, '#362216', 4, 3);
-      px(ctx, 10, 9, '#362216', 4, 4);
-      px(ctx, 5, 11, '#593d2b', 3, 2);
+
+    case ITEM_IDS.WRENCH: {
+      for (let i = 0; i < 7; i++) {
+        p3(ctx, 2 + i, 12 - i, THEME.ink.outline, 3, 3);
+      }
+      for (let i = 0; i < 7; i++) {
+        p3(ctx, 3 + i, 12 - i, THEME.metal.steelMid, 2, 2);
+      }
+      p3(ctx, 8, 2, THEME.ink.outline, 6, 6);
+      p3(ctx, 9, 3, THEME.metal.steelLit, 4, 4);
+      p3(ctx, 11, 3, THEME.ink.outline, 2, 2);
       break;
     }
-    case ITEM_IDS.BG_STONE_WALL: {
-      px(ctx, 0, 0, '#353b47', 16, 16);
-      px(ctx, 1, 2, '#282c36', 6, 4);
-      px(ctx, 9, 7, '#282c36', 5, 5);
-      px(ctx, 3, 10, '#454c5c', 4, 3);
+
+    case ITEM_IDS.WEAR_GOLD_CROWN: {
+      p3(ctx, 2, 8, THEME.ink.outline, 12, 5);
+      p3(ctx, 2, 5, THEME.ink.outline, 3, 4);
+      p3(ctx, 7, 4, THEME.ink.outline, 2, 5);
+      p3(ctx, 11, 5, THEME.ink.outline, 3, 4);
+      p3(ctx, 3, 9, THEME.metal.goldMid, 10, 3);
+      p3(ctx, 3, 6, THEME.metal.goldLit, 1, 3);
+      p3(ctx, 7, 5, THEME.metal.goldRim, 2, 4);
+      p3(ctx, 12, 6, THEME.metal.goldLit, 1, 3);
+      p3(ctx, 7, 10, '#ff4f5e', 2, 1);
       break;
     }
-    case ITEM_IDS.BG_TIMBER_WALL: {
-      px(ctx, 0, 0, '#694326', 16, 16);
-      for (let x = 0; x < 16; x += 4) {
-        px(ctx, x, 0, '#4a2e18', 1, 16);
-        px(ctx, x + 1, 0, '#7d5231', 1, 16);
+
+    case ITEM_IDS.WEAR_EXPLORER_HAT: {
+      p3(ctx, 1, 9, THEME.ink.outline, 14, 3);
+      p3(ctx, 3, 4, THEME.ink.outline, 10, 6);
+      p3(ctx, 2, 10, THEME.wood.deep, 12, 1);
+      p3(ctx, 4, 5, THEME.wood.mid, 8, 4);
+      p3(ctx, 5, 5, THEME.wood.lit, 5, 1);
+      p3(ctx, 4, 8, THEME.metal.goldMid, 8, 1);
+      break;
+    }
+
+    case ITEM_IDS.WEAR_CYBER_VISOR: {
+      p3(ctx, 1, 5, THEME.ink.outline, 14, 6);
+      p3(ctx, 2, 6, '#143c4d', 12, 4);
+      p3(ctx, 3, 7, THEME.arcane.aquaMid, 10, 2);
+      p3(ctx, 4, 7, THEME.arcane.aquaRim, 4, 1);
+      break;
+    }
+
+    case ITEM_IDS.WEAR_SKY_WINGS: {
+      for (const sx of [1, 9]) {
+        p3(ctx, sx, 3, THEME.ink.outline, 6, 10);
+        p3(ctx, sx + 1, 4, '#3b82c4', 4, 8);
+        p3(ctx, sx + 2, 5, THEME.arcane.aquaLit, 2, 6);
       }
       break;
     }
-    case ITEM_IDS.BG_BRICK_WALL: {
-      px(ctx, 0, 0, '#3d2522', 16, 16);
-      px(ctx, 0, 0, '#5e3c37', 7, 7);
-      px(ctx, 8, 0, '#5e3c37', 8, 7);
-      px(ctx, 0, 8, '#5e3c37', 4, 8);
-      px(ctx, 5, 8, '#5e3c37', 11, 8);
+
+    // Natural Terrain & Cavern Blocks (clean calm 16x16 edition)
+    case ITEM_IDS.GP_DIRT: {
+      drawDirtBody16(ctx, 0);
+      p3(ctx, 0, 0, THEME.earth.dirtLit, 16, 1);
       break;
     }
-    case ITEM_IDS.FIST: {
-      px(ctx, 4, 5, '#c9824f', 8, 7);
-      px(ctx, 5, 4, '#f2b880', 7, 6);
-      px(ctx, 4, 9, '#f2b880', 4, 3);
-      px(ctx, 6, 5, '#ffe2c2', 4, 2);
+
+    case ITEM_IDS.GP_GRASS: {
+      drawDirtBody16(ctx, 4);
+      p3(ctx, 0, 0, THEME.earth.grassRim, 16, 1);
+      p3(ctx, 0, 1, THEME.earth.grassLit, 16, 2);
+      p3(ctx, 0, 3, THEME.earth.grassMid, 16, 1);
+      for (let x = 0; x < 16; x += 4) {
+        p3(ctx, x, 4, THEME.earth.grassMid, 2, 2);
+        p3(ctx, x, 6, THEME.earth.grassDeep, 2, 1);
+      }
       break;
     }
-    case ITEM_IDS.WRENCH: {
-      px(ctx, 3, 10, '#586d80', 3, 4);
-      px(ctx, 5, 8, '#9bb4c9', 4, 4);
-      px(ctx, 7, 5, '#9bb4c9', 4, 4);
-      px(ctx, 9, 2, '#d4e6f5', 5, 5);
-      px(ctx, 11, 2, '#1e293b', 2, 2);
+
+    case ITEM_IDS.GP_ROCK: {
+      p3(ctx, 0, 0, THEME.stone.mid, 16, 16);
+      p3(ctx, 1, 1, THEME.stone.lit, 6, 6);
+      p3(ctx, 1, 1, THEME.stone.highlight, 5, 1);
+      p3(ctx, 9, 1, THEME.stone.lit, 6, 5);
+      p3(ctx, 2, 9, THEME.stone.shadow, 6, 6);
+      p3(ctx, 10, 8, THEME.stone.lit, 5, 6);
+      p3(ctx, 0, 7, THEME.stone.shadow, 16, 1);
+      p3(ctx, 7, 0, THEME.stone.shadow, 1, 16);
+      p3(ctx, 0, 15, THEME.stone.abyss, 16, 1);
       break;
     }
-    case ITEM_IDS.WEAR_GOLD_CROWN: {
-      px(ctx, 2, 8, '#99620c', 12, 5);
-      px(ctx, 3, 6, '#f2b738', 10, 6);
-      px(ctx, 3, 4, '#ffd966', 2, 3);
-      px(ctx, 7, 3, '#ffd966', 2, 4);
-      px(ctx, 11, 4, '#ffd966', 2, 3);
-      px(ctx, 7, 8, '#ff4f5e', 2, 2);
+
+    case ITEM_IDS.GP_SAND: {
+      p3(ctx, 0, 0, THEME.earth.sandMid, 16, 16);
+      p3(ctx, 0, 0, THEME.earth.sandLit, 16, 1);
+      p3(ctx, 2, 4, THEME.earth.sandLit, 6, 1);
+      p3(ctx, 8, 7, THEME.earth.sandDeep, 5, 1);
+      p3(ctx, 3, 11, THEME.earth.sandLit, 7, 1);
+      p3(ctx, 10, 13, THEME.earth.sandDeep, 4, 1);
       break;
     }
-    case ITEM_IDS.WEAR_EXPLORER_HAT: {
-      px(ctx, 1, 9, '#523018', 14, 3);
-      px(ctx, 4, 4, '#8c5630', 8, 6);
-      px(ctx, 4, 8, '#e6b85c', 8, 1);
+
+    case ITEM_IDS.GP_LAVA: {
+      p3(ctx, 0, 0, THEME.arcane.emberMid, 16, 16);
+      p3(ctx, 1, 1, THEME.arcane.emberLit, 6, 4);
+      p3(ctx, 2, 2, THEME.arcane.emberRim, 3, 1);
+      p3(ctx, 9, 7, THEME.arcane.emberLit, 6, 4);
+      p3(ctx, 2, 11, THEME.arcane.emberLit, 5, 3);
+      p3(ctx, 9, 2, THEME.arcane.emberDeep, 5, 4);
+      p3(ctx, 8, 12, THEME.arcane.emberDeep, 6, 3);
       break;
     }
-    case ITEM_IDS.WEAR_CYBER_VISOR: {
-      px(ctx, 2, 6, '#164e63', 12, 5);
-      px(ctx, 3, 7, '#38e8d8', 10, 3);
-      px(ctx, 4, 7, '#ffffff', 4, 1);
+
+    case ITEM_IDS.GP_LAVA_ROCK: {
+      p3(ctx, 0, 0, '#2a2429', 16, 16);
+      p3(ctx, 1, 1, '#433940', 6, 6);
+      p3(ctx, 9, 1, '#3c3239', 6, 6);
+      p3(ctx, 1, 9, '#433940', 6, 6);
+      p3(ctx, 9, 9, '#3c3239', 6, 6);
+      p3(ctx, 7, 1, THEME.arcane.emberMid, 2, 14);
+      p3(ctx, 1, 7, THEME.arcane.emberMid, 14, 2);
+      p3(ctx, 6, 7, THEME.arcane.emberLit, 4, 2);
       break;
     }
-    case ITEM_IDS.WEAR_SKY_WINGS: {
-      px(ctx, 1, 3, '#3b82c4', 6, 10);
-      px(ctx, 9, 3, '#3b82c4', 6, 10);
-      px(ctx, 2, 4, '#9ce5ff', 4, 8);
-      px(ctx, 10, 4, '#9ce5ff', 4, 8);
-      px(ctx, 3, 5, '#ffffff', 2, 4);
-      px(ctx, 11, 5, '#ffffff', 2, 4);
+
+    // Backgrounds
+    case ITEM_IDS.GP_CAVE_BACKGROUND: {
+      p3(ctx, 0, 0, '#33251e', 16, 16);
+      p3(ctx, 0, 4, '#261b16', 16, 1);
+      p3(ctx, 0, 10, '#261b16', 16, 1);
+      p3(ctx, 2, 1, '#47342a', 5, 2);
+      p3(ctx, 9, 6, '#47342a', 5, 2);
+      p3(ctx, 3, 12, '#47342a', 6, 2);
       break;
     }
+
+    case ITEM_IDS.GP_WOODEN_BACKGROUND: {
+      drawWoodPlanks16(ctx, true);
+      break;
+    }
+
+    case ITEM_IDS.GP_ROCK_BACKGROUND: {
+      drawMasonryBricks16(ctx, '#68717d', '#49505a', '#2c3138', '#1f2329');
+      break;
+    }
+
+    // Wood & Bricks
+    case ITEM_IDS.GP_WOOD_BLOCK: {
+      drawWoodPlanks16(ctx, false);
+      break;
+    }
+
+    case ITEM_IDS.GP_WOODEN_PLATFORM: {
+      p3(ctx, 0, 0, THEME.ink.outline, 16, 5);
+      p3(ctx, 0, 1, THEME.wood.lit, 16, 3);
+      p3(ctx, 0, 1, THEME.wood.highlight, 16, 1);
+      p3(ctx, 1, 5, THEME.ink.outline, 4, 3);
+      p3(ctx, 2, 5, THEME.wood.shadow, 2, 2);
+      p3(ctx, 11, 5, THEME.ink.outline, 4, 3);
+      p3(ctx, 12, 5, THEME.wood.shadow, 2, 2);
+      break;
+    }
+
+    case ITEM_IDS.GP_BRICKS: {
+      drawMasonryBricks16(
+        ctx,
+        THEME.brick.terracottaLit,
+        THEME.brick.terracottaMid,
+        THEME.brick.terracottaDeep,
+        THEME.brick.mortar
+      );
+      break;
+    }
+
+    case ITEM_IDS.GP_RED_BRICKS: {
+      drawMasonryBricks16(
+        ctx,
+        THEME.brick.crimsonLit,
+        THEME.brick.crimsonMid,
+        THEME.brick.crimsonDeep,
+        THEME.brick.mortar
+      );
+      break;
+    }
+
+    // Doors, Windows & Glass
+    case ITEM_IDS.GP_DOOR: {
+      drawDoor16(ctx, false);
+      break;
+    }
+
+    case ITEM_IDS.GP_DUNGEON_DOOR: {
+      drawDoor16(ctx, true);
+      break;
+    }
+
+    case ITEM_IDS.GP_WINDOW: {
+      p3(ctx, 1, 1, THEME.ink.outline, 14, 14);
+      p3(ctx, 2, 2, THEME.wood.mid, 12, 12);
+      p3(ctx, 3, 3, 'rgba(156, 229, 255, 0.72)', 10, 10);
+      p3(ctx, 4, 4, '#ffffff', 3, 1);
+      p3(ctx, 7, 2, THEME.wood.deep, 2, 12);
+      p3(ctx, 2, 7, THEME.wood.deep, 12, 2);
+      break;
+    }
+
+    case ITEM_IDS.GP_GLASS_PANE: {
+      p3(ctx, 1, 1, '#3e879c', 14, 14);
+      p3(ctx, 2, 2, 'rgba(182, 243, 255, 0.55)', 12, 12);
+      p3(ctx, 3, 3, '#ffffff', 4, 1);
+      p3(ctx, 3, 4, '#ffffff', 1, 3);
+      break;
+    }
+
+    case ITEM_IDS.GP_GLASS_BLOCK: {
+      p3(ctx, 0, 0, '#3e879c', 16, 16);
+      p3(ctx, 1, 1, '#a5e7f4', 14, 14);
+      p3(ctx, 2, 2, 'rgba(210, 250, 255, 0.65)', 12, 12);
+      p3(ctx, 3, 3, '#ffffff', 4, 2);
+      p3(ctx, 10, 10, '#ffffff', 3, 2);
+      break;
+    }
+
+    // Signs
+    case ITEM_IDS.GP_SIGN: {
+      drawSignPost16(ctx, 'oak');
+      break;
+    }
+    case ITEM_IDS.GP_CRAPPY_SIGN: {
+      drawSignPost16(ctx, 'crappy');
+      break;
+    }
+    case ITEM_IDS.GP_POINTY_SIGN: {
+      drawSignPost16(ctx, 'pointy');
+      break;
+    }
+    case ITEM_IDS.GP_DANGER_SIGN: {
+      drawSignPost16(ctx, 'danger');
+      break;
+    }
+
+    // Flora & Botanicals
+    case ITEM_IDS.GP_DAISY: {
+      drawFlower16(ctx, '#fffef0', '#f5e898', '#f2b738', false);
+      break;
+    }
+    case ITEM_IDS.GP_ROSE: {
+      drawFlower16(ctx, '#ff7597', '#c83d62', '#821c3a', true);
+      break;
+    }
+    case ITEM_IDS.GP_POPPY: {
+      drawFlower16(ctx, '#ff857a', '#e34b4b', '#261e26', false);
+      break;
+    }
+    case ITEM_IDS.GP_MUSHROOM: {
+      p3(ctx, 5, 9, THEME.ink.outline, 6, 6);
+      p3(ctx, 6, 9, '#f2e8d5', 4, 5);
+      p3(ctx, 3, 3, THEME.ink.outline, 10, 6);
+      p3(ctx, 4, 4, '#c8453b', 8, 4);
+      p3(ctx, 5, 4, '#ff7869', 6, 1);
+      p3(ctx, 5, 6, '#fff7e8', 2, 1);
+      p3(ctx, 9, 5, '#fff7e8', 2, 1);
+      break;
+    }
+    case ITEM_IDS.GP_WHEAT: {
+      for (const sx of [4, 7, 10]) {
+        p3(ctx, sx, 7, '#a8842a', 2, 8);
+        p3(ctx, sx, 3, '#d9b84c', 2, 5);
+        p3(ctx, sx, 3, '#fff099', 1, 3);
+      }
+      p3(ctx, 4, 11, '#754d29', 8, 1);
+      break;
+    }
+    case ITEM_IDS.GP_BUSH: {
+      p3(ctx, 2, 5, THEME.ink.outline, 12, 10);
+      p3(ctx, 3, 3, THEME.ink.outline, 10, 12);
+      p3(ctx, 3, 5, THEME.earth.grassDeep, 10, 9);
+      p3(ctx, 4, 4, THEME.earth.grassMid, 8, 8);
+      p3(ctx, 5, 4, THEME.earth.grassLit, 6, 3);
+      break;
+    }
+    case ITEM_IDS.GP_HEDGE: {
+      drawFramedPanel16(ctx, THEME.earth.grassMid);
+      p3(ctx, 4, 4, THEME.earth.grassLit, 3, 2);
+      p3(ctx, 9, 6, THEME.earth.grassDeep, 2, 2);
+      p3(ctx, 5, 9, THEME.earth.grassLit, 3, 2);
+      break;
+    }
+    case ITEM_IDS.GP_BLUEBERRY: {
+      p3(ctx, 2, 4, THEME.ink.outline, 12, 11);
+      p3(ctx, 3, 5, THEME.earth.grassDeep, 10, 9);
+      p3(ctx, 4, 5, THEME.earth.grassMid, 8, 7);
+      for (const [bx, by] of [
+        [4, 7],
+        [9, 6],
+        [6, 10],
+        [10, 10],
+      ]) {
+        p3(ctx, bx, by, '#1c2b59', 3, 3);
+        p3(ctx, bx + 1, by + 1, '#438ad5', 1, 1);
+      }
+      break;
+    }
+
+    // Props & Hazards
+    case ITEM_IDS.GP_TOILET: {
+      p3(ctx, 3, 2, THEME.ink.outline, 6, 7);
+      p3(ctx, 4, 3, '#f2f5f7', 4, 5);
+      p3(ctx, 2, 4, THEME.metal.steelMid, 2, 1);
+      p3(ctx, 5, 8, THEME.ink.outline, 8, 7);
+      p3(ctx, 6, 9, '#e3e8eb', 6, 3);
+      p3(ctx, 6, 12, '#c7cfd4', 5, 3);
+      break;
+    }
+
+    case ITEM_IDS.GP_DEATH_SPIKES: {
+      p3(ctx, 0, 13, THEME.ink.outline, 16, 3);
+      p3(ctx, 1, 14, THEME.stone.shadow, 14, 2);
+      for (const sx of [1, 6, 11]) {
+        p3(ctx, sx, 8, THEME.ink.outline, 4, 5);
+        p3(ctx, sx + 1, 4, THEME.ink.outline, 2, 5);
+        p3(ctx, sx + 1, 8, THEME.metal.steelMid, 2, 5);
+        p3(ctx, sx + 1, 4, '#ff5e5e', 2, 2);
+      }
+      break;
+    }
+
     default: {
       if (def.category === 'seed') {
-        px(ctx, 4, 4, def.colorSecondary, 8, 9);
-        px(ctx, 5, 3, def.colorPrimary, 6, 9);
-        px(ctx, 6, 5, def.colorAccent, 3, 3);
-        px(ctx, 7, 2, '#7fe06c', 2, 2);
+        const ramp = deriveColorRamp(def.colorPrimary);
+        p3(ctx, 7, 1, THEME.ink.outline, 2, 3);
+        p3(ctx, 5, 2, THEME.earth.grassLit, 3, 2);
+        p3(ctx, 8, 2, THEME.earth.grassRim, 3, 2);
+        p3(ctx, 3, 4, ramp.outline, 10, 10);
+        p3(ctx, 4, 5, ramp.base, 8, 8);
+        p3(ctx, 4, 5, ramp.highlight, 5, 3);
+        p3(ctx, 6, 11, ramp.shadow, 6, 2);
       } else {
-        px(ctx, 0, 0, def.colorPrimary, 16, 16);
-        px(ctx, 2, 2, def.colorSecondary, 12, 12);
-        px(ctx, 4, 4, def.colorAccent, 4, 4);
+        drawFramedPanel16(ctx, def.colorPrimary, { bolts: true });
       }
     }
   }
@@ -335,7 +672,7 @@ function drawTile16(itemId: number): HTMLCanvasElement {
 export function getTileSprite(itemId: number): HTMLCanvasElement {
   let cached = tileCache.get(itemId);
   if (!cached) {
-    cached = drawTile16(itemId);
+    cached = drawTile48(itemId);
     tileCache.set(itemId, cached);
   }
   return cached;
@@ -345,8 +682,8 @@ export function getItemIconUrl(itemId: number): string {
   let url = iconDataUrls.get(itemId);
   if (!url) {
     const sprite = getTileSprite(itemId);
-    const [out, ctx] = makeCanvas(32, 32);
-    ctx.drawImage(sprite, 0, 0, 32, 32);
+    const [out, ctx] = makeCanvas(TILE_PX, TILE_PX);
+    ctx.drawImage(sprite, 0, 0, TILE_PX, TILE_PX);
     url = out.toDataURL();
     iconDataUrls.set(itemId, url);
   }
@@ -356,29 +693,26 @@ export function getItemIconUrl(itemId: number): string {
 export function getCrackOverlay(stage: number): HTMLCanvasElement {
   if (crackFrames.length === 0) {
     for (let s = 1; s <= 4; s++) {
-      const [c, ctx] = makeCanvas(16, 16);
-      ctx.fillStyle = 'rgba(15, 20, 30, 0.72)';
-      ctx.fillRect(7, 7, 2, 2);
+      const [c, ctx] = makeCanvas(TILE_PX, TILE_PX);
+      p3(ctx, 7, 7, 'rgba(18,24,36,0.82)', 2, 2);
       if (s >= 1) {
-        ctx.fillRect(6, 5, 1, 2);
-        ctx.fillRect(9, 9, 1, 2);
+        p3(ctx, 6, 5, 'rgba(18,24,36,0.78)', 1, 2);
+        p3(ctx, 9, 9, 'rgba(18,24,36,0.78)', 1, 2);
       }
       if (s >= 2) {
-        ctx.fillRect(4, 3, 2, 2);
-        ctx.fillRect(10, 11, 2, 2);
-        ctx.fillRect(9, 5, 2, 1);
+        p3(ctx, 4, 3, 'rgba(18,24,36,0.8)', 2, 2);
+        p3(ctx, 10, 11, 'rgba(18,24,36,0.8)', 2, 2);
       }
       if (s >= 3) {
-        ctx.fillRect(2, 2, 2, 1);
-        ctx.fillRect(11, 3, 2, 2);
-        ctx.fillRect(3, 11, 2, 2);
-        ctx.fillRect(12, 12, 2, 2);
+        p3(ctx, 2, 2, 'rgba(18,24,36,0.84)', 2, 1);
+        p3(ctx, 11, 3, 'rgba(18,24,36,0.84)', 2, 2);
+        p3(ctx, 3, 11, 'rgba(18,24,36,0.84)', 2, 2);
       }
       if (s >= 4) {
-        ctx.fillRect(1, 7, 3, 1);
-        ctx.fillRect(12, 7, 3, 1);
-        ctx.fillRect(7, 1, 1, 3);
-        ctx.fillRect(7, 12, 1, 3);
+        p3(ctx, 1, 7, 'rgba(18,24,36,0.88)', 3, 1);
+        p3(ctx, 12, 7, 'rgba(18,24,36,0.88)', 3, 1);
+        p3(ctx, 7, 1, 'rgba(18,24,36,0.88)', 2, 3);
+        p3(ctx, 7, 12, 'rgba(18,24,36,0.88)', 2, 3);
       }
       crackFrames.push(c);
     }
@@ -387,97 +721,445 @@ export function getCrackOverlay(stage: number): HTMLCanvasElement {
   return crackFrames[idx];
 }
 
+// 2x virtual pixel helper (34x42 virtual grid -> 68x84 crisp canvas, centered 19x42 -> 38x84 player box)
+function p2(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, w = 1, h = 1) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x * 2), Math.round(y * 2), Math.round(w * 2), Math.round(h * 2));
+}
+
+// Color palette strictly matched to the added sprite sheet template
+const TEMPLATE_PAL = {
+  ink: '#191314',
+  skinRim: '#ffe0c4',
+  skinLit: '#f5cba3',
+  skinMid: '#e8b387',
+  skinShade: '#c98e63',
+  skinDeep: '#9c633e',
+  mouth: '#754529',
+  eyeDark: '#151b26',
+  eyeWhite: '#ffffff',
+  teeRim: '#ffffff',
+  teeMid: '#ebe8e4',
+  teeShade: '#c7c2bc',
+  teeDeep: '#99928b',
+  jeansLit: '#3d456b',
+  jeansMid: '#2d3354',
+  jeansDeep: '#1f243d',
+  jeansDark: '#15192b',
+  shoeLit: '#5c6270',
+  shoeMid: '#3b404d',
+  shoeDark: '#1d2029',
+  soleWhite: '#e6e8ed',
+} as const;
+
+function drawTemplateHead(
+  ctx: CanvasRenderingContext2D,
+  hx: number,
+  hy: number,
+  profile: 'front' | 'side',
+  squint = false
+) {
+  const P = TEMPLATE_PAL;
+  // Crisp chamfered pixel-art boxy head (15x16 vpx -> 30x32px)
+  p2(ctx, hx + 1, hy, P.ink, 13, 1);
+  p2(ctx, hx + 1, hy + 15, P.ink, 13, 1);
+  p2(ctx, hx, hy + 1, P.ink, 1, 14);
+  p2(ctx, hx + 14, hy + 1, P.ink, 1, 14);
+  p2(ctx, hx + 1, hy + 1, P.ink, 1, 1);
+  p2(ctx, hx + 13, hy + 1, P.ink, 1, 1);
+  p2(ctx, hx + 1, hy + 14, P.ink, 1, 1);
+  p2(ctx, hx + 13, hy + 14, P.ink, 1, 1);
+
+  // Face skin & shading (top-left highlight, right/chin shade)
+  p2(ctx, hx + 1, hy + 1, P.skinLit, 13, 14);
+  p2(ctx, hx + 2, hy + 1, P.skinLit, 11, 14);
+  p2(ctx, hx + 1, hy + 2, P.skinRim, 2, 4);
+  p2(ctx, hx + 2, hy + 1, P.skinRim, 8, 2);
+  p2(ctx, hx + 12, hy + 3, P.skinMid, 2, 11);
+  p2(ctx, hx + 13, hy + 5, P.skinShade, 1, 8);
+  p2(ctx, hx + 2, hy + 13, P.skinShade, 11, 2);
+  p2(ctx, hx + 1, hy + 1, P.ink, 1, 1);
+  p2(ctx, hx + 13, hy + 1, P.ink, 1, 1);
+  p2(ctx, hx + 1, hy + 14, P.ink, 1, 1);
+  p2(ctx, hx + 13, hy + 14, P.ink, 1, 1);
+
+  if (profile === 'front') {
+    // Front/3-4 hero eye layout: [white][black][black] left, [black][black][white] right
+    p2(ctx, hx + 3, hy + 6, P.eyeWhite, 1, 3);
+    p2(ctx, hx + 4, hy + 6, P.eyeDark, 2, 3);
+    p2(ctx, hx + 9, hy + 6, P.eyeDark, 2, 3);
+    p2(ctx, hx + 11, hy + 6, P.eyeWhite, 1, 3);
+    p2(ctx, hx + 6, hy + 10, P.skinDeep, 3, 1);
+    p2(ctx, hx + 5, hy + 12, P.mouth, 5, 1);
+  } else {
+    // 3/4 side-facing view (Walk / Jump / Punch / Place)
+    const eyeH = squint ? 2 : 3;
+    const eyeY = squint ? hy + 7 : hy + 6;
+    p2(ctx, hx + 5, eyeY, P.eyeDark, 2, eyeH);
+    p2(ctx, hx + 7, eyeY, P.eyeWhite, 1, eyeH);
+    p2(ctx, hx + 10, eyeY, P.eyeDark, 2, eyeH);
+    p2(ctx, hx + 12, eyeY, P.eyeWhite, 1, eyeH);
+    if (squint) {
+      // Determined brow on windup/punch
+      p2(ctx, hx + 5, hy + 6, P.skinDeep, 3, 1);
+      p2(ctx, hx + 10, hy + 6, P.skinDeep, 3, 1);
+    }
+    p2(ctx, hx + 9, hy + 10, P.skinDeep, 2, 1);
+    p2(ctx, hx + 8, hy + 12, P.mouth, 4, 1);
+  }
+}
+
+function drawTemplateArmDown(ctx: CanvasRenderingContext2D, ax: number, ay: number, isBack = false) {
+  const P = TEMPLATE_PAL;
+  // 4x10 vertical hanging arm with white short sleeve + skin forearm
+  p2(ctx, ax, ay, P.ink, 4, 10);
+  p2(ctx, ax + 1, ay + 1, isBack ? P.teeMid : P.teeRim, 2, 3);
+  p2(ctx, ax + 1, ay + 4, isBack ? P.skinMid : P.skinLit, 2, 5);
+  p2(ctx, ax + 1, ay + 8, isBack ? P.skinShade : P.skinMid, 2, 1);
+}
+
+function drawTemplateArmAngled(
+  ctx: CanvasRenderingContext2D,
+  ax: number,
+  ay: number,
+  dx: number,
+  dy: number,
+  isBack = false
+) {
+  const P = TEMPLATE_PAL;
+  // Crisp stepped pixel arm from (ax, ay) extending by (dx, dy)
+  const steps = Math.max(4, Math.ceil(Math.hypot(dx, dy)));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = Math.round(ax + dx * t);
+    const py = Math.round(ay + dy * t);
+    p2(ctx, px - 1, py - 1, P.ink, 4, 4);
+  }
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = Math.round(ax + dx * t);
+    const py = Math.round(ay + dy * t);
+    const isSleeve = t < 0.42;
+    const col = isSleeve
+      ? isBack
+        ? P.teeShade
+        : P.teeRim
+      : isBack
+        ? P.skinMid
+        : P.skinLit;
+    p2(ctx, px, py, col, 2, 2);
+  }
+}
+
+function drawTemplateLegVertical(
+  ctx: CanvasRenderingContext2D,
+  lx: number,
+  ly: number,
+  isBack = false,
+  tucked = false
+) {
+  const P = TEMPLATE_PAL;
+  const h = tucked ? 9 : 13;
+  p2(ctx, lx, ly, P.ink, 5, h);
+  // Jeans
+  p2(ctx, lx + 1, ly + 1, isBack ? P.jeansDeep : P.jeansMid, 3, h - 5);
+  if (!isBack) {
+    p2(ctx, lx + 1, ly + 2, P.jeansLit, 2, Math.max(2, h - 7));
+  }
+  // Dark sneaker + crisp white sole
+  const sy = ly + h - 4;
+  p2(ctx, lx + 1, sy, isBack ? P.shoeDark : P.shoeMid, 3, 2);
+  if (!isBack) {
+    p2(ctx, lx + 1, sy, P.shoeLit, 2, 1);
+  }
+  p2(ctx, lx + 1, sy + 2, P.soleWhite, 3, 1);
+}
+
+function drawTemplateLegStride(
+  ctx: CanvasRenderingContext2D,
+  hipX: number,
+  hipY: number,
+  footX: number,
+  footY: number,
+  isBack = false
+) {
+  const P = TEMPLATE_PAL;
+  // Striding jeans from hip -> ankle + wide sneaker foot with white sole
+  const steps = 6;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = Math.round(hipX + (footX - hipX) * t);
+    const py = Math.round(hipY + (footY - 3 - hipY) * t);
+    p2(ctx, px - 1, py - 1, P.ink, 5, 4);
+  }
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = Math.round(hipX + (footX - hipX) * t);
+    const py = Math.round(hipY + (footY - 3 - hipY) * t);
+    p2(ctx, px, py, isBack ? P.jeansDeep : P.jeansMid, 3, 2);
+    if (!isBack && i > 0 && i < steps) {
+      p2(ctx, px, py, P.jeansLit, 2, 1);
+    }
+  }
+  // Sneaker anchored at footX, footY
+  const sx = Math.round(footX);
+  const sy = Math.round(footY - 3);
+  p2(ctx, sx - 1, sy - 1, P.ink, 6, 5);
+  p2(ctx, sx, sy, isBack ? P.shoeDark : P.shoeMid, 4, 2);
+  if (!isBack) p2(ctx, sx + 1, sy, P.shoeLit, 2, 1);
+  p2(ctx, sx, sy + 2, P.soleWhite, 4, 1);
+}
+
+function drawTemplateTorso(ctx: CanvasRenderingContext2D, tx: number, ty: number, widthVpx = 11) {
+  const P = TEMPLATE_PAL;
+  // White short-sleeve t-shirt torso + indigo waistband
+  p2(ctx, tx, ty, P.ink, widthVpx, 12);
+  p2(ctx, tx + 1, ty + 1, P.teeMid, widthVpx - 2, 9);
+  p2(ctx, tx + 1, ty + 1, P.teeRim, Math.max(3, widthVpx - 4), 7);
+  p2(ctx, tx + widthVpx - 3, ty + 2, P.teeShade, 2, 8);
+  p2(ctx, tx + 1, ty + 9, P.teeShade, widthVpx - 2, 1);
+  // Collar neckline shadow
+  const colX = tx + Math.floor((widthVpx - 4) * 0.5);
+  p2(ctx, colX, ty + 1, P.skinShade, 4, 1);
+  p2(ctx, colX + 1, ty + 2, P.teeDeep, 2, 1);
+  // Jeans waistband top
+  p2(ctx, tx + 1, ty + 10, P.jeansDark, widthVpx - 2, 1);
+}
+
+function drawTemplateWearables(
+  ctx: CanvasRenderingContext2D,
+  equipped: EquippedWearables | undefined,
+  hx: number,
+  hy: number,
+  layer: 'back' | 'front'
+) {
+  if (!equipped) return;
+  const ink = TEMPLATE_PAL.ink;
+
+  if (layer === 'back' && equipped.back === ITEM_IDS.WEAR_SKY_WINGS) {
+    const wy = hy + 16;
+    p2(ctx, hx - 5, wy, ink, 7, 14);
+    p2(ctx, hx - 4, wy + 1, '#2b6cb0', 5, 12);
+    p2(ctx, hx - 3, wy + 2, THEME.arcane.aquaLit, 4, 9);
+    p2(ctx, hx - 2, wy + 4, '#ffffff', 2, 5);
+    return;
+  }
+
+  if (layer !== 'front') return;
+
+  if (equipped.face === ITEM_IDS.WEAR_CYBER_VISOR) {
+    p2(ctx, hx + 3, hy + 5, ink, 12, 5);
+    p2(ctx, hx + 4, hy + 6, THEME.arcane.aquaMid, 10, 3);
+    p2(ctx, hx + 5, hy + 6, THEME.arcane.aquaRim, 5, 1);
+  }
+
+  if (equipped.head === ITEM_IDS.WEAR_GOLD_CROWN) {
+    p2(ctx, hx + 2, hy - 2, ink, 11, 4);
+    p2(ctx, hx + 3, hy - 1, THEME.metal.goldMid, 9, 2);
+    p2(ctx, hx + 3, hy - 3, THEME.metal.goldLit, 2, 2);
+    p2(ctx, hx + 6, hy - 4, THEME.metal.goldRim, 3, 3);
+    p2(ctx, hx + 10, hy - 3, THEME.metal.goldLit, 2, 2);
+    p2(ctx, hx + 7, hy, '#ff4f5e', 1, 1);
+  } else if (equipped.head === ITEM_IDS.WEAR_EXPLORER_HAT) {
+    p2(ctx, hx - 1, hy + 1, ink, 17, 3);
+    p2(ctx, hx + 2, hy - 3, ink, 11, 5);
+    p2(ctx, hx, hy + 2, THEME.wood.deep, 15, 1);
+    p2(ctx, hx + 3, hy - 2, THEME.wood.mid, 9, 3);
+    p2(ctx, hx + 4, hy - 2, THEME.wood.lit, 6, 1);
+    p2(ctx, hx + 3, hy, THEME.metal.goldMid, 9, 1);
+  }
+}
+
+/**
+ * Pixel-Art Player Sprite Renderer crafted directly from the added sprite sheet template:
+ * - Boxy character proportions rescaled cleanly into the 38.4 x 84 player hitbox (centered in 68 x 84 canvas)
+ * - White short-sleeve tee, dark indigo jeans, dark sneakers with white soles
+ * - 4-frame Idle, 4-frame Walk, Jump/Fall, 4-frame Punch/Break, and Block Placing animations
+ */
 export function getPlayerSprite(
   pose: PlayerPose,
   facing: 1 | -1,
-  shirtColor = '#3f8fd9',
+  shirtColor = '#ebe8e4',
   equipped?: EquippedWearables
 ): HTMLCanvasElement {
   const eqKey = `${equipped?.head ?? 0}_${equipped?.face ?? 0}_${equipped?.back ?? 0}`;
-  const key = `${pose}:${facing}:${shirtColor}:${eqKey}`;
-  let cached = playerFrames.get(key);
+  const key = `tpl:${pose}:${facing}:${shirtColor}:${eqKey}`;
+  const cached = playerFrames.get(key);
   if (cached) return cached;
 
-  // 20x34 pixel canvas proportional to 0.8 x 1.75 tile hitbox (+headgear margin)
-  const [c, ctx] = makeCanvas(20, 34);
+  const [c, ctx] = makeCanvas(PLAYER_CANVAS_W, PLAYER_CANVAS_H);
+  const P = TEMPLATE_PAL;
+
+  // Normalize aliases
+  const normPose: PlayerPose = pose === 'idle' ? 'idle0' : pose === 'punch' ? 'punch3' : pose;
+
   ctx.save();
   if (facing === -1) {
-    ctx.translate(20, 0);
+    ctx.translate(PLAYER_CANVAS_W, 0);
     ctx.scale(-1, 1);
   }
 
-  // Back wearable (Sky Wings) behind character body
-  if (equipped?.back === ITEM_IDS.WEAR_SKY_WINGS) {
-    px(ctx, 1, 11, '#3b82c4', 5, 13);
-    px(ctx, 2, 12, '#9ce5ff', 3, 10);
-    px(ctx, 2, 14, '#ffffff', 2, 5);
-  }
+  // Core 19x42 body starts at OX = 7.5 (2px * 19 = 38px inside 38.4px Player Box, centered in 68px canvas)
+  const OX = 7;
 
-  // Hair & Head
-  px(ctx, 6, 4, '#4a2b18', 8, 3);
-  px(ctx, 5, 5, '#4a2b18', 2, 4);
-  px(ctx, 6, 7, '#f2c199', 8, 7); // Taller expressive face
-  px(ctx, 11, 9, '#1a202c', 2, 3); // Eye facing right
-  px(ctx, 11, 9, '#ffffff', 1, 1);
+  // Determine pose geometry
+  const isIdle =
+    normPose === 'idle0' || normPose === 'idle1' || normPose === 'idle2' || normPose === 'idle3';
 
-  // Face wearable (Cyber Visor)
-  if (equipped?.face === ITEM_IDS.WEAR_CYBER_VISOR) {
-    px(ctx, 7, 8, '#164e63', 8, 4);
-    px(ctx, 8, 9, '#38e8d8', 7, 2);
-    px(ctx, 9, 9, '#ffffff', 3, 1);
-  }
+  if (isIdle) {
+    // Idle 4-frame subtle breathing settle from template
+    const breath = normPose === 'idle1' || normPose === 'idle2' ? 1 : 0;
+    const hx = OX + 2;
+    const hy = 1 + breath;
+    const tx = OX + 4;
+    const ty = 17 + breath;
 
-  // Head wearable (Crown or Hat)
-  if (equipped?.head === ITEM_IDS.WEAR_GOLD_CROWN) {
-    px(ctx, 6, 2, '#f2b738', 8, 3);
-    px(ctx, 6, 0, '#ffd966', 2, 2);
-    px(ctx, 9, 0, '#ffd966', 2, 2);
-    px(ctx, 12, 0, '#ffd966', 2, 2);
-    px(ctx, 9, 3, '#ff4f5e', 2, 1);
-  } else if (equipped?.head === ITEM_IDS.WEAR_EXPLORER_HAT) {
-    px(ctx, 4, 4, '#523018', 12, 2);
-    px(ctx, 6, 1, '#8c5630', 8, 3);
-    px(ctx, 6, 3, '#e6b85c', 8, 1);
-  }
-
-  // Torso tunic (9px tall)
-  px(ctx, 6, 14, shirtColor, 8, 9);
-  px(ctx, 7, 14, '#ffffff', 6, 1);
-  px(ctx, 6, 22, '#2b3240', 8, 2); // Belt
-
-  // Legs & boots (10px tall: y=24..33)
-  const legOffset =
-    pose === 'walk1' ? -1 : pose === 'walk3' ? 1 : pose === 'jump' ? -1 : pose === 'fall' ? 1 : 0;
-  if (pose === 'walk1' || pose === 'walk3') {
-    px(ctx, 6 + legOffset, 24, '#364459', 3, 7);
-    px(ctx, 11 - legOffset, 24, '#283242', 3, 7);
-    px(ctx, 6 + legOffset, 31, '#593722', 3, 3);
-    px(ctx, 11 - legOffset, 31, '#422818', 3, 3);
-  } else if (pose === 'jump') {
-    px(ctx, 6, 24, '#364459', 3, 5);
-    px(ctx, 11, 22, '#283242', 3, 5);
-    px(ctx, 6, 29, '#593722', 3, 3);
-    px(ctx, 11, 27, '#422818', 3, 3);
+    drawTemplateWearables(ctx, equipped, hx, hy, 'back');
+    // Left & right legs planted cleanly
+    drawTemplateLegVertical(ctx, OX + 4, 28, true);
+    drawTemplateLegVertical(ctx, OX + 10, 28, false);
+    // Side arms
+    drawTemplateArmDown(ctx, OX + 1, ty + 1, false);
+    drawTemplateArmDown(ctx, OX + 14, ty + 1, false);
+    // White t-shirt torso & head
+    drawTemplateTorso(ctx, tx, ty, 11);
+    drawTemplateHead(ctx, hx, hy, 'front');
+    drawTemplateWearables(ctx, equipped, hx, hy, 'front');
   } else {
-    px(ctx, 6, 24, '#364459', 3, 7);
-    px(ctx, 11, 24, '#283242', 3, 7);
-    px(ctx, 6, 31, '#593722', 3, 3);
-    px(ctx, 11, 31, '#422818', 3, 3);
-  }
+    // 3/4 side-facing poses: Walk (4 frames), Jump, Fall, Punch/Break (4 frames), Place
+    let bobY = 0;
+    let leanX = 0;
+    let squint = false;
 
-  // Arm / Punching pose
-  if (pose === 'punch') {
-    px(ctx, 12, 15, shirtColor, 3, 3);
-    px(ctx, 15, 15, '#f2c199', 4, 3);
-  } else if (pose === 'jump') {
-    px(ctx, 4, 13, '#f2c199', 2, 5);
-    px(ctx, 14, 13, '#f2c199', 2, 5);
-  } else {
-    px(ctx, 5, 15, '#e0ac82', 2, 6);
-    px(ctx, 13, 15 + (pose === 'walk1' ? -1 : 0), '#f2c199', 2, 6);
+    if (normPose === 'walk1' || normPose === 'walk3') bobY = -1;
+    if (normPose === 'jump') bobY = -1;
+    if (normPose === 'fall') bobY = 1;
+    if (normPose === 'punch1' || normPose === 'punch2' || normPose === 'punch3') {
+      leanX = 1;
+      squint = normPose === 'punch2' || normPose === 'punch3';
+    }
+    if (normPose === 'place') leanX = 1;
+
+    const hx = OX + 2 + leanX;
+    const hy = 1 + bobY;
+    const tx = OX + 5 + leanX;
+    const ty = 17 + bobY;
+
+    drawTemplateWearables(ctx, equipped, hx, hy, 'back');
+
+    // 1. Back Arm (drawn behind torso)
+    if (normPose === 'walk0') {
+      drawTemplateArmAngled(ctx, tx + 2, ty + 2, -2, 6, true);
+    } else if (normPose === 'walk1') {
+      drawTemplateArmAngled(ctx, tx + 2, ty + 2, 4, 5, true);
+    } else if (normPose === 'walk2') {
+      drawTemplateArmAngled(ctx, tx + 2, ty + 2, 1, 6, true);
+    } else if (normPose === 'walk3') {
+      drawTemplateArmAngled(ctx, tx + 2, ty + 2, -4, 5, true);
+    } else if (normPose === 'jump') {
+      drawTemplateArmAngled(ctx, tx + 2, ty + 2, -5, -4, true);
+    } else if (normPose === 'fall') {
+      drawTemplateArmAngled(ctx, tx + 1, ty + 2, -6, 1, true);
+    } else if (normPose === 'punch0') {
+      drawTemplateArmAngled(ctx, tx + 2, ty + 2, 2, 6, true);
+    } else if (normPose === 'punch1') {
+      drawTemplateArmAngled(ctx, tx + 4, ty + 2, 4, 2, true);
+    } else if (normPose === 'punch2' || normPose === 'punch3') {
+      drawTemplateArmAngled(ctx, tx + 1, ty + 2, -3, 5, true);
+    } else if (normPose === 'place') {
+      drawTemplateArmAngled(ctx, tx + 1, ty + 2, -2, 6, true);
+    }
+
+    // 2. Legs & Sneakers (per-pose stride)
+    if (normPose === 'walk0') {
+      drawTemplateLegStride(ctx, OX + 6, 28, OX + 5, 40, true);
+      drawTemplateLegStride(ctx, OX + 10, 28, OX + 11, 40, false);
+    } else if (normPose === 'walk1') {
+      drawTemplateLegStride(ctx, OX + 7, 27, OX + 3, 39, true);
+      drawTemplateLegStride(ctx, OX + 10, 27, OX + 13, 39, false);
+    } else if (normPose === 'walk2') {
+      drawTemplateLegVertical(ctx, OX + 6, 28, true);
+      drawTemplateLegVertical(ctx, OX + 9, 28, false);
+    } else if (normPose === 'walk3') {
+      drawTemplateLegStride(ctx, OX + 9, 27, OX + 13, 39, true);
+      drawTemplateLegStride(ctx, OX + 7, 27, OX + 3, 39, false);
+    } else if (normPose === 'jump') {
+      // Trailing rear leg + tucked front knee
+      drawTemplateLegStride(ctx, OX + 7, 27, OX + 3, 39, true);
+      drawTemplateLegVertical(ctx, OX + 11, 27, false, true);
+    } else if (normPose === 'fall') {
+      // Braced spread landing legs
+      drawTemplateLegStride(ctx, OX + 6, 28, OX + 4, 40, true);
+      drawTemplateLegStride(ctx, OX + 10, 28, OX + 13, 40, false);
+    } else if (normPose === 'punch0' || normPose === 'punch1') {
+      drawTemplateLegStride(ctx, OX + 6, 28, OX + 4, 40, true);
+      drawTemplateLegStride(ctx, OX + 11, 28, OX + 12, 40, false);
+    } else if (normPose === 'punch2' || normPose === 'punch3') {
+      // Wide grounded punching stance matching bottom row of template
+      drawTemplateLegStride(ctx, OX + 7, 28, OX + 4, 40, true);
+      drawTemplateLegStride(ctx, OX + 11, 28, OX + 14, 40, false);
+    } else {
+      // Place stance
+      drawTemplateLegStride(ctx, OX + 6, 28, OX + 5, 40, true);
+      drawTemplateLegStride(ctx, OX + 11, 28, OX + 12, 40, false);
+    }
+
+    // 3. Torso & Head
+    drawTemplateTorso(ctx, tx, ty, 9);
+    drawTemplateHead(ctx, hx, hy, 'side', squint);
+    drawTemplateWearables(ctx, equipped, hx, hy, 'front');
+
+    // 4. Front Arm (drawn in front of torso) + Action Impact/Placement FX
+    if (normPose === 'walk0') {
+      drawTemplateArmAngled(ctx, tx + 3, ty + 2, 2, 6, false);
+    } else if (normPose === 'walk1') {
+      drawTemplateArmAngled(ctx, tx + 3, ty + 2, -4, 5, false);
+    } else if (normPose === 'walk2') {
+      drawTemplateArmAngled(ctx, tx + 3, ty + 2, -1, 6, false);
+    } else if (normPose === 'walk3') {
+      drawTemplateArmAngled(ctx, tx + 3, ty + 2, 4, 5, false);
+    } else if (normPose === 'jump') {
+      drawTemplateArmAngled(ctx, tx + 4, ty + 2, 5, -4, false);
+    } else if (normPose === 'fall') {
+      drawTemplateArmAngled(ctx, tx + 4, ty + 2, 6, 1, false);
+    } else if (normPose === 'punch0') {
+      drawTemplateArmAngled(ctx, tx + 3, ty + 2, -1, 6, false);
+    } else if (normPose === 'punch1') {
+      // Windup arm cocked back near chest
+      drawTemplateArmAngled(ctx, tx + 2, ty + 2, -3, 2, false);
+      p2(ctx, tx + 2, ty + 4, P.skinLit, 3, 2);
+    } else if (normPose === 'punch2') {
+      // Mid-jab forward
+      p2(ctx, tx + 2, ty + 1, P.ink, 11, 4);
+      p2(ctx, tx + 2, ty + 2, P.teeRim, 4, 2);
+      p2(ctx, tx + 6, ty + 2, P.skinLit, 6, 2);
+    } else if (normPose === 'punch3') {
+      // Full horizontal punch extension + crisp 3-ray burst (Template Frame 4)
+      p2(ctx, tx + 3, ty + 1, P.ink, 13, 4);
+      p2(ctx, tx + 3, ty + 2, P.teeRim, 5, 2);
+      p2(ctx, tx + 8, ty + 2, P.skinLit, 6, 2);
+      p2(ctx, tx + 13, ty + 2, P.skinRim, 2, 2);
+      // 3 white burst rays off the fist tip
+      p2(ctx, tx + 17, ty, P.eyeWhite, 1, 1);
+      p2(ctx, tx + 18, ty - 1, P.eyeWhite, 1, 1);
+      p2(ctx, tx + 17, ty + 2, P.eyeWhite, 2, 1);
+      p2(ctx, tx + 17, ty + 4, P.eyeWhite, 1, 1);
+      p2(ctx, tx + 18, ty + 5, P.eyeWhite, 1, 1);
+    } else if (normPose === 'place') {
+      // Extending arm forward-upward to set a block
+      drawTemplateArmAngled(ctx, tx + 4, ty + 2, 7, -3, false);
+      const gx = tx + 12;
+      const gy = ty - 4;
+      p2(ctx, gx, gy, 'rgba(255, 240, 148, 0.38)', 4, 4);
+      p2(ctx, gx, gy, '#fff3a8', 4, 1);
+      p2(ctx, gx, gy + 3, '#fff3a8', 4, 1);
+      p2(ctx, gx, gy, '#fff3a8', 1, 4);
+      p2(ctx, gx + 3, gy, '#fff3a8', 1, 4);
+    }
   }
 
   ctx.restore();
   playerFrames.set(key, c);
   return c;
 }
+

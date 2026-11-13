@@ -106,7 +106,7 @@ export function generateWorld(worldName: string): WorldState {
     }
   }
 
-  // Fill terrain layers
+  // Fill terrain layers with pure GrowPixel blocks
   for (let x = 0; x < WORLD_WIDTH; x++) {
     const sy = surfaceHeights[x];
     for (let y = 0; y < WORLD_HEIGHT; y++) {
@@ -130,11 +130,11 @@ export function generateWorld(worldName: string): WorldState {
         bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       } else if (y < 46) {
         const r = rand();
-        if (r < 0.032) {
-          fg[idx] = ITEM_IDS.CRYSTAL_VEIN;
+        if (r < 0.035) {
+          fg[idx] = ITEM_IDS.GP_ROCK;
         } else if (r < 0.16 && y < sy + 14) {
           fg[idx] = ITEM_IDS.GP_DIRT;
-        } else if (r < 0.045 && y > sy + 10) {
+        } else if (r < 0.05 && y > sy + 10) {
           fg[idx] = ITEM_IDS.AIR;
         } else {
           fg[idx] = ITEM_IDS.GP_ROCK;
@@ -142,10 +142,10 @@ export function generateWorld(worldName: string): WorldState {
         bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
       } else {
         const r = rand();
-        if (r < 0.12) {
+        if (r < 0.15) {
           fg[idx] = ITEM_IDS.GP_LAVA;
-        } else if (r < 0.18) {
-          fg[idx] = ITEM_IDS.CRYSTAL_VEIN;
+        } else if (r < 0.25) {
+          fg[idx] = ITEM_IDS.GP_ROCK;
         } else {
           fg[idx] = ITEM_IDS.GP_LAVA;
         }
@@ -154,7 +154,7 @@ export function generateWorld(worldName: string): WorldState {
     }
   }
 
-  // Add natural oak trees on the surface away from spawn terrace
+  // Add natural wood and bush clusters on surface away from spawn terrace
   for (let x = 6; x < WORLD_WIDTH - 6; x++) {
     if (Math.abs(x - spawnX) <= 6) continue;
     if (rand() < 0.095) {
@@ -162,7 +162,7 @@ export function generateWorld(worldName: string): WorldState {
       const trunkH = 3 + Math.floor(rand() * 2);
       for (let h = 1; h <= trunkH; h++) {
         const ty = sy - h;
-        if (ty > 2) fg[ty * WORLD_WIDTH + x] = ITEM_IDS.OAK_TRUNK;
+        if (ty > 2) fg[ty * WORLD_WIDTH + x] = ITEM_IDS.GP_WOOD_BLOCK;
       }
       const topY = sy - trunkH;
       for (let lx = -1; lx <= 1; lx++) {
@@ -170,7 +170,7 @@ export function generateWorld(worldName: string): WorldState {
           const tx = x + lx;
           const ty = topY + ly;
           if (tx >= 0 && tx < WORLD_WIDTH && ty >= 1 && fg[ty * WORLD_WIDTH + tx] === ITEM_IDS.AIR) {
-            fg[ty * WORLD_WIDTH + tx] = ITEM_IDS.MEADOW_LEAVES;
+            fg[ty * WORLD_WIDTH + tx] = ITEM_IDS.GP_BUSH;
           }
         }
       }
@@ -182,10 +182,10 @@ export function generateWorld(worldName: string): WorldState {
   const spawnY = surfaceHeights[spawnX] - 1;
   fg[spawnY * WORLD_WIDTH + spawnX] = ITEM_IDS.ENTRANCE_PORTAL;
 
-  // Place a helpful welcome signpost at spawnX - 2
+  // Place a helpful welcome GrowPixel sign at spawnX - 2
   const signX = spawnX - 2;
   const signY = surfaceHeights[signX] - 1;
-  fg[signY * WORLD_WIDTH + signX] = ITEM_IDS.SIGN_POST;
+  fg[signY * WORLD_WIDTH + signX] = ITEM_IDS.GP_SIGN;
 
   void BEDROCK_ROWS;
 
@@ -203,7 +203,7 @@ export function generateWorld(worldName: string): WorldState {
     areaLocks: {},
     vendingMachines: {},
     signs: {
-      [`${signX},${signY}`]: `Welcome to ${normalized}! Break blocks for Seeds & Gems, or equip Wrench to inspect.`,
+      [`${signX},${signY}`]: `Welcome to ${normalized}! Mine GrowPixel blocks for seeds & gems, splice items, or use wrench.`,
     },
     revision: 1,
   };
