@@ -1,0 +1,1117 @@
+import {
+  DEFAULT_VIEW_SCALE,
+  DROP_PICKUP_RADIUS,
+  PLAYER_HEIGHT,
+  PLAYER_WIDTH,
+  TILE_SIZE,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
+} from './constants.ts';
+import { getItemDef, ITEM_IDS } from './catalog.ts';
+import {
+  cloneGameConfig,
+  DEFAULT_GAME_CONFIG,
+  getEffectiveItemDef,
+  type GameConfig,
+} from './config.ts';
+import { createPlayerBody, stepPlayerPhysics, type PlayerBody } from './physics.ts';
+import {
+  getCrackOverlay,
+  getPlayerSprite,
+  getTileSprite,
+  type EquippedWearables,
+  type PlayerPose,
+} from './pixelArt.ts';
+import { canBreakTile, canPlaceTile, getCoveringAreaLock, getPlantGrowthState, tileIndex } from './rules.ts';
+import {
+  generateWorld,
+  type AreaLockRecord,
+  type PlantedTree,
+  type VendingMachineRecord,
+  type WorldLockRecord,
+  type WorldState,
+} from './worldGen.ts';
+import { soundEngine } from './audio.ts';
+import type { RemotePlayerState, WorldDrop } from './network.ts';
+
+interface Particle {
+  active: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  color: string;
+}
+
+interface TileCrackVisual {
+  hits: number;
+  maxHits: number;
+  expiresAt: number;
+}
+
+export interface TileInspectInfo {
+  tx: number;
+  ty: number;
+  fgId: number;
+  fgName: string;
+  bgName: string;
+  plantInfo?: string;
+  lockInfo?: string;
+  worldLock?: WorldLockRecord | null;
+  areaLock?: AreaLockRecord | null;
+  vendingMachine?: VendingMachineRecord | null;
+  signText?: string | null;
+}
+
+export interface EngineCallbacks {
+  onMoveSync?: (state: {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    facing: 1 | -1;
+    grounded: boolean;
+    punching: boolean;
+  }) => void;
+  onPunchTile?: (tx: number, ty: number) => void;
+  onPlaceTile?: (tx: number, ty: number, itemId: number) => void;
+  onPickupDrop?: (dropId: string) => void;
+  onInspectTile?: (info: TileInspectInfo) => void;
+  onCoordsChange?: (tx: number, ty: number) => void;
+}
+
+const MAX_PARTICLES = 128;
+
+export class BlockgroveEngine {
+  private container: HTMLElement;
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private resizeObserver: ResizeObserver;
+
+  private mode: 'title' | 'playing' | 'paused' = 'title';
+  private world: WorldState;
+  private localPlayerId = 'local';
+  private localPlayerName = 'Explorer';
+  private localShirtColor = '#3f8fd9';
+  private localEquipped: EquippedWearables = {};
+  private body: PlayerBody;
+  private selectedItemId: number = ITEM_IDS.FIST;
+
+  private remotePlayers = new Map<string, RemotePlayerState & { renderX: number; renderY: number }>();
+  private drops = new Map<string, WorldDrop>();
+  private cracks = new Map<string, TileCrackVisual>();
+  private pickupAttempted = new Set<string>();
+
+  private camX = 0;
+  private camY = 0;
+  private skyGradient: CanvasGradient | null = null;
+  private worldLayerCanvas: HTMLCanvasElement;
+  private worldLayerCtx: CanvasRenderingContext2D;
+  private shakeTrauma = 0;
+  private hitstopTimer = 0;
+  private scaleX = 1;
+  private scaleY = 1;
+
+  private keysHeld = new Set<string>();
+  private jumpJustPressed = false;
+  private touchState = { left: false, right: false, down: false, jumpHeld: false, punchHeld: false };
+
+  private mouseScreenX = 0;
+  private mouseScreenY = 0;
+  private mouseInCanvas = false;
+  private mouseDown = false;
+  private activePointerId: number | null = null;
+  private punchTimer = 0;
+  private punchAnimTimer = 0;
+  private lastSyncSent = 0;
+  private lastCoordTx = -1;
+  private lastCoordTy = -1;
+  private titlePanTime = 0;
+  private gameConfig: GameConfig = cloneGameConfig(DEFAULT_GAME_CONFIG);
+  private viewScale = DEFAULT_VIEW_SCALE;
+
+  private particles: Particle[] = [];
+  private particleCursor = 0;
+
+  private rafId: number | null = null;
+  private throttleTimerId: number | null = null;
+  private lastFrameMs = 0;
+  private callbacks: EngineCallbacks;
+  private nameplateCache = new Map<string, HTMLCanvasElement>();
+
+  constructor(container: HTMLElement, callbacks: EngineCallbacks) {
+    this.container = container;
+    this.callbacks = callbacks;
+
+    this.canvas = document.createElement('canvas');
+    this.canvas.className = 'block w-full h-full pixelated touch-none';
+    this.canvas.style.touchAction = 'none';
+    this.canvas.dataset.testid = 'game-canvas';
+    this.container.appendChild(this.canvas);
+
+    const ctx = this.canvas.getContext('2d');
+    if (!ctx) throw new Error('2D canvas unavailable');
+    this.ctx = ctx;
+
+    this.world = generateWorld('START');
+    this.worldLayerCanvas = document.createElement('canvas');
+    this.worldLayerCanvas.width = WORLD_WIDTH * 16;
+    this.worldLayerCanvas.height = WORLD_HEIGHT * 16;
+    const wlCtx = this.worldLayerCanvas.getContext('2d');
+    if (!wlCtx) throw new Error('Offscreen 2D canvas unavailable');
+    wlCtx.imageSmoothingEnabled = false;
+    this.worldLayerCtx = wlCtx;
+    this.rebuildWorldLayer();
+
+    this.body = createPlayerBody(this.world.spawnX, this.world.spawnY);
+    this.snapCameraToPlayer();
+
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      this.particles.push({
+        active: false,
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        life: 0,
+        maxLife: 0.4,
+        size: 4,
+        color: '#ffffff',
+      });
+    }
+
+    this.resizeObserver = new ResizeObserver(() => this.handleResize());
+    this.resizeObserver.observe(this.container);
+    this.handleResize();
+
+    this.bindEvents();
+    this.lastFrameMs = performance.now();
+    this.rafId = requestAnimationFrame(this.loop);
+  }
+
+  private handleResize() {
+    const rect = this.container.getBoundingClientRect();
+    const w = Math.max(320, Math.floor(rect.width));
+    const h = Math.max(200, Math.floor(rect.height));
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+      this.ctx.imageSmoothingEnabled = false;
+      const grad = this.ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#4a9ee0');
+      grad.addColorStop(0.55, '#86ccf5');
+      grad.addColorStop(1, '#c8ecff');
+      this.skyGradient = grad;
+    }
+  }
+
+  private bindEvents() {
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('blur', this.clearInputs);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
+
+    this.canvas.addEventListener('pointermove', this.onPointerMove);
+    this.canvas.addEventListener('pointerdown', this.onPointerDown);
+    window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
+    this.canvas.addEventListener('pointerleave', () => {
+      if (!this.mouseDown) {
+        this.mouseInCanvas = false;
+      }
+    });
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  destroy() {
+    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+    if (this.throttleTimerId !== null) clearTimeout(this.throttleTimerId);
+    this.resizeObserver.disconnect();
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.clearInputs);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    this.canvas.removeEventListener('pointermove', this.onPointerMove);
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
+    this.canvas.remove();
+  }
+
+  private onVisibilityChange = () => {
+    if (document.hidden) this.clearInputs();
+  };
+
+  public clearInputs = () => {
+    this.keysHeld.clear();
+    this.mouseDown = false;
+    this.activePointerId = null;
+    this.jumpJustPressed = false;
+    this.touchState = { left: false, right: false, down: false, jumpHeld: false, punchHeld: false };
+  };
+
+  private onKeyDown = (e: KeyboardEvent) => {
+    if (this.mode !== 'playing') return;
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    const code = e.code;
+    if (
+      code === 'Space' ||
+      code === 'ArrowUp' ||
+      code === 'ArrowDown' ||
+      code === 'ArrowLeft' ||
+      code === 'ArrowRight'
+    ) {
+      e.preventDefault();
+    }
+
+    if ((code === 'Space' || code === 'KeyW' || code === 'ArrowUp') && !this.keysHeld.has(code)) {
+      this.jumpJustPressed = true;
+    }
+    this.keysHeld.add(code);
+  };
+
+  private onKeyUp = (e: KeyboardEvent) => {
+    this.keysHeld.delete(e.code);
+  };
+
+  private updatePointerCoords(clientX: number, clientY: number) {
+    const rect = this.canvas.getBoundingClientRect();
+    this.mouseScreenX = clientX - rect.left;
+    this.mouseScreenY = clientY - rect.top;
+    this.mouseInCanvas = true;
+  }
+
+  private onPointerMove = (e: PointerEvent) => {
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+    this.updatePointerCoords(e.clientX, e.clientY);
+  };
+
+  private onPointerDown = (e: PointerEvent) => {
+    if (this.mode !== 'playing') return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+    this.activePointerId = e.pointerId;
+    this.updatePointerCoords(e.clientX, e.clientY);
+    this.mouseDown = true;
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore synthetic events without active pointer capture
+    }
+    this.tryInteractAtCursor();
+  };
+
+  private onPointerUp = (e: PointerEvent) => {
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
+    this.mouseDown = false;
+    this.activePointerId = null;
+  };
+
+  public setTouchMove(dir: 'left' | 'right' | 'down', active: boolean) {
+    this.touchState[dir] = active;
+  }
+
+  public setTouchJump(active: boolean) {
+    if (active && !this.touchState.jumpHeld) {
+      this.jumpJustPressed = true;
+    }
+    this.touchState.jumpHeld = active;
+  }
+
+  public setTouchPunch(active: boolean) {
+    this.touchState.punchHeld = active;
+    if (active) {
+      this.tryInteractFacing();
+    }
+  }
+
+  public setMode(mode: 'title' | 'playing' | 'paused') {
+    this.mode = mode;
+    if (mode !== 'playing') {
+      this.clearInputs();
+    } else {
+      this.snapCameraToPlayer();
+    }
+  }
+
+  public setLocalIdentity(
+    id: string,
+    name: string,
+    shirtColor = '#3f8fd9',
+    equipped?: EquippedWearables
+  ) {
+    this.localPlayerId = id;
+    this.localPlayerName = name;
+    this.localShirtColor = shirtColor;
+    if (equipped) this.localEquipped = equipped;
+  }
+
+  public setLocalEquipped(equipped: EquippedWearables) {
+    this.localEquipped = equipped;
+  }
+
+  public setSelectedItem(itemId: number) {
+    this.selectedItemId = itemId;
+  }
+
+  public applyGameConfig(cfg: GameConfig) {
+    this.gameConfig = cloneGameConfig(cfg);
+    this.viewScale = Math.max(1, Math.min(2.5, cfg.mechanics.viewScale || DEFAULT_VIEW_SCALE));
+  }
+
+  private paintLayerTile(tx: number, ty: number) {
+    const idx = ty * WORLD_WIDTH + tx;
+    const px = tx * 16;
+    const py = ty * 16;
+    this.worldLayerCtx.clearRect(px, py, 16, 16);
+    const bgId = this.world.bg[idx];
+    const fgId = this.world.fg[idx];
+    const fgTransparent =
+      fgId === ITEM_IDS.AIR ||
+      fgId === ITEM_IDS.SUNLIT_GLASS ||
+      fgId === ITEM_IDS.CLOUD_PLATFORM ||
+      fgId === ITEM_IDS.OAK_TRUNK ||
+      fgId === ITEM_IDS.MEADOW_LEAVES ||
+      fgId === ITEM_IDS.ENTRANCE_PORTAL ||
+      fgId === ITEM_IDS.LANTERN_LIGHT ||
+      fgId === ITEM_IDS.SIGN_POST ||
+      fgId === ITEM_IDS.SMALL_LOCK;
+
+    if (bgId !== ITEM_IDS.BG_SKY && fgTransparent) {
+      this.worldLayerCtx.drawImage(getTileSprite(bgId), px, py, 16, 16);
+    }
+    if (fgId !== ITEM_IDS.AIR) {
+      this.worldLayerCtx.drawImage(getTileSprite(fgId), px, py, 16, 16);
+    }
+  }
+
+  private rebuildWorldLayer() {
+    for (let ty = 0; ty < WORLD_HEIGHT; ty++) {
+      for (let tx = 0; tx < WORLD_WIDTH; tx++) {
+        this.paintLayerTile(tx, ty);
+      }
+    }
+  }
+
+  public loadWorld(
+    world: WorldState,
+    players: RemotePlayerState[],
+    drops: WorldDrop[]
+  ) {
+    this.world = world;
+    this.world.areaLocks = this.world.areaLocks ?? {};
+    this.world.vendingMachines = this.world.vendingMachines ?? {};
+    this.world.signs = this.world.signs ?? {};
+    this.rebuildWorldLayer();
+    this.body = createPlayerBody(world.spawnX, world.spawnY);
+    this.remotePlayers.clear();
+    for (const p of players) {
+      if (p.id !== this.localPlayerId) {
+        this.remotePlayers.set(p.id, { ...p, renderX: p.x, renderY: p.y });
+      }
+    }
+    this.drops.clear();
+    for (const d of drops) {
+      this.drops.set(d.id, d);
+    }
+    this.cracks.clear();
+    this.pickupAttempted.clear();
+    this.snapCameraToPlayer();
+  }
+
+  public addRemotePlayer(p: RemotePlayerState) {
+    if (p.id === this.localPlayerId) return;
+    this.remotePlayers.set(p.id, { ...p, renderX: p.x, renderY: p.y });
+  }
+
+  public removeRemotePlayer(playerId: string) {
+    this.remotePlayers.delete(playerId);
+  }
+
+  public updateRemotePlayer(p: RemotePlayerState) {
+    if (p.id === this.localPlayerId) return;
+    const existing = this.remotePlayers.get(p.id);
+    if (existing) {
+      existing.x = p.x;
+      existing.y = p.y;
+      existing.vx = p.vx;
+      existing.vy = p.vy;
+      existing.facing = p.facing;
+      existing.grounded = p.grounded;
+      existing.punching = p.punching;
+      existing.level = p.level;
+      existing.equipped = p.equipped;
+    } else {
+      this.remotePlayers.set(p.id, { ...p, renderX: p.x, renderY: p.y });
+    }
+  }
+
+  public applyTileDamaged(tx: number, ty: number, hits: number, maxHits: number) {
+    this.cracks.set(`${tx},${ty}`, { hits, maxHits, expiresAt: performance.now() + 4000 });
+    const fgId = this.world.fg[tileIndex(tx, ty)];
+    const def =
+      getEffectiveItemDef(fgId, this.gameConfig) ??
+      getEffectiveItemDef(this.world.bg[tileIndex(tx, ty)], this.gameConfig);
+    this.spawnParticles(
+      tx * TILE_SIZE + 16,
+      ty * TILE_SIZE + 16,
+      5,
+      def?.colorPrimary ?? '#a88462'
+    );
+  }
+
+  public applyTileUpdated(
+    tx: number,
+    ty: number,
+    fg: number,
+    bg: number,
+    plant: PlantedTree | null,
+    worldLock?: WorldLockRecord | null,
+    areaLock?: AreaLockRecord | null,
+    vendingMachine?: VendingMachineRecord | null,
+    signText?: string | null
+  ) {
+    const idx = tileIndex(tx, ty);
+    const key = `${tx},${ty}`;
+    const prevFg = this.world.fg[idx];
+    this.world.fg[idx] = fg;
+    this.world.bg[idx] = bg;
+    if (plant) {
+      this.world.plants[key] = plant;
+    } else {
+      delete this.world.plants[key];
+    }
+    if (worldLock !== undefined) {
+      this.world.worldLock = worldLock;
+    }
+    this.world.areaLocks = this.world.areaLocks ?? {};
+    if (areaLock !== undefined) {
+      if (areaLock) this.world.areaLocks[key] = areaLock;
+      else delete this.world.areaLocks[key];
+    }
+    this.world.vendingMachines = this.world.vendingMachines ?? {};
+    if (vendingMachine !== undefined) {
+      if (vendingMachine) this.world.vendingMachines[key] = vendingMachine;
+      else delete this.world.vendingMachines[key];
+    }
+    this.world.signs = this.world.signs ?? {};
+    if (signText !== undefined) {
+      if (signText) this.world.signs[key] = signText;
+      else delete this.world.signs[key];
+    }
+
+    this.paintLayerTile(tx, ty);
+    this.cracks.delete(key);
+
+    if (prevFg !== ITEM_IDS.AIR && fg === ITEM_IDS.AIR) {
+      const def = getItemDef(prevFg);
+      this.spawnParticles(tx * TILE_SIZE + 16, ty * TILE_SIZE + 16, 14, def?.colorPrimary ?? '#9c6e49');
+      this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.25);
+      this.hitstopTimer = 0.035;
+      soundEngine.breakBlock();
+    } else if (fg !== ITEM_IDS.AIR) {
+      const def = getItemDef(fg);
+      this.spawnParticles(tx * TILE_SIZE + 16, ty * TILE_SIZE + 16, 6, def?.colorAccent ?? '#ffffff');
+    }
+  }
+
+  public addDrop(drop: WorldDrop) {
+    this.drops.set(drop.id, drop);
+  }
+
+  public removeDrop(dropId: string) {
+    this.drops.delete(dropId);
+    this.pickupAttempted.delete(dropId);
+  }
+
+  private getTargetTileFromCursor(): { tx: number; ty: number } {
+    if (!this.mouseInCanvas) {
+      return this.getTargetTileFacing();
+    }
+    const worldX = this.mouseScreenX / this.viewScale + this.camX;
+    const worldY = this.mouseScreenY / this.viewScale + this.camY;
+    return {
+      tx: Math.floor(worldX / TILE_SIZE),
+      ty: Math.floor(worldY / TILE_SIZE),
+    };
+  }
+
+  private getTargetTileFacing(): { tx: number; ty: number } {
+    const pcx = Math.floor((this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE);
+    const pcy = Math.floor((this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE);
+    return {
+      tx: Math.max(0, Math.min(WORLD_WIDTH - 1, pcx + this.body.facing)),
+      ty: Math.max(0, Math.min(WORLD_HEIGHT - 1, pcy)),
+    };
+  }
+
+  private tryInteractFacing() {
+    const { tx, ty } = this.getTargetTileFacing();
+    this.performTileInteraction(tx, ty);
+  }
+
+  private tryInteractAtCursor() {
+    const { tx, ty } = this.getTargetTileFromCursor();
+    this.performTileInteraction(tx, ty);
+  }
+
+  public emitInspectAt(tx: number, ty: number) {
+    if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) return;
+    const idx = tileIndex(tx, ty);
+    const key = `${tx},${ty}`;
+    const fgId = this.world.fg[idx];
+    const fgDef = getItemDef(fgId);
+    const bgDef = getItemDef(this.world.bg[idx]);
+    const plant = this.world.plants[key];
+    let plantInfo: string | undefined;
+    if (plant) {
+      const g = getPlantGrowthState(plant, Date.now());
+      const seedDef = getItemDef(plant.seedId);
+      plantInfo = `${seedDef?.name ?? 'Seed'} (${g.stage} · ${Math.round(g.progress * 100)}%)`;
+    }
+
+    const coveringAreaLock = getCoveringAreaLock(this.world, tx, ty);
+    const directAreaLock = this.world.areaLocks?.[key] ?? coveringAreaLock ?? null;
+    const lockInfo = directAreaLock
+      ? `Area Lock by ${directAreaLock.ownerName}`
+      : this.world.worldLock
+        ? `World Lock by ${this.world.worldLock.ownerName}`
+        : 'Unlocked Area';
+
+    soundEngine.uiClick();
+    this.callbacks.onInspectTile?.({
+      tx,
+      ty,
+      fgId,
+      fgName: fgDef?.name ?? 'Air',
+      bgName: bgDef?.name ?? 'Open Sky',
+      plantInfo,
+      lockInfo,
+      worldLock: fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
+      areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : coveringAreaLock,
+      vendingMachine: fgId === ITEM_IDS.VENDING_MACHINE ? (this.world.vendingMachines?.[key] ?? null) : null,
+      signText: fgId === ITEM_IDS.SIGN_POST ? (this.world.signs?.[key] ?? '') : null,
+    });
+  }
+
+  private performTileInteraction(tx: number, ty: number) {
+    if (this.punchTimer > 0) return;
+    if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) return;
+    const playerCtx = { id: this.localPlayerId, x: this.body.x, y: this.body.y };
+    const reach = this.gameConfig.mechanics.reachTiles;
+
+    if (this.selectedItemId === ITEM_IDS.WRENCH) {
+      this.punchTimer = 0.25;
+      this.emitInspectAt(tx, ty);
+      return;
+    }
+
+    if (this.selectedItemId === ITEM_IDS.FIST) {
+      this.punchTimer = this.gameConfig.mechanics.punchCooldownMs / 1000;
+      this.punchAnimTimer = 0.16;
+      const check = canBreakTile(this.world, playerCtx, tx, ty, reach);
+      soundEngine.punch();
+      if (check.ok) {
+        this.callbacks.onPunchTile?.(tx, ty);
+      } else {
+        // If punching a stocked Vending Machine or Lock that can't be broken, open its inspector
+        const fgId = this.world.fg[tileIndex(tx, ty)];
+        if (fgId === ITEM_IDS.VENDING_MACHINE || fgId === ITEM_IDS.WORLD_LOCK || fgId === ITEM_IDS.SMALL_LOCK) {
+          this.emitInspectAt(tx, ty);
+        }
+      }
+      return;
+    }
+
+    // Placing block / background / seed / lock / interactive
+    this.punchTimer = 0.14;
+    const check = canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach);
+    if (check.ok) {
+      this.punchAnimTimer = 0.12;
+      if (check.layer === 'seed') soundEngine.plant();
+      else soundEngine.placeBlock();
+      this.callbacks.onPlaceTile?.(tx, ty, this.selectedItemId);
+    }
+  }
+
+  private spawnParticles(x: number, y: number, count: number, color: string) {
+    for (let i = 0; i < count; i++) {
+      const p = this.particles[this.particleCursor];
+      this.particleCursor = (this.particleCursor + 1) % MAX_PARTICLES;
+      p.active = true;
+      p.x = x;
+      p.y = y;
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 40 + Math.random() * 140;
+      p.vx = Math.cos(ang) * spd;
+      p.vy = Math.sin(ang) * spd - 60;
+      p.maxLife = 0.28 + Math.random() * 0.25;
+      p.life = p.maxLife;
+      p.size = 3 + Math.floor(Math.random() * 3);
+      p.color = color;
+    }
+  }
+
+  private snapCameraToPlayer() {
+    const viewW = (this.canvas.width || 960) / this.viewScale;
+    const viewH = (this.canvas.height || 540) / this.viewScale;
+    const targetX = this.body.x + PLAYER_WIDTH * 0.5 - viewW * 0.5;
+    const targetY = this.body.y + PLAYER_HEIGHT * 0.5 - viewH * 0.54;
+    this.camX = Math.max(0, Math.min(WORLD_WIDTH * TILE_SIZE - viewW, targetX));
+    this.camY = Math.max(0, Math.min(WORLD_HEIGHT * TILE_SIZE - viewH, targetY));
+  }
+
+  private loop = (nowMs: number) => {
+    const frameStart = performance.now();
+    const rawDt = (nowMs - this.lastFrameMs) / 1000;
+    this.lastFrameMs = nowMs;
+    const dt = Math.min(Math.max(rawDt, 0), 0.05);
+
+    this.update(dt, nowMs);
+    this.render(nowMs);
+
+    const frameWorkMs = performance.now() - frameStart;
+    if (frameWorkMs > 2 || (typeof navigator !== 'undefined' && navigator.webdriver)) {
+      this.throttleTimerId = window.setTimeout(() => {
+        this.rafId = requestAnimationFrame(this.loop);
+      }, 24);
+    } else {
+      this.rafId = requestAnimationFrame(this.loop);
+    }
+  };
+
+  private update(dt: number, nowMs: number) {
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      const p = this.particles[i];
+      if (!p.active) continue;
+      p.life -= dt;
+      if (p.life <= 0) {
+        p.active = false;
+        continue;
+      }
+      p.vy += 420 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+    this.shakeTrauma = Math.max(0, this.shakeTrauma - dt * 2.4);
+    this.scaleX += (1 - this.scaleX) * (1 - Math.exp(-14 * dt));
+    this.scaleY += (1 - this.scaleY) * (1 - Math.exp(-14 * dt));
+
+    const viewW = this.canvas.width / this.viewScale;
+    const viewH = this.canvas.height / this.viewScale;
+    const maxCamX = Math.max(0, WORLD_WIDTH * TILE_SIZE - viewW);
+    const maxCamY = Math.max(0, WORLD_HEIGHT * TILE_SIZE - viewH);
+
+    if (this.mode === 'title') {
+      this.titlePanTime += dt;
+      const panCenter = (WORLD_WIDTH * TILE_SIZE - viewW) * (0.5 + 0.35 * Math.sin(this.titlePanTime * 0.14));
+      this.camX = Math.max(0, Math.min(maxCamX, panCenter));
+      this.camY = Math.max(0, Math.min(maxCamY, this.world.spawnY * TILE_SIZE - viewH * 0.62));
+      return;
+    }
+
+    if (this.mode === 'paused') return;
+
+    if (this.hitstopTimer > 0) {
+      this.hitstopTimer = Math.max(0, this.hitstopTimer - dt);
+      return;
+    }
+
+    this.punchTimer = Math.max(0, this.punchTimer - dt);
+    this.punchAnimTimer = Math.max(0, this.punchAnimTimer - dt);
+
+    if (this.mouseDown && this.punchTimer <= 0) {
+      this.tryInteractAtCursor();
+    } else if (this.touchState.punchHeld && this.punchTimer <= 0) {
+      this.tryInteractFacing();
+    }
+
+    const left = this.keysHeld.has('KeyA') || this.keysHeld.has('ArrowLeft') || this.touchState.left;
+    const right = this.keysHeld.has('KeyD') || this.keysHeld.has('ArrowRight') || this.touchState.right;
+    const down = this.keysHeld.has('KeyS') || this.keysHeld.has('ArrowDown') || this.touchState.down;
+    const jumpHeld =
+      this.keysHeld.has('Space') ||
+      this.keysHeld.has('KeyW') ||
+      this.keysHeld.has('ArrowUp') ||
+      this.touchState.jumpHeld;
+
+    const result = stepPlayerPhysics(
+      this.body,
+      this.world,
+      {
+        left,
+        right,
+        down,
+        jumpHeld,
+        jumpJustPressed: this.jumpJustPressed,
+      },
+      dt,
+      this.gameConfig.mechanics
+    );
+    this.jumpJustPressed = false;
+
+    if (result.jumped) {
+      this.scaleX = 0.84;
+      this.scaleY = 1.18;
+      soundEngine.jump();
+    } else if (result.landed) {
+      this.scaleX = 1.2;
+      this.scaleY = 0.82;
+      soundEngine.land();
+    }
+
+    const targetCamX = Math.max(0, Math.min(maxCamX, this.body.x + PLAYER_WIDTH * 0.5 - viewW * 0.5));
+    const targetCamY = Math.max(0, Math.min(maxCamY, this.body.y + PLAYER_HEIGHT * 0.5 - viewH * 0.54));
+    const damp = 1 - Math.exp(-10 * dt);
+    this.camX += (targetCamX - this.camX) * damp;
+    this.camY += (targetCamY - this.camY) * damp;
+
+    const ptx = Math.floor((this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE);
+    const pty = Math.floor((this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE);
+    if (ptx !== this.lastCoordTx || pty !== this.lastCoordTy) {
+      this.lastCoordTx = ptx;
+      this.lastCoordTy = pty;
+      this.callbacks.onCoordsChange?.(ptx, pty);
+    }
+
+    const rDamp = 1 - Math.exp(-16 * dt);
+    for (const rp of this.remotePlayers.values()) {
+      rp.renderX += (rp.x - rp.renderX) * rDamp;
+      rp.renderY += (rp.y - rp.renderY) * rDamp;
+    }
+
+    const px = this.body.x + PLAYER_WIDTH * 0.5;
+    const py = this.body.y + PLAYER_HEIGHT * 0.5;
+    const magnetRadius = this.gameConfig.mechanics.dropMagnetRadius;
+    for (const drop of this.drops.values()) {
+      const dx = px - drop.x;
+      const dy = py - drop.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < magnetRadius && dist > 1) {
+        drop.x += (dx / dist) * 180 * dt;
+        drop.y += (dy / dist) * 180 * dt;
+      }
+      if (dist <= DROP_PICKUP_RADIUS && !this.pickupAttempted.has(drop.id)) {
+        this.pickupAttempted.add(drop.id);
+        if (drop.isGem) soundEngine.gem();
+        else soundEngine.pickup();
+        this.callbacks.onPickupDrop?.(drop.id);
+      }
+    }
+
+    if (nowMs - this.lastSyncSent > 50) {
+      this.lastSyncSent = nowMs;
+      this.callbacks.onMoveSync?.({
+        x: Math.round(this.body.x * 10) / 10,
+        y: Math.round(this.body.y * 10) / 10,
+        vx: Math.round(this.body.vx),
+        vy: Math.round(this.body.vy),
+        facing: this.body.facing,
+        grounded: this.body.grounded,
+        punching: this.punchAnimTimer > 0,
+      });
+    }
+  }
+
+  private render(nowMs: number) {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const viewScale = this.viewScale;
+    const viewW = w / viewScale;
+    const viewH = h / viewScale;
+
+    const shakeAmp = this.shakeTrauma * this.shakeTrauma * 6;
+    const shakeX = shakeAmp > 0.1 ? (Math.random() * 2 - 1) * shakeAmp : 0;
+    const shakeY = shakeAmp > 0.1 ? (Math.random() * 2 - 1) * shakeAmp : 0;
+
+    const cx = Math.floor(this.camX + shakeX);
+    const cy = Math.floor(this.camY + shakeY);
+
+    // 1. Sky gradient backdrop (unscaled full viewport)
+    ctx.fillStyle = this.skyGradient ?? '#7ec8f2';
+    ctx.fillRect(0, 0, w, h);
+
+    // 2. Parallax pixel clouds & distant mountain silhouettes
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+    for (let i = 0; i < 8; i++) {
+      const cloudX = ((i * 260 - cx * 0.18 + nowMs * 0.008) % (w + 300)) - 140;
+      const cloudY = 128 + (i % 3) * 48 - cy * 0.05;
+      ctx.fillRect(Math.floor(cloudX), Math.floor(cloudY), 92, 18);
+      ctx.fillRect(Math.floor(cloudX + 18), Math.floor(cloudY - 12), 54, 14);
+    }
+
+    ctx.fillStyle = 'rgba(72, 130, 168, 0.28)';
+    for (let i = 0; i < 12; i++) {
+      const mx = i * 240 - Math.floor(cx * 0.25);
+      const my = Math.floor(24 * TILE_SIZE - cy * 0.35 - 70);
+      ctx.beginPath();
+      ctx.moveTo(mx - 60, h);
+      ctx.lineTo(mx + 80, my);
+      ctx.lineTo(mx + 220, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Upscaled crisp nearest-neighbor world pass
+    ctx.save();
+    ctx.scale(viewScale, viewScale);
+    ctx.imageSmoothingEnabled = false;
+
+    // 3. Single-blit static world tilemap (bg + fg) from offscreen cache
+    const sxTile = Math.max(0, Math.floor(cx * 0.5));
+    const syTile = Math.max(0, Math.floor(cy * 0.5));
+    const subX = cx - sxTile * 2;
+    const subY = cy - syTile * 2;
+    const srcW = Math.min(this.worldLayerCanvas.width - sxTile, Math.ceil(viewW * 0.5 + 2));
+    const srcH = Math.min(this.worldLayerCanvas.height - syTile, Math.ceil(viewH * 0.5 + 2));
+    if (srcW > 0 && srcH > 0) {
+      ctx.drawImage(this.worldLayerCanvas, sxTile, syTile, srcW, srcH, -subX, -subY, srcW * 2, srcH * 2);
+    }
+
+    // 4. Dynamic planted trees, vending machine stock previews & damage cracks
+    for (const key in this.world.plants) {
+      const plant = this.world.plants[key];
+      const sx = plant.x * TILE_SIZE - cx;
+      const sy = plant.y * TILE_SIZE - cy;
+      if (sx >= -TILE_SIZE && sx <= viewW && sy >= -TILE_SIZE && sy <= viewH) {
+        this.drawPlantedTree(ctx, plant, sx, sy, nowMs);
+      }
+    }
+
+    if (this.world.vendingMachines) {
+      for (const key in this.world.vendingMachines) {
+        const vm = this.world.vendingMachines[key];
+        if (vm.stockItemId > 0 && vm.stockQty > 0) {
+          const sx = vm.x * TILE_SIZE - cx;
+          const sy = vm.y * TILE_SIZE - cy;
+          if (sx >= -TILE_SIZE && sx <= viewW && sy >= -TILE_SIZE && sy <= viewH) {
+            ctx.drawImage(getTileSprite(vm.stockItemId), sx + 6, sy + 4, 12, 12);
+          }
+        }
+      }
+    }
+
+    for (const [key, crack] of this.cracks.entries()) {
+      if (nowMs >= crack.expiresAt) {
+        this.cracks.delete(key);
+        continue;
+      }
+      const [txStr, tyStr] = key.split(',');
+      const sx = Number(txStr) * TILE_SIZE - cx;
+      const sy = Number(tyStr) * TILE_SIZE - cy;
+      const stage = Math.max(1, Math.min(4, Math.ceil((crack.hits / crack.maxHits) * 4)));
+      ctx.drawImage(getCrackOverlay(stage), sx, sy, TILE_SIZE, TILE_SIZE);
+    }
+
+    // 5. Collectible Drops floating where they originate
+    for (const drop of this.drops.values()) {
+      const bob = Math.sin(nowMs * 0.005 + drop.x) * 3;
+      const dx = Math.floor(drop.x - cx - 9);
+      const dy = Math.floor(drop.y - cy - 9 + bob);
+      if (drop.isGem) {
+        ctx.fillStyle = '#183847';
+        ctx.fillRect(dx + 3, dy + 1, 12, 16);
+        ctx.fillStyle = '#38e8d8';
+        ctx.fillRect(dx + 5, dy + 3, 8, 12);
+        ctx.fillStyle = '#b8ffff';
+        ctx.fillRect(dx + 6, dy + 4, 4, 5);
+      } else {
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(dx - 1, dy - 1, 20, 20);
+        ctx.drawImage(getTileSprite(drop.itemId), dx, dy, 18, 18);
+        if (drop.qty > 1) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 10px monospace';
+          ctx.fillText(String(drop.qty), dx + 10, dy + 18);
+        }
+      }
+    }
+
+    // 6. Remote players
+    for (const rp of this.remotePlayers.values()) {
+      this.drawCharacter(
+        ctx,
+        rp.renderX - cx,
+        rp.renderY - cy,
+        rp.facing,
+        rp.vx,
+        rp.vy,
+        rp.grounded,
+        rp.punching,
+        rp.shirtColor,
+        rp.name,
+        1,
+        1,
+        nowMs * 0.01,
+        rp.equipped
+      );
+    }
+
+    // 7. Local player, nearby Sign banner & targeting reticle (3-block reach check)
+    if (this.mode !== 'title') {
+      this.drawCharacter(
+        ctx,
+        this.body.x - cx,
+        this.body.y - cy,
+        this.body.facing,
+        this.body.vx,
+        this.body.vy,
+        this.body.grounded,
+        this.punchAnimTimer > 0,
+        this.localShirtColor,
+        this.localPlayerName,
+        this.scaleX,
+        this.scaleY,
+        this.body.walkDistance * 0.12,
+        this.localEquipped
+      );
+
+      // Nearby Signboard floating caption
+      if (this.world.signs) {
+        const ptx = (this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE;
+        const pty = (this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE;
+        for (const key in this.world.signs) {
+          const text = this.world.signs[key];
+          if (!text) continue;
+          const [sxStr, syStr] = key.split(',');
+          const stx = Number(sxStr);
+          const sty = Number(syStr);
+          if (Math.hypot(ptx - (stx + 0.5), pty - (sty + 0.5)) <= 2.6) {
+            const banner = this.getNameplateCanvas(text);
+            const bx = Math.round(stx * TILE_SIZE - cx + 16 - banner.width * 0.5);
+            const by = Math.round(sty * TILE_SIZE - cy - 30);
+            ctx.drawImage(banner, bx, by);
+          }
+        }
+      }
+
+      // Tile targeting reticle
+      const { tx, ty } = this.getTargetTileFromCursor();
+      if (tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT) {
+        const playerCtx = { id: this.localPlayerId, x: this.body.x, y: this.body.y };
+        const reach = this.gameConfig.mechanics.reachTiles;
+        const canAct =
+          this.selectedItemId === ITEM_IDS.FIST
+            ? canBreakTile(this.world, playerCtx, tx, ty, reach).ok
+            : this.selectedItemId === ITEM_IDS.WRENCH
+              ? true
+              : canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok;
+
+        ctx.strokeStyle = canAct ? 'rgba(255, 240, 128, 0.92)' : 'rgba(255, 110, 110, 0.55)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(tx * TILE_SIZE - cx + 1, ty * TILE_SIZE - cy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      }
+    }
+
+    // 8. Pooled particles
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      const p = this.particles[i];
+      if (!p.active) continue;
+      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(Math.floor(p.x - cx), Math.floor(p.y - cy), p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  private drawPlantedTree(
+    ctx: CanvasRenderingContext2D,
+    plant: PlantedTree,
+    sx: number,
+    sy: number,
+    nowMs: number
+  ) {
+    const def = getItemDef(plant.seedId);
+    const { stage } = getPlantGrowthState(plant, nowMs);
+    const leafColor = def?.colorPrimary ?? '#52b856';
+    const highlight = def?.colorAccent ?? '#a9f089';
+
+    if (stage === 'planted') {
+      ctx.fillStyle = '#5c3922';
+      ctx.fillRect(sx + 10, sy + 24, 12, 8);
+      ctx.fillStyle = leafColor;
+      ctx.fillRect(sx + 14, sy + 18, 4, 6);
+    } else if (stage === 'sprout') {
+      ctx.fillStyle = '#6d4428';
+      ctx.fillRect(sx + 14, sy + 16, 4, 16);
+      ctx.fillStyle = leafColor;
+      ctx.fillRect(sx + 8, sy + 10, 16, 8);
+      ctx.fillStyle = highlight;
+      ctx.fillRect(sx + 10, sy + 11, 6, 4);
+    } else {
+      ctx.fillStyle = '#6d4428';
+      ctx.fillRect(sx + 12, sy + 10, 8, 22);
+      ctx.fillStyle = leafColor;
+      ctx.fillRect(sx + 4, sy - 4, 24, 18);
+      ctx.fillStyle = highlight;
+      ctx.fillRect(sx + 8, sy, 6, 6);
+      ctx.fillRect(sx + 18, sy + 4, 5, 5);
+    }
+  }
+
+  private getNameplateCanvas(name: string): HTMLCanvasElement {
+    let cached = this.nameplateCache.get(name);
+    if (cached) return cached;
+    const c = document.createElement('canvas');
+    const tmpCtx = c.getContext('2d')!;
+    tmpCtx.font = 'bold 11px "Plus Jakarta Sans", sans-serif';
+    const textW = Math.ceil(tmpCtx.measureText(name).width);
+    c.width = textW + 10;
+    c.height = 14;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = 'rgba(11, 22, 34, 0.78)';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.font = 'bold 11px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = '#f4f1ea';
+    ctx.fillText(name, 5, 11);
+    this.nameplateCache.set(name, c);
+    return c;
+  }
+
+  private drawCharacter(
+    ctx: CanvasRenderingContext2D,
+    screenX: number,
+    screenY: number,
+    facing: 1 | -1,
+    vx: number,
+    vy: number,
+    grounded: boolean,
+    punching: boolean,
+    shirtColor: string,
+    name: string,
+    scaleX: number,
+    scaleY: number,
+    walkPhase: number,
+    equipped?: EquippedWearables
+  ) {
+    let pose: PlayerPose = 'idle';
+    if (punching) {
+      pose = 'punch';
+    } else if (!grounded) {
+      pose = vy < 0 ? 'jump' : 'fall';
+    } else if (Math.abs(vx) > 15) {
+      const step = Math.floor(walkPhase) % 4;
+      pose = (`walk${step}` as PlayerPose) || 'walk0';
+    }
+
+    const sprite = getPlayerSprite(pose, facing, shirtColor, equipped);
+    const drawW = Math.round(32 * scaleX);
+    const drawH = Math.round(58 * scaleY);
+    const drawX = Math.round(screenX + (PLAYER_WIDTH - drawW) * 0.5);
+    const drawY = Math.round(screenY + PLAYER_HEIGHT - drawH);
+
+    ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
+
+    const nameplate = this.getNameplateCanvas(name);
+    const tagX = Math.round(screenX + PLAYER_WIDTH * 0.5 - nameplate.width * 0.5);
+    const tagY = Math.round(drawY - 15);
+    ctx.drawImage(nameplate, tagX, tagY);
+  }
+}

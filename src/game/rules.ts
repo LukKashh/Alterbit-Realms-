@@ -1,0 +1,320 @@
+import {
+  MAX_REACH_TILES,
+  PLANT_DEFAULT_GROWTH_MS,
+  PLAYABLE_ROWS,
+  PLAYER_HEIGHT,
+  PLAYER_WIDTH,
+  TILE_SIZE,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
+} from './constants.ts';
+import { getItemDef, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
+import type { AreaLockRecord, PlantedTree, WorldState } from './worldGen.ts';
+
+export interface PlayerContext {
+  id: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+}
+
+export function tileIndex(tx: number, ty: number): number {
+  return ty * WORLD_WIDTH + tx;
+}
+
+export function inBounds(tx: number, ty: number): boolean {
+  return Number.isInteger(tx) && Number.isInteger(ty) && tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT;
+}
+
+export function isBedrockRow(ty: number): boolean {
+  return ty >= PLAYABLE_ROWS;
+}
+
+export function isWithinReach(
+  player: PlayerContext,
+  tx: number,
+  ty: number,
+  reachTiles = MAX_REACH_TILES
+): boolean {
+  const pw = player.width ?? PLAYER_WIDTH;
+  const ph = player.height ?? PLAYER_HEIGHT;
+  const pcx = (player.x + pw * 0.5) / TILE_SIZE;
+  const pcy = (player.y + ph * 0.5) / TILE_SIZE;
+  const nearestX = Math.max(tx, Math.min(tx + 1, pcx));
+  const nearestY = Math.max(ty, Math.min(ty + 1, pcy));
+  const dist = Math.hypot(nearestX - pcx, nearestY - pcy);
+  return dist <= reachTiles;
+}
+
+export function playerOverlapsTile(player: PlayerContext, tx: number, ty: number): boolean {
+  const pw = player.width ?? PLAYER_WIDTH;
+  const ph = player.height ?? PLAYER_HEIGHT;
+  const left = tx * TILE_SIZE;
+  const right = left + TILE_SIZE;
+  const top = ty * TILE_SIZE;
+  const bottom = top + TILE_SIZE;
+  return player.x < right && player.x + pw > left && player.y < bottom && player.y + ph > top;
+}
+
+export function getCoveringAreaLock(world: WorldState, tx: number, ty: number): AreaLockRecord | null {
+  const locks = world.areaLocks;
+  if (!locks) return null;
+  for (const key in locks) {
+    const lock = locks[key];
+    const r = lock.radius ?? 3;
+    if (Math.abs(tx - lock.x) <= r && Math.abs(ty - lock.y) <= r) {
+      return lock;
+    }
+  }
+  return null;
+}
+
+export function hasAreaLockConflict(world: WorldState, tx: number, ty: number, radius = 3): boolean {
+  const locks = world.areaLocks;
+  if (!locks) return false;
+  for (const key in locks) {
+    const lock = locks[key];
+    const r = lock.radius ?? 3;
+    if (Math.abs(tx - lock.x) <= r + radius && Math.abs(ty - lock.y) <= r + radius) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function hasEditPermission(world: WorldState, playerId: string, tx?: number, ty?: number): boolean {
+  if (typeof tx === 'number' && typeof ty === 'number') {
+    const areaLock = getCoveringAreaLock(world, tx, ty);
+    if (areaLock) {
+      return areaLock.ownerId === playerId || areaLock.editors.includes(playerId);
+    }
+  }
+  if (!world.worldLock) return true;
+  if (world.worldLock.ownerId === playerId) return true;
+  if (world.worldLock.editors.includes(playerId)) return true;
+  return false;
+}
+
+export function canEnterWorld(world: WorldState, playerId: string): { ok: boolean; reason?: string } {
+  if (!world.worldLock || world.worldLock.publicAccess) {
+    return { ok: true };
+  }
+  if (world.worldLock.ownerId === playerId || world.worldLock.editors.includes(playerId)) {
+    return { ok: true };
+  }
+  return { ok: false, reason: `World ${world.name} is restricted by its owner (${world.worldLock.ownerName}).` };
+}
+
+export function canBreakTile(
+  world: WorldState,
+  player: PlayerContext,
+  tx: number,
+  ty: number,
+  reachTiles = MAX_REACH_TILES
+): { ok: boolean; layer?: 'fg' | 'bg' | 'plant'; reason?: string } {
+  if (!inBounds(tx, ty)) return { ok: false, reason: 'Out of world bounds.' };
+  if (isBedrockRow(ty)) return { ok: false, reason: 'Bedrock is indestructible.' };
+  if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
+  if (!hasEditPermission(world, player.id, tx, ty)) {
+    return { ok: false, reason: 'Protected by Lock.' };
+  }
+
+  const key = `${tx},${ty}`;
+  if (world.plants[key]) {
+    return { ok: true, layer: 'plant' };
+  }
+
+  const idx = tileIndex(tx, ty);
+  const fgId = world.fg[idx];
+  if (fgId !== ITEM_IDS.AIR) {
+    const def = getItemDef(fgId);
+    if (!def || !def.breakable) {
+      return { ok: false, reason: `${def?.name ?? 'Tile'} cannot be broken.` };
+    }
+    if (fgId === ITEM_IDS.WORLD_LOCK && world.worldLock && world.worldLock.ownerId !== player.id) {
+      return { ok: false, reason: 'Only the World Lock owner can remove this lock.' };
+    }
+    if (fgId === ITEM_IDS.SMALL_LOCK) {
+      const areaLock = world.areaLocks?.[key];
+      if (areaLock && areaLock.ownerId !== player.id) {
+        return { ok: false, reason: 'Only the Area Lock owner can remove this lock.' };
+      }
+    }
+    if (fgId === ITEM_IDS.VENDING_MACHINE) {
+      const vm = world.vendingMachines?.[key];
+      if (vm && vm.ownerId !== player.id && world.worldLock?.ownerId !== player.id) {
+        return { ok: false, reason: 'Only the Vending Machine owner can break it.' };
+      }
+      if (vm && (vm.stockQty > 0 || vm.earningsQty > 0)) {
+        return { ok: false, reason: 'Withdraw stock and earnings with Wrench before breaking.' };
+      }
+    }
+    return { ok: true, layer: 'fg' };
+  }
+
+  const bgId = world.bg[idx];
+  if (bgId !== ITEM_IDS.BG_SKY) {
+    const bgDef = getItemDef(bgId);
+    if (!bgDef || !bgDef.breakable) {
+      return { ok: false, reason: 'Background cannot be broken.' };
+    }
+    return { ok: true, layer: 'bg' };
+  }
+
+  return { ok: false, reason: 'Nothing to break here.' };
+}
+
+export function hasPlacementSupport(world: WorldState, tx: number, ty: number): boolean {
+  const idx = tileIndex(tx, ty);
+  if (world.bg[idx] !== ITEM_IDS.BG_SKY) return true;
+  const neighbors = [
+    [tx - 1, ty],
+    [tx + 1, ty],
+    [tx, ty - 1],
+    [tx, ty + 1],
+  ];
+  for (const [nx, ny] of neighbors) {
+    if (!inBounds(nx, ny)) continue;
+    const nIdx = tileIndex(nx, ny);
+    if (world.fg[nIdx] !== ITEM_IDS.AIR || world.bg[nIdx] !== ITEM_IDS.BG_SKY) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function canPlaceTile(
+  world: WorldState,
+  player: PlayerContext,
+  itemId: number,
+  tx: number,
+  ty: number,
+  reachTiles = MAX_REACH_TILES
+): { ok: boolean; layer?: 'fg' | 'bg' | 'seed'; reason?: string } {
+  if (!inBounds(tx, ty)) return { ok: false, reason: 'Out of bounds.' };
+  if (isBedrockRow(ty)) return { ok: false, reason: 'Cannot build on bedrock.' };
+  if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
+  if (!hasEditPermission(world, player.id, tx, ty)) {
+    return { ok: false, reason: 'Protected by Lock.' };
+  }
+
+  const def = getItemDef(itemId);
+  if (!def || !def.placeable) return { ok: false, reason: 'Item cannot be placed.' };
+
+  const idx = tileIndex(tx, ty);
+
+  if (def.category === 'background') {
+    if (world.bg[idx] !== ITEM_IDS.BG_SKY) {
+      return { ok: false, reason: 'Background tile already occupied.' };
+    }
+    if (!hasPlacementSupport(world, tx, ty)) {
+      return { ok: false, reason: 'Needs adjacent tile or background support.' };
+    }
+    return { ok: true, layer: 'bg' };
+  }
+
+  if (def.category === 'seed') {
+    if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
+      return { ok: false, reason: 'Tile is occupied.' };
+    }
+    if (ty + 1 >= WORLD_HEIGHT) return { ok: false, reason: 'Cannot plant here.' };
+    const belowId = world.fg[tileIndex(tx, ty + 1)];
+    if (!isForegroundSolid(belowId)) {
+      return { ok: false, reason: 'Seeds must be planted on solid ground.' };
+    }
+    return { ok: true, layer: 'seed' };
+  }
+
+  // Foreground / Lock / Interactive
+  if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
+    return { ok: false, reason: 'Foreground tile already occupied.' };
+  }
+
+  if (def.collision === 'solid' && playerOverlapsTile(player, tx, ty)) {
+    return { ok: false, reason: 'Cannot place solid block on yourself.' };
+  }
+
+  if (itemId === ITEM_IDS.WORLD_LOCK && world.worldLock) {
+    return { ok: false, reason: 'This world already has a World Lock.' };
+  }
+
+  if (itemId === ITEM_IDS.SMALL_LOCK) {
+    if (world.worldLock && world.worldLock.ownerId !== player.id) {
+      return { ok: false, reason: 'Cannot place an Area Lock in a world locked by another player.' };
+    }
+    if (hasAreaLockConflict(world, tx, ty, def.lockRadius ?? 3)) {
+      return { ok: false, reason: 'Overlaps with an existing Area Lock.' };
+    }
+  }
+
+  if (!hasPlacementSupport(world, tx, ty)) {
+    return { ok: false, reason: 'Needs adjacent block or wall support.' };
+  }
+
+  return { ok: true, layer: 'fg' };
+}
+
+export type GrowthStage = 'planted' | 'sprout' | 'mature';
+
+export function getPlantGrowthState(plant: PlantedTree, nowMs: number): { stage: GrowthStage; progress: number } {
+  const total = Math.max(1000, plant.maturityAt - plant.plantedAt || PLANT_DEFAULT_GROWTH_MS);
+  const elapsed = Math.max(0, nowMs - plant.plantedAt);
+  const progress = Math.min(1, elapsed / total);
+  if (progress >= 1) return { stage: 'mature', progress: 1 };
+  if (progress >= 0.4) return { stage: 'sprout', progress };
+  return { stage: 'planted', progress };
+}
+
+export function resolveSplice(seedA: number, seedB: number): number | null {
+  for (const recipe of SPLICE_RECIPES) {
+    if (
+      (recipe.seedA === seedA && recipe.seedB === seedB) ||
+      (recipe.seedA === seedB && recipe.seedB === seedA)
+    ) {
+      return recipe.resultSeedId;
+    }
+  }
+  return null;
+}
+
+const RESERVED_WORLDS = new Set(['ADMIN', 'SYSTEM', 'API', 'LOGIN', 'NULL', 'UNDEFINED']);
+
+export function normalizeWorldName(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+}
+
+export function validateWorldName(raw: string): { ok: boolean; normalized: string; reason?: string } {
+  const trimmed = raw.trim();
+  if (trimmed.length < 2 || trimmed.length > 20) {
+    return { ok: false, normalized: '', reason: 'World name must be 2–20 characters.' };
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+    return { ok: false, normalized: '', reason: 'Use only letters, numbers, - or _.' };
+  }
+  const normalized = trimmed.toUpperCase();
+  if (RESERVED_WORLDS.has(normalized)) {
+    return { ok: false, normalized: '', reason: 'That world name is reserved.' };
+  }
+  return { ok: true, normalized };
+}
+
+export function xpForNextLevel(level: number): number {
+  return 50 + (level - 1) * 35;
+}
+
+export function addXp(
+  level: number,
+  xp: number,
+  gained: number
+): { level: number; xp: number; leveledUp: boolean } {
+  let curLevel = Math.max(1, level);
+  let curXp = Math.max(0, xp) + Math.max(0, gained);
+  let leveledUp = false;
+  while (curXp >= xpForNextLevel(curLevel)) {
+    curXp -= xpForNextLevel(curLevel);
+    curLevel += 1;
+    leveledUp = true;
+  }
+  return { level: curLevel, xp: curXp, leveledUp };
+}
