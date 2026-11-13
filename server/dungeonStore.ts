@@ -12,6 +12,7 @@ import {
   getDungeonEnemyStats,
   getDungeonOreReward,
   isDungeonWalkable,
+  isDungeonPositionWalkable,
   type DungeonAction,
   type DungeonEnemyState,
   type DungeonPhase,
@@ -70,7 +71,11 @@ export class DungeonStore {
       for (const run of parsed) {
         if (!run?.runId || !run.code || !Array.isArray(run.map) || !run.players) continue;
         if (now - (run.updatedAt || run.createdAt || now) > MAX_RUN_AGE_MS) continue;
-        for (const player of Object.values(run.players)) player.connected = false;
+        for (const player of Object.values(run.players)) {
+          player.connected = false;
+          player.facingX = Number.isFinite(player.facingX) ? player.facingX : 1;
+          player.facingY = Number.isFinite(player.facingY) ? player.facingY : 0;
+        }
         this.runs.set(run.runId, run);
       }
     } catch (error) {
@@ -153,8 +158,8 @@ export class DungeonStore {
     const code = this.makeCode();
     const map = createDungeonMap(tier, 0, seed);
     const player: DungeonPlayerState & { lastSeenAt: number; lastActionAt: number } = {
-      id: account.id, name: account.name, x: 1, y: 5, hp: 100, maxHp: 100,
-      connected: true, lastSeenAt: now, lastActionAt: 0,
+      id: account.id, name: account.name, x: 1.5, y: 5.5, hp: 100, maxHp: 100,
+      connected: true, facingX: 1, facingY: 0, lastSeenAt: now, lastActionAt: 0,
     };
     const run: DungeonRun = {
       runId, code, tier, roomIndex: 0, seed, map, phase: 'active',
@@ -184,8 +189,8 @@ export class DungeonStore {
     }
     if (Object.keys(run.players).length >= DUNGEON_PARTY_LIMIT) return { ok: false, message: 'This dungeon party is full.' };
     run.players[account.id] = {
-      id: account.id, name: account.name, x: 1, y: 5, hp: 100, maxHp: 100,
-      connected: true, lastSeenAt: now, lastActionAt: 0,
+      id: account.id, name: account.name, x: 1.5, y: 5.5, hp: 100, maxHp: 100,
+      connected: true, facingX: 1, facingY: 0, lastSeenAt: now, lastActionAt: 0,
     };
     run.message = account.name + ' joined the expedition.';
     run.updatedAt = now;
@@ -252,7 +257,7 @@ export class DungeonStore {
         id: 'enemy_' + roomIndex + '_' + i + '_' + Math.floor(random() * 1e8),
         name: isBossRoom ? enemyStats.name : (tier === 1 && i % 2 === 1 ? 'Station Drone' : enemyStats.name),
         kind: isBossRoom ? 'boss' : (tier === 1 && i % 2 === 1 ? 'drone' : 'dweller'),
-        x, y,
+        x: x + 0.5, y: y + 0.5,
         hp: enemyStats.hp, maxHp: enemyStats.hp, damage: enemyStats.damage,
         boss: isBossRoom, nextAttackAt: now + 700, nextMoveAt: now + 350,
       });
@@ -289,19 +294,33 @@ export class DungeonStore {
     player.lastActionAt = now;
 
     if (action === 'move') {
-      if (Math.abs(dx) + Math.abs(dy) !== 1) return { ok: false, message: 'Move one tile at a time.' };
-      const nx = player.x + dx;
-      const ny = player.y + dy;
-      if (nx < 1 || ny < 1 || nx >= DUNGEON_WIDTH - 1 || ny >= DUNGEON_HEIGHT - 1 ||
-          !isDungeonWalkable(run.map[ny]?.[nx] ?? '#') ||
-          Object.values(run.players).some((other) => other.id !== player.id && other.hp > 0 && other.x === nx && other.y === ny)) {
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || Math.hypot(dx, dy) < 0.01) return { ok: false, message: 'Movement input is empty.' };
+      const magnitude = Math.hypot(dx, dy);
+      const directionX = dx / magnitude;
+      const directionY = dy / magnitude;
+      const speed = 0.18;
+      const nx = Math.max(1.22, Math.min(DUNGEON_WIDTH - 1.22, player.x + directionX * speed));
+      const ny = Math.max(1.22, Math.min(DUNGEON_HEIGHT - 1.22, player.y + directionY * speed));
+      if (!isDungeonPositionWalkable(run.map, nx, ny) ||
+          Object.values(run.players).some((other) => other.id !== player.id && other.hp > 0 && Math.hypot(other.x - nx, other.y - ny) < 0.48)) {
         return { ok: false, message: 'Blocked.' };
       }
       player.x = nx;
       player.y = ny;
+      player.facingX = directionX;
+      player.facingY = directionY;
     } else if (action === 'attack') {
       const target = run.enemies
-        .filter((enemy) => enemy.hp > 0 && Math.abs(enemy.x - player.x) + Math.abs(enemy.y - player.y) <= 1)
+        .filter((enemy) => {
+          if (enemy.hp <= 0) return false;
+          const vx = enemy.x - player.x;
+          const vy = enemy.y - player.y;
+          const distance = Math.hypot(vx, vy);
+          if (distance > 1.35) return false;
+          if (distance < 0.001) return true;
+          const facingDot = (vx / distance) * player.facingX + (vy / distance) * player.facingY;
+          return facingDot >= 0.35;
+        })
         .sort((a, b) => Number(b.boss) - Number(a.boss))[0];
       if (!target) return { ok: false, message: 'Move next to an enemy to attack.' };
       const damage = 8 + Math.floor(account.level * 0.8);
@@ -317,7 +336,7 @@ export class DungeonStore {
     } else if (action === 'next_room' || action === 'extract') {
       if (run.phase !== 'cleared') return { ok: false, message: 'Defeat every enemy before using the exit.' };
       const exitX = DUNGEON_WIDTH - 2;
-      const atExit = Math.hypot(player.x - exitX, player.y - 5) <= 0.85;
+      const atExit = Math.hypot(player.x - (exitX + 0.5), player.y - 5.5) <= 0.85;
       if (!atExit) return { ok: false, message: 'Reach the unlocked extraction gate at the far right of the room.' };
       const roomCount = GATE_KEYS[run.tier - 1].rooms;
       const isFinalRoom = run.roomIndex >= roomCount - 1;
@@ -345,8 +364,8 @@ export class DungeonStore {
       run.enemies = this.createEnemies(run.tier, run.roomIndex, roomCount, run.seed, now);
       run.phase = 'active';
       for (const member of Object.values(run.players)) {
-        member.x = 1;
-        member.y = 5;
+        member.x = 1.5;
+        member.y = 5.5;
       }
       run.message = 'Room ' + (run.roomIndex + 1) + ' / ' + roomCount + '. Defeat the Cave Dwellers.';
     run.updatedAt = now;
@@ -409,18 +428,18 @@ export class DungeonStore {
         const target = targets.sort((a, b) =>
           Math.abs(a.x - enemy.x) + Math.abs(a.y - enemy.y) - (Math.abs(b.x - enemy.x) + Math.abs(b.y - enemy.y))
         )[0];
-        const distance = Math.abs(target.x - enemy.x) + Math.abs(target.y - enemy.y);
-        if (distance <= 1 && now >= enemy.nextAttackAt) {
+        const distance = Math.hypot(target.x - enemy.x, target.y - enemy.y);
+        if (distance <= 0.9 && now >= enemy.nextAttackAt) {
           target.hp = Math.max(0, target.hp - enemy.damage);
           enemy.nextAttackAt = now + (enemy.boss ? 850 : 1100);
           run.message = enemy.name + ' hit ' + target.name + ' for ' + enemy.damage + '.';
           didChange = true;
-        } else if (distance > 1 && now >= enemy.nextMoveAt) {
-          const step = this.findNextStep(run, enemy.x, enemy.y, target.x, target.y);
-          if (step && !Object.values(run.players).some((p) => p.hp > 0 && p.x === step.x && p.y === step.y) &&
-              !run.enemies.some((other) => other.id !== enemy.id && other.hp > 0 && other.x === step.x && other.y === step.y)) {
-            enemy.x = step.x;
-            enemy.y = step.y;
+        } else if (distance > 0.9 && now >= enemy.nextMoveAt) {
+          const step = this.findNextStep(run, Math.floor(enemy.x), Math.floor(enemy.y), Math.floor(target.x), Math.floor(target.y));
+          if (step && !Object.values(run.players).some((p) => p.hp > 0 && Math.hypot(p.x - (step.x + 0.5), p.y - (step.y + 0.5)) < 0.48) &&
+              !run.enemies.some((other) => other.id !== enemy.id && other.hp > 0 && Math.hypot(other.x - (step.x + 0.5), other.y - (step.y + 0.5)) < 0.48)) {
+            enemy.x = step.x + 0.5;
+            enemy.y = step.y + 0.5;
           }
           enemy.nextMoveAt = now + (enemy.boss ? 420 : 600);
           didChange = true;
