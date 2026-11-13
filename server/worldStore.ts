@@ -861,6 +861,12 @@ export class AuthoritativeWorldStore {
       state.worldLock.editors = [];
       state.worldLock.editorNames = {};
     }
+    if (state.name === 'NEXUS') {
+      const landlordX = Math.min(state.width - 4, state.spawnX + 4);
+      const landlordY = state.spawnY;
+      const landlordIndex = tileIndexIn(state, landlordX, landlordY);
+      state.fg[landlordIndex] = ITEM_IDS.LANDLORD_NPC;
+    }
     return state;
   }
 
