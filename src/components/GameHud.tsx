@@ -3,6 +3,7 @@ import {
   Backpack,
   Globe,
   Lock,
+  Maximize2,
   Menu,
   MessageSquare,
   Shield,
@@ -366,6 +367,24 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [profileTab, setProfileTab] = useState<'achievements' | 'wardrobe'>('achievements');
   const [friendInput, setFriendInput] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const syncFullscreenState = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    syncFullscreenState();
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {
+      // The browser/device may deny fullscreen; reflect the actual state.
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    }
+  };
 
   // Inspector local form state
   const [editorInput, setEditorInput] = useState('');
@@ -2000,6 +2019,19 @@ export const GameHud: React.FC<GameHudProps> = ({
               >
                 {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                 <span>Audio: {muted ? 'MUTED' : 'ON'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void toggleFullscreen()}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded border text-xs font-bold cursor-pointer ${
+                  isFullscreen
+                    ? 'bg-[#1c3d5c] border-[#78c8f5] text-white'
+                    : 'bg-[#0b1622] border-[#263c52] text-[#9cb5cc]'
+                }`}
+                aria-label="Toggle fullscreen"
+              >
+                <Maximize2 className="w-4 h-4" />
+                <span>Fullscreen: {isFullscreen ? 'ON' : 'OFF'}</span>
               </button>
             </div>
 

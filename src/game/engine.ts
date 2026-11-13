@@ -1363,23 +1363,23 @@ export class BlockgroveEngine {
       const dy = Math.floor(drop.y - cy - 12 + bob);
       if (drop.isGem) {
         ctx.fillStyle = '#151b26';
-        ctx.fillRect(dx + 4, dy + 1, 16, 22);
+        ctx.fillRect(dx + 5, dy + 2, 14, 18);
         ctx.fillStyle = '#186e75';
-        ctx.fillRect(dx + 6, dy + 3, 12, 18);
+        ctx.fillRect(dx + 6, dy + 3, 12, 16);
         ctx.fillStyle = '#38e8d8';
-        ctx.fillRect(dx + 7, dy + 4, 10, 14);
+        ctx.fillRect(dx + 7, dy + 4, 10, 13);
         ctx.fillStyle = '#e0ffff';
         ctx.fillRect(dx + 8, dy + 5, 4, 7);
       } else {
         ctx.fillStyle = '#151b26';
-        ctx.fillRect(dx - 2, dy - 2, 28, 28);
-        ctx.drawImage(getTileSprite(drop.itemId), dx, dy, 24, 24);
+        ctx.fillRect(dx + 1, dy + 1, 21, 21);
+        ctx.drawImage(getTileSprite(drop.itemId), dx + 3, dy + 3, 18, 18);
         if (drop.qty > 1) {
           const label = drop.qty > 999 ? '999+' : String(drop.qty);
           ctx.font = 'bold 9px monospace';
           const badgeW = Math.max(15, Math.ceil(ctx.measureText(label).width) + 8);
-          const badgeX = dx + 24 - badgeW + 5;
-          const badgeY = dy + 17;
+          const badgeX = dx + 18 - badgeW + 5;
+          const badgeY = dy + 15;
           ctx.fillStyle = '#101923';
           ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 12);
           ctx.fillStyle = '#e8f2fa';
