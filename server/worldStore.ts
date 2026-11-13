@@ -1091,7 +1091,7 @@ export class AuthoritativeWorldStore {
     const visitorLimit = ownerId && !ownerAlreadyPresent && account.id !== ownerId
       ? playerLimit - 1
       : playerLimit;
-    if (live.players.size >= visitorLimit && !live.players.has(account.id) && account.id !== ownerId) {
+    if (live.players.size >= visitorLimit && !live.players.has(account.id)) {
       return {
         ok: false,
         message: `World ${v.normalized} is full (${playerLimit}/${playerLimit}).`,
