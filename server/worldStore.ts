@@ -74,6 +74,8 @@ import type {
   WorldSummary,
 } from '../src/game/network.ts';
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
+import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec } from '../src/game/shareLocks.ts';
+import type { ShareLockPermissions } from '../src/game/shareLocks.ts';
 import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance } from '../src/game/expansion.ts';
 
 
@@ -827,6 +829,7 @@ export class AuthoritativeWorldStore {
     state.height = state.height || 60;
     state.worldKind = state.worldKind ?? 'standard';
     state.areaLocks = state.areaLocks ?? {};
+    state.shareLocks = state.shareLocks ?? {};
     state.vendingMachines = state.vendingMachines ?? {};
     state.furnaces = state.furnaces ?? {};
     state.bfgCollectors = state.bfgCollectors ?? {};
@@ -1308,6 +1311,9 @@ export class AuthoritativeWorldStore {
       if (prevFg === ITEM_IDS.WORLD_LOCK) {
         live.state.worldLock = null;
       }
+      if (getShareLockSpec(prevFg) && live.state.shareLocks) {
+        delete live.state.shareLocks[key];
+      }
       if (prevFg === ITEM_IDS.SMALL_LOCK && live.state.areaLocks) {
         delete live.state.areaLocks[key];
       }
@@ -1524,32 +1530,23 @@ export class AuthoritativeWorldStore {
       account.stats.blocksPlaced = (account.stats.blocksPlaced ?? 0) + 1;
       this.enqueueFluidNeighbors(live, tx, ty);
 
-      if (itemId === ITEM_IDS.WORLD_LOCK) {
-        live.state.worldLock = {
+      const shareSpec = getShareLockSpec(itemId);
+      if (shareSpec) {
+        live.state.shareLocks = live.state.shareLocks ?? {};
+        live.state.shareLocks[key] = {
           x: tx,
           y: ty,
-          lockItemId: itemId,
+          itemId,
+          width: shareSpec.width,
+          height: shareSpec.height,
           ownerId: account.id,
           ownerName: account.name,
-          editors: [],
-          editorNames: {},
-          publicAccess: true,
+          access: {},
         };
         account.stats.locksPlaced = (account.stats.locksPlaced ?? 0) + 1;
-        notice = 'World claimed with World Lock! Wrench the lock to manage editors.';
-      } else if (itemId === ITEM_IDS.SMALL_LOCK) {
-        live.state.areaLocks = live.state.areaLocks ?? {};
-        live.state.areaLocks[key] = {
-          x: tx,
-          y: ty,
-          radius: 3,
-          ownerId: account.id,
-          ownerName: account.name,
-          editors: [],
-          editorNames: {},
-        };
-        account.stats.locksPlaced = (account.stats.locksPlaced ?? 0) + 1;
-        notice = '7×7 Area Lock placed! Wrench the lock to manage builders.';
+        notice = `${shareSpec.name} placed · ${shareSpec.width}×${shareSpec.height} area claimed.`;
+      } else if (itemId === ITEM_IDS.WORLD_LOCK || itemId === ITEM_IDS.SMALL_LOCK) {
+        return { ok: false, reason: 'Legacy locks are retired. Use a Share Lock instead.' };
       } else if (itemId === ITEM_IDS.VENDING_MACHINE) {
         live.state.vendingMachines = live.state.vendingMachines ?? {};
         live.state.vendingMachines[key] = {
@@ -1693,64 +1690,40 @@ export class AuthoritativeWorldStore {
     account: PlayerAccount,
     tx: number,
     ty: number,
-    opts: { publicAccess?: boolean; addEditorName?: string; removeEditorId?: string }
-  ):
-    | { ok: true; worldLock?: WorldLockRecord | null; areaLock?: AreaLockRecord | null; notice: string }
-    | { ok: false; message: string } {
+    opts: {
+      addEditorName?: string;
+      removeEditorId?: string;
+      permissionTargetId?: string;
+      permissions?: Partial<ShareLockPermissions>;
+    }
+  ): { ok: true; shareLock: import('../src/game/worldGen.ts').ShareLockRecord; notice: string } | { ok: false; message: string } {
     const key = `${tx},${ty}`;
-    const wl = live.state.worldLock;
-    const al = live.state.areaLocks?.[key];
-
-    if (wl && wl.x === tx && wl.y === ty) {
-      if (wl.ownerId !== account.id) {
-        return { ok: false, message: 'Only the World Lock owner can change permissions.' };
-      }
-      wl.editorNames = wl.editorNames ?? {};
-      if (typeof opts.publicAccess === 'boolean') {
-        wl.publicAccess = opts.publicAccess;
-      }
-      if (opts.addEditorName) {
-        const target = this.findPlayerByNameOrId(opts.addEditorName);
-        const targetId = target ? target.id : opts.addEditorName.trim();
-        const targetName = target ? target.name : opts.addEditorName.trim();
-        if (targetId && targetId !== account.id && !wl.editors.includes(targetId)) {
-          wl.editors.push(targetId);
-          wl.editorNames[targetId] = targetName;
-        }
-      }
-      if (opts.removeEditorId) {
-        wl.editors = wl.editors.filter((id) => id !== opts.removeEditorId);
-        delete wl.editorNames[opts.removeEditorId];
-      }
-      live.state.revision += 1;
-      this.saveWorld(live);
-      return { ok: true, worldLock: wl, notice: 'World Lock permissions updated.' };
+    const lock = live.state.shareLocks?.[key];
+    if (!lock) return { ok: false, message: 'No Share Lock found at that tile.' };
+    if (lock.ownerId !== account.id) {
+      return { ok: false, message: 'Only the world owner can manage Share Lock access.' };
     }
 
-    if (al) {
-      if (al.ownerId !== account.id) {
-        return { ok: false, message: 'Only the Area Lock owner can change permissions.' };
-      }
-      al.editorNames = al.editorNames ?? {};
-      if (opts.addEditorName) {
-        const target = this.findPlayerByNameOrId(opts.addEditorName);
-        const targetId = target ? target.id : opts.addEditorName.trim();
-        const targetName = target ? target.name : opts.addEditorName.trim();
-        if (targetId && targetId !== account.id && !al.editors.includes(targetId)) {
-          al.editors.push(targetId);
-          al.editorNames[targetId] = targetName;
-        }
-      }
-      if (opts.removeEditorId) {
-        al.editors = al.editors.filter((id) => id !== opts.removeEditorId);
-        delete al.editorNames[opts.removeEditorId];
-      }
-      live.state.revision += 1;
-      this.saveWorld(live);
-      return { ok: true, areaLock: al, notice: 'Area Lock permissions updated.' };
+    lock.access = lock.access ?? {};
+    if (opts.addEditorName) {
+      const target = this.findPlayerByNameOrId(opts.addEditorName);
+      if (!target) return { ok: false, message: 'Player not found. Check the exact username.' };
+      if (target.id === account.id) return { ok: false, message: 'You already own this area.' };
+      lock.access[target.id] = {
+        playerName: target.name,
+        permissions: { ...DEFAULT_SHARE_LOCK_PERMISSIONS },
+      };
+    }
+    if (opts.removeEditorId) delete lock.access[opts.removeEditorId];
+    if (opts.permissionTargetId && opts.permissions) {
+      const existing = lock.access[opts.permissionTargetId];
+      if (!existing) return { ok: false, message: 'That player does not have access to this Share Lock.' };
+      existing.permissions = { ...DEFAULT_SHARE_LOCK_PERMISSIONS, ...existing.permissions, ...opts.permissions };
     }
 
-    return { ok: false, message: 'No configurable lock found at that tile.' };
+    live.state.revision += 1;
+    this.saveWorld(live);
+    return { ok: true, shareLock: lock, notice: 'Share Lock access updated.' };
   }
 
   handleConfigureVending(
