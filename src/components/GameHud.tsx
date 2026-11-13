@@ -132,6 +132,7 @@ interface GameHudProps {
   exchange: ExchangeSnapshot;
   fishingActive: boolean;
   fishingBiting: boolean;
+  fishingProgress: number;
   fishingDepthLevel?: number | null;
   onExitMineShaft: () => void;
   onUseConsumable: (itemId: number) => void;
@@ -351,6 +352,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   exchange,
   fishingActive,
   fishingBiting,
+  fishingProgress,
   fishingDepthLevel,
   onExitMineShaft,
   onUseConsumable,
@@ -662,7 +664,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                 : 'bg-[#12334d]/94 hover:bg-[#194669] border-[#78c8f5] text-[#eaf6ff]'
             }`}
           >
-            {fishingBiting ? `! BITE ! Depth ${fishingDepthLevel ?? '?'} / 6 · Tap to Reel!` : `Fishing · Depth ${fishingDepthLevel ?? '?'} / 6 · Tap to Reel`}
+            {fishingBiting ? `! BITE ! Depth ${fishingDepthLevel ?? '?'} / 6 · Reel ${Math.round(fishingProgress)}%` : `Fishing · Depth ${fishingDepthLevel ?? '?'} / 6 · Tap to Reel`}
+            {fishingBiting && <span className="block h-1.5 w-full mt-1 rounded bg-[#09131d] overflow-hidden"><span className="block h-full bg-[#4ec46a] transition-[width]" style={{ width: `${Math.max(0, Math.min(100, fishingProgress))}%` }} /></span>}
           </button>
         )}
 
