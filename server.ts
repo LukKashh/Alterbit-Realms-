@@ -669,7 +669,6 @@ async function startServer() {
 
       if (msg.type === 'configure_lock') {
         const res = store.handleConfigureLock(live, account, msg.tx, msg.ty, {
-          publicAccess: msg.publicAccess,
           addEditorName: msg.addEditorName,
           removeEditorId: msg.removeEditorId,
           permissionTargetId: msg.permissionTargetId,
