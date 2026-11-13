@@ -9,6 +9,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ title, subtitle })
   return (
     <div
       data-testid="loading-screen"
+      data-menu-screen="loading"
       className="fixed inset-0 z-40 bg-[#0b1622]/96 flex flex-col items-center justify-center p-6 gap-5"
     >
       <div className="flex items-center gap-3">
