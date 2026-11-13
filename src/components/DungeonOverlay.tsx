@@ -124,7 +124,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
             <header className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-[#0a121d] border-b border-[#4c4639]">
               <div>
                 <div className="flex items-center gap-2"><img src="/assets/dungeon/station-commander.svg" alt="Station Commander" className="w-9 h-9 object-contain" style={{ imageRendering: 'pixelated' }} /><div><div className="font-pixel text-xs sm:text-sm text-[#f5d18a]">STATION COMMANDER</div><div className="text-[9px] text-[#91a4b8]">Adventure Gate Operations</div></div></div>
-                <div className="text-[10px] text-[#91a4b8] mt-1">Co-operative top-down expeditions · up to 4 explorers</div>
+                <div className="text-[10px] text-[#91a4b8] mt-1">Top-down expeditions · Solo or co-operative</div>
               </div>
               <button type="button" onClick={close} className="px-3 py-1.5 rounded border border-[#42566b] text-xs font-bold hover:bg-[#1b2c3e]">Close</button>
             </header>
@@ -134,7 +134,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-sm font-bold text-[#f5d18a]">Gate Key Tier {snapshot.tier} · Room {Math.min(snapshot.roomIndex + 1, snapshot.roomCount)}/{snapshot.roomCount}</div>
-                    <div className="text-[10px] text-[#91a4b8]">{snapshot.partyMode === 'solo' ? 'SOLO EXPEDITION' : 'COOPERATIVE · UP TO 4'} · Party code <span className="font-mono text-[#9ce7ff] tracking-[0.2em]">{snapshot.code}</span></div>
+                    <div className="text-[10px] text-[#91a4b8]">{snapshot.partyMode === 'solo' ? 'SOLO EXPEDITION' : 'CO-OP · UP TO 4'}{snapshot.partyMode === 'cooperative' && <> · Party code <span className="font-mono text-[#9ce7ff] tracking-[0.2em]">{snapshot.code}</span></>}</div>
                   </div>
                   <div className="text-[10px] uppercase tracking-wider text-[#c5b38e]">{snapshot.phase}</div>
                 </div>
@@ -208,7 +208,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                       <div className="absolute left-1/2 top-1/2 w-12 h-12 rounded-full border-2 border-[#b9d8e9] bg-[#547a91] shadow-lg" style={{ transform: 'translate(calc(-50% + ' + joystickKnob.x + 'px), calc(-50% + ' + joystickKnob.y + 'px))' }} />
                     </div>
                     <button type="button" onClick={() => onAction('attack')} className="w-full sm:w-auto px-8 py-5 rounded-lg border-2 border-[#e7a16c] bg-[#713d2d] hover:bg-[#8a4b36] text-sm font-black tracking-widest">ATTACK</button>
-                    <button type="button" onClick={leave} className="px-4 py-2 rounded border border-[#7d4b4b] text-xs text-[#ffb7ae]">Leave party</button>
+                    <button type="button" onClick={leave} className="px-4 py-2 rounded border border-[#7d4b4b] text-xs text-[#ffb7ae]">{snapshot.partyMode === 'solo' ? 'Abandon expedition' : 'Leave party'}</button>
                   </div>
                 )}
 
@@ -221,7 +221,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                 {(snapshot.phase === 'completed' || snapshot.phase === 'failed') && (
                   <div className="flex flex-col gap-2">
                     <div className="text-center text-sm font-bold text-[#f5d18a]">{snapshot.phase === 'completed' ? 'EXPEDITION COMPLETE' : 'EXPEDITION FAILED'}</div>
-                    <div className="text-center text-xs text-[#a9bbca]">{snapshot.phase === 'completed' ? 'XP and ore fragments have been delivered to your account.' : 'The Gate Key was consumed. No completion rewards were granted.'}</div>
+                    <div className="text-center text-xs text-[#a9bbca]">{snapshot.phase === 'completed' ? 'XP and eligible raw ore has been delivered to your account.' : 'The Gate Key was consumed. No completion rewards were granted.'}</div>
                     <button type="button" onClick={() => { onDismiss(); setOpen(false); }} className="w-full py-2 rounded bg-[#28435a] font-bold">Return to world</button>
                   </div>
                 )}
