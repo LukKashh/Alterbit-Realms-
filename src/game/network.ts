@@ -166,11 +166,11 @@ export type ClientMessage =
   | { type: 'ping'; clientTime: number }
   | { type: 'join_world'; worldName: string; resumePosition?: ResumePosition }
   | { type: 'leave_world' }
-  | { type: 'dungeon_buy_key'; tier: number }
+  | { type: 'dungeon_buy_key'; tier: number; payment: 'gems' | 'world_locks'; txId: string }
   | { type: 'dungeon_create'; tier: number }
   | { type: 'dungeon_join'; code: string }
   | { type: 'dungeon_resume' }
-  | { type: 'dungeon_action'; action: 'move' | 'attack' | 'next_room' | 'leave'; dx?: number; dy?: number }
+  | { type: 'dungeon_action'; action: 'move' | 'attack' | 'next_room' | 'extract' | 'leave'; dx?: number; dy?: number }
   | {
       type: 'move';
       x: number;
