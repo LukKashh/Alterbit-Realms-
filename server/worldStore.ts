@@ -2545,6 +2545,9 @@ export class AuthoritativeWorldStore {
         } else if (cast.biting && now >= cast.expiresAt) {
           live.activeCasts.delete(pid);
           fishingTimeouts.push({ worldName: wName, playerId: pid });
+        } else if (cast.biting && cast.pullProgress > 0) {
+          // Fish steadily regain line while the player is not actively reeling.
+          cast.pullProgress = Math.max(0, cast.pullProgress - 1.5);
         }
       }
 
