@@ -298,7 +298,6 @@ export default function App() {
     const unsubMsg = socket.onMessage((msg) => {
       switch (msg.type) {
         case 'welcome':
-          socket.send({ type: 'dungeon_resume' });
           applyUserProfile({
             playerId: msg.playerId,
             playerName: msg.playerName,
@@ -360,6 +359,7 @@ export default function App() {
             setInspectInfo(null);
           }
           setWorldName(msg.world.name);
+          if (msg.world.name === 'STATION') socket.send({ type: 'dungeon_resume' });
           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
           setWorldKind(msg.world.worldKind ?? 'standard');
           setMineExpiresAt(msg.world.expiresAt ?? null);
@@ -967,14 +967,14 @@ export default function App() {
         />
       )}
 
-      {(appState === 'hub' || appState === 'playing' || appState === 'paused') && (
+      {(appState === 'playing' || appState === 'paused') && worldName === 'STATION' && (
         <DungeonOverlay
           playerId={playerId}
           level={level}
           gems={gems}
           inventory={inventory}
           snapshot={dungeonSnapshot}
-          onBuyKey={(tier) => socketRef.current?.send({ type: 'dungeon_buy_key', tier })}
+          onBuyKey={(tier, payment) => socketRef.current?.send({ type: 'dungeon_buy_key', tier, payment, txId: makeTxId() })}
           onCreate={(tier) => socketRef.current?.send({ type: 'dungeon_create', tier })}
           onJoin={(code) => socketRef.current?.send({ type: 'dungeon_join', code })}
           onAction={(action, dx, dy) => socketRef.current?.send({ type: 'dungeon_action', action, dx, dy })}
