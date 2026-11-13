@@ -34,7 +34,7 @@ test('Share Lock grants access only inside its rectangle and respects individual
   assert.equal(getCoveringShareLock(world, 13, 11), null);
   assert.equal(hasEditPermission(world, 'builder', 10, 10, 'build'), true);
   assert.equal(hasEditPermission(world, 'builder', 10, 10, 'break'), false);
-  assert.equal(hasEditPermission(world, 'builder', 10, 10, 'interact'), true);
+  assert.equal(hasEditPermission(world, 'builder', 10, 10, 'interact'), false);
   assert.equal(hasEditPermission(world, 'builder', 14, 11, 'build'), false);
   assert.equal(hasEditPermission(world, 'owner', 14, 11, 'build'), true);
 });
