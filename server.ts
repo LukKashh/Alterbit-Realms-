@@ -371,6 +371,10 @@ async function startServer() {
       const account = session.account;
 
       if (msg.type === 'create_world') {
+        if (session.worldName !== 'NEXUS') {
+          sendTo(ws, { type: 'world_error', message: 'Visit the Nexus Landlord to create a realm.' });
+          return;
+        }
         const result = store.createOwnedWorld(account, msg.worldName, Boolean(msg.terraBlast));
         if (!result.ok) {
           sendTo(ws, { type: 'world_error', message: result.message });
