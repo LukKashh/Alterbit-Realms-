@@ -11,7 +11,7 @@ interface DungeonOverlayProps {
   inventory: InventorySlot[];
   snapshot: DungeonSnapshot | null;
   onBuyKey: (tier: number, payment: 'gems' | 'world_locks') => void;
-  onCreate: (tier: number) => void;
+  onCreate: (tier: number, partyMode: 'solo' | 'cooperative') => void;
   onJoin: (code: string) => void;
   onAction: (action: DungeonAction, dx?: number, dy?: number) => void;
   onDismiss: () => void;
@@ -30,6 +30,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const [partyCode, setPartyCode] = useState('');
+  const [partyMode, setPartyMode] = useState<'solo' | 'cooperative' | null>(null);
   const keyboardRef = useRef(new Set<string>());
   const joystickRef = useRef({ x: 0, y: 0 });
   const pointerIdRef = useRef<number | null>(null);
@@ -133,7 +134,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-sm font-bold text-[#f5d18a]">Gate Key Tier {snapshot.tier} · Room {Math.min(snapshot.roomIndex + 1, snapshot.roomCount)}/{snapshot.roomCount}</div>
-                    <div className="text-[10px] text-[#91a4b8]">Party code <span className="font-mono text-[#9ce7ff] tracking-[0.2em]">{snapshot.code}</span></div>
+                    <div className="text-[10px] text-[#91a4b8]">{snapshot.partyMode === 'solo' ? 'SOLO EXPEDITION' : 'COOPERATIVE · UP TO 4'} · Party code <span className="font-mono text-[#9ce7ff] tracking-[0.2em]">{snapshot.code}</span></div>
                   </div>
                   <div className="text-[10px] uppercase tracking-wider text-[#c5b38e]">{snapshot.phase}</div>
                 </div>
@@ -219,6 +220,11 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                 <div className="rounded-lg border border-[#3c5368] bg-[#0b1520] p-3">
                   <div className="text-sm font-bold text-[#f5d18a]">Open an expedition</div>
                   <div className="text-[10px] text-[#91a4b8] mt-1">Choose one payment method: Gems OR World Locks. A purchased key is consumed when you activate its gate.</div>
+                  <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-[#a9bbca]">Expedition type · choose before activation</div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <button type="button" onClick={() => setPartyMode('solo')} className={'py-2 rounded border text-xs font-bold ' + (partyMode === 'solo' ? 'border-[#e7c27a] bg-[#6c522d] text-[#ffe7b3]' : 'border-[#40566b] bg-[#152332] text-[#a9bbca]')}>Solo · 1 explorer</button>
+                    <button type="button" onClick={() => setPartyMode('cooperative')} className={'py-2 rounded border text-xs font-bold ' + (partyMode === 'cooperative' ? 'border-[#8acfc1] bg-[#28574f] text-[#d4fff4]' : 'border-[#40566b] bg-[#152332] text-[#a9bbca]')}>Co-op · up to 4</button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {GATE_KEYS.map((key, index) => {
@@ -238,7 +244,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
                         <div className="grid grid-cols-2 gap-2 mt-auto">
                           <button type="button" disabled={!canBuyGems} onClick={() => onBuyKey(key.tier, 'gems')} className="py-2 rounded bg-[#314f68] disabled:opacity-40 text-[10px] font-bold">Buy · {key.gemPrice} Gems</button>
                           <button type="button" disabled={!canBuyLocks} onClick={() => onBuyKey(key.tier, 'world_locks')} className="py-2 rounded bg-[#425b42] disabled:opacity-40 text-[10px] font-bold">Buy · {key.worldLockPrice} WL</button>
-                          <button type="button" disabled={owned <= 0 || !canUnlock} onClick={() => onCreate(key.tier)} className="col-span-2 py-2 rounded bg-[#9a7332] disabled:opacity-40 text-[10px] font-black text-[#1a1208]">Activate Gate · {owned} Key(s)</button>
+                          <button type="button" disabled={owned <= 0 || !canUnlock || !partyMode} onClick={() => partyMode && onCreate(key.tier, partyMode)} className="col-span-2 py-2 rounded bg-[#9a7332] disabled:opacity-40 text-[10px] font-black text-[#1a1208]">Activate Gate · {owned} Key(s)</button>
                         </div>
                       </div>
                     );
