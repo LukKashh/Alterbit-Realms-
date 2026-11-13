@@ -16,6 +16,8 @@ export interface DungeonPlayerState {
   hp: number;
   maxHp: number;
   connected: boolean;
+  facingX: number;
+  facingY: number;
 }
 
 export interface DungeonEnemyState {
@@ -56,6 +58,11 @@ export interface DungeonReward {
 
 export function isDungeonWalkable(tile: string): boolean {
   return tile === '.' || tile === '<' || tile === '>';
+}
+
+export function isDungeonPositionWalkable(map: string[], x: number, y: number, radius = 0.22): boolean {
+  const corners = [[x - radius, y - radius], [x + radius, y - radius], [x - radius, y + radius], [x + radius, y + radius]];
+  return corners.every(([cx, cy]) => isDungeonWalkable(map[Math.floor(cy)]?.[Math.floor(cx)] ?? '#'));
 }
 
 export function createDungeonMap(tier: number, roomIndex: number, seed: number): string[] {
