@@ -866,7 +866,7 @@ export class AuthoritativeWorldStore {
     const idx = tileIndex(tx, ty);
 
     let maxHits = 3;
-    let targetDef = getEffectiveItemDef(ITEM_IDS.RICH_SOIL, this.gameConfig);
+    let targetDef = getEffectiveItemDef(ITEM_IDS.GP_DIRT, this.gameConfig);
     if (check.layer === 'plant') {
       const plant = live.state.plants[key];
       const growth = getPlantGrowthState(plant, now);
