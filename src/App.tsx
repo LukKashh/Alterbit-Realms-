@@ -869,7 +869,6 @@ export default function App() {
           onRefreshWorlds={() => socketRef.current?.send({ type: 'list_worlds' })}
           onJoinWorld={(name) => handleEnterWorld(name)}
           onCreateWorld={(name, terraBlast) => socketRef.current?.send({ type: 'create_world', worldName: name, terraBlast })}
-          onCreateWorld={(name, terraBlast) => socketRef.current?.send({ type: 'create_world', worldName: name, terraBlast })}
           onToggleFavoriteWorld={(name) =>
             socketRef.current?.send({ type: 'toggle_favorite_world', worldName: name })
           }
