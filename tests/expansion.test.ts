@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { ITEM_IDS, getItemDef } from '../src/game/catalog.ts';
 import {ORE_PROGRESSION,SCROLL_CATEGORIES,SYSTEM_WORLD_NAMES,GATE_KEYS,FISHING_RESERVOIRS,FISHING_RODS,canRodFishAtDepth,getFishingDepthLevel,getFishDepthWeight,isSystemWorld} from '../src/game/expansion.ts';
 
 test('all twelve metallurgy tiers and mineable limits are represented',()=>{
@@ -33,4 +34,10 @@ test('fish can overlap depth bands but preferred depth has strongest weight',()=
 test('physical reservoir depth maps consistently to six fishing depth levels',()=>{
  assert.deepEqual([1,2,3,4,5,6,7,8,9,10,11,12].map(getFishingDepthLevel),[1,1,2,2,3,3,4,4,5,5,6,6]);
  assert.equal(getFishingDepthLevel(0),0);
+});
+
+test('catalog exposes six rod types with three upgrade levels each',()=>{
+ const ids=[ITEM_IDS.BAMBOO_ROD,ITEM_IDS.ANGLER_ROD,ITEM_IDS.FISHING_ROD_III,ITEM_IDS.FISHING_ROD_IV,ITEM_IDS.FISHING_ROD_V,ITEM_IDS.FISHING_ROD_VI];
+ assert.deepEqual(ids.map(id=>getItemDef(id)?.rodType),[1,2,3,4,5,6]);
+ assert.ok(ids.every(id=>getItemDef(id)?.rodUpgradeLevels?.join(',')==='1,2,3'));
 });
