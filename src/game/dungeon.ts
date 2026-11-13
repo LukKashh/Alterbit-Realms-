@@ -6,7 +6,7 @@ export const DUNGEON_HEIGHT = 11;
 export const DUNGEON_PARTY_LIMIT = 4;
 
 export type DungeonPhase = 'active' | 'cleared' | 'completed' | 'failed';
-export type DungeonAction = 'move' | 'attack' | 'next_room' | 'leave';
+export type DungeonAction = 'move' | 'attack' | 'next_room' | 'extract' | 'leave';
 
 export interface DungeonPlayerState {
   id: string;
