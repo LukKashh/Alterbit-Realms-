@@ -172,6 +172,9 @@ export function canBreakTile(
   const idx = tileIndexIn(world, tx, ty);
   const fgId = world.fg[idx];
   if (fgId !== ITEM_IDS.AIR) {
+    if (fgId === ITEM_IDS.WORLD_LOCK || fgId === ITEM_IDS.SMALL_LOCK) {
+      return { ok: false, reason: 'Legacy lock items have been retired.' };
+    }
     const def = getItemDef(fgId);
     if (!def || !def.breakable) {
       return { ok: false, reason: `${def?.name ?? 'Tile'} cannot be broken.` };
