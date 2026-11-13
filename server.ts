@@ -811,7 +811,11 @@ async function startServer() {
     });
 
     ws.on('close', () => {
-      if (session.account) dungeonStore.disconnect(session.account.id);
+      const playerId = session.account?.id;
+      const hasOtherSession = playerId
+        ? [...sessions].some((other) => other !== session && other.account?.id === playerId && other.ws.readyState === WebSocket.OPEN)
+        : false;
+      if (playerId && !hasOtherSession) dungeonStore.disconnect(playerId);
       leaveCurrentWorld(session, false);
       sessions.delete(session);
     });
