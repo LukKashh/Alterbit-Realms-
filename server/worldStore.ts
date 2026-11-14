@@ -75,7 +75,7 @@ import type {
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
 import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec } from '../src/game/shareLocks.ts';
 import type { ShareLockPermissions } from '../src/game/shareLocks.ts';
-import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance, isSystemWorld } from '../src/game/expansion.ts';
+import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance, getFiscoreDepthTier, isSystemWorld } from '../src/game/expansion.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -2370,7 +2370,7 @@ export class AuthoritativeWorldStore {
     }
 
     const now = Date.now();
-    const depthTier: LiquidPoolInfo['depthTier'] = depthLevel <= 2 ? 'shallow' : depthLevel <= 4 ? 'deep' : 'abyssal';
+    const depthTier = getFiscoreDepthTier(depthLevel) as LiquidPoolInfo['depthTier'];
     const delayMs = rodDef.rodType >= 2
       ? 1800 + Math.floor(Math.random() * 1400)
       : 2600 + Math.floor(Math.random() * 1900);
