@@ -158,6 +158,7 @@ export interface ServerFishingCast extends FishingCastState {
   lastFightUpdateAt: number;
   biteAt: number;
   expiresAt: number;
+  lastReelAt?: number;
   mode?: 'world' | 'fiscore';
   zoneId?: string;
 }
@@ -2512,6 +2513,11 @@ export class AuthoritativeWorldStore {
     | { ok: false; message: string } {
     const cast = live.activeCasts.get(account.id);
     if (!cast) return { ok: false, message: 'No active fishing cast.' };
+    const now = Date.now();
+    if (cast.lastReelAt && now - cast.lastReelAt < 300) {
+      return { ok: false, message: 'Give the fishing line a moment before reeling again.' };
+    }
+    cast.lastReelAt = now;
     if (!cast.biting) {
       live.activeCasts.delete(account.id);
       return { ok: true, caught: false, finished: true, progress: 0, notice: 'Reeled in too early — wait for the ! bite alert.' };
