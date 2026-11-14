@@ -5,6 +5,15 @@ import express from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { AuthoritativeWorldStore, type LiveWorld, type PlayerAccount } from './server/worldStore.ts';
 import { adminAuth } from './src/lib/firebase-admin.ts';
+import { requireAuth, type AuthRequest } from './src/middleware/auth.ts';
+import { isCloudSqlConfigured } from './src/db/index.ts';
+import {
+  getOrCreateUser,
+  getUsers,
+  syncAppStateToSql,
+  syncPlayerSnapshotToSql,
+  syncWorldSnapshotToSql,
+} from './src/db/users.ts';
 import type { ClientMessage, ResumePosition, ServerMessage } from './src/game/network.ts';
 import { TILE_SIZE } from './src/game/constants.ts';
 import { addXp, tileIndexIn, worldHeight, worldWidth } from './src/game/rules.ts';
@@ -134,6 +143,11 @@ async function startServer() {
         res.status(400).json({ ok: false, message: result.message });
         return;
       }
+      if (isCloudSqlConfigured()) {
+        await getOrCreateUser(decoded.uid, decoded.email ?? '', result.account.name).catch((err) => {
+          console.error('Cloud SQL Firebase user sync error:', err);
+        });
+      }
       res.json({
         ok: true,
         token: result.token,
@@ -143,6 +157,21 @@ async function startServer() {
     } catch (error) {
       console.error('Error verifying Firebase ID token:', error);
       res.status(401).json({ ok: false, message: 'Unauthorized: Invalid Firebase ID token.' });
+    }
+  });
+
+  app.get('/api/users', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user?.uid) {
+        res.status(401).json({ error: 'Unauthorized: Missing user identity' });
+        return;
+      }
+      const allUsers = await getUsers();
+      res.json({ users: allUsers });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch users';
+      console.error('Failed to fetch users:', error);
+      res.status(500).json({ error: message });
     }
   });
 
@@ -195,8 +224,20 @@ async function startServer() {
       recentWorlds: account.recentWorlds,
       activeBuffs: store.pruneAndGetBuffs(account),
       unclaimedWl: account.unclaimedWl ?? 0,
-            notice,
+      notice,
     });
+    if (isCloudSqlConfigured()) {
+      void syncPlayerSnapshotToSql({
+        uid: account.id,
+        email: account.email,
+        username: account.name,
+        role: account.role,
+        gems: account.gems,
+        xp: account.xp,
+        level: account.level,
+        profileData: account as unknown as Record<string, unknown>,
+      });
+    }
   }
 
   function sendProfileToPlayerId(playerId: string, notice?: string) {
@@ -241,6 +282,9 @@ async function startServer() {
       signText: live.state.signs?.[key] ?? null,
       revision: live.state.revision,
     });
+    if (isCloudSqlConfigured()) {
+      void syncWorldSnapshotToSql(live.state);
+    }
   }
 
   function leaveCurrentWorld(session: ClientSession, explicitExit = false) {
@@ -541,6 +585,9 @@ async function startServer() {
           gameConfig: res.gameConfig,
           notice: `Game configuration updated by ${account.name}.`,
         });
+        if (isCloudSqlConfigured()) {
+          void syncAppStateToSql('game_config', res.gameConfig as unknown as Record<string, unknown>);
+        }
         return;
       }
 
