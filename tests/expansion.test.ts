@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ITEM_IDS, getItemDef } from '../src/game/catalog.ts';
-import {ORE_PROGRESSION,SCROLL_CATEGORIES,SYSTEM_WORLD_NAMES,GATE_KEYS,FISHING_RESERVOIRS,FISHING_RODS,canRodFishAtDepth,getFishingDepthLevel,getFishDepthWeight,getRodUpgradeGemCost,getFishingPullStrength,getFishPullResistance,isSystemWorld} from '../src/game/expansion.ts';
+import { FURNACE_RECIPES, ITEM_IDS, getItemDef } from '../src/game/catalog.ts';
+import {ORE_PROGRESSION,SCROLL_CATEGORIES,SYSTEM_WORLD_NAMES,GATE_KEYS,FISHING_RESERVOIRS,FISHING_RODS,canRodFishAtDepth,getFishingDepthLevel,getFishDepthWeight,getRodUpgradeGemCost,getFishingPullStrength,getFishPullResistance,getFiscoreDepthTier,FISCORE_DEPTH_LEVELS,isSystemWorld} from '../src/game/expansion.ts';
 import { DEFAULT_GAME_CONFIG, sanitizeGameConfig } from '../src/game/config.ts';
 
 test('all twelve metallurgy tiers and mineable limits are represented',()=>{
@@ -27,6 +27,13 @@ test('reservoirs and six rod types are mapped to depth levels',()=>{
  assert.ok(FISHING_RODS.every(x=>x.upgradeLevels.length===3));
  for(let type=1;type<=6;type++){assert.equal(canRodFishAtDepth(type,type),true);assert.equal(canRodFishAtDepth(type,type+1),false);}
 });
+test('Fiscore exposes six server-validated depth zones',()=>{
+ assert.deepEqual(FISCORE_DEPTH_LEVELS,[1,2,3,4,5,6]);
+ assert.deepEqual(FISCORE_DEPTH_LEVELS.map(getFiscoreDepthTier),['shallow','shallow','deep','deep','abyssal','abyssal']);
+ assert.equal(getFiscoreDepthTier(0),'none');
+ assert.equal(getFiscoreDepthTier(7),'none');
+});
+
 test('fish can overlap depth bands but preferred depth has strongest weight',()=>{
  const fish={minDepthLevel:2,maxDepthLevel:4,preferredDepthLevel:3};
  assert.equal(getFishDepthWeight(fish,1),0);assert.equal(getFishDepthWeight(fish,2),0.35);assert.equal(getFishDepthWeight(fish,3),1);assert.equal(getFishDepthWeight(fish,4),0.35);
@@ -41,6 +48,16 @@ test('catalog exposes six rod types with three upgrade levels each',()=>{
  const ids=[ITEM_IDS.BAMBOO_ROD,ITEM_IDS.ANGLER_ROD,ITEM_IDS.FISHING_ROD_III,ITEM_IDS.FISHING_ROD_IV,ITEM_IDS.FISHING_ROD_V,ITEM_IDS.FISHING_ROD_VI];
  assert.deepEqual(ids.map(id=>getItemDef(id)?.rodType),[1,2,3,4,5,6]);
  assert.ok(ids.every(id=>getItemDef(id)?.rodUpgradeLevels?.join(',')==='1,2,3'));
+});
+
+test('all six fishing rods have durability and a repair path',()=>{
+ const ids=[ITEM_IDS.BAMBOO_ROD,ITEM_IDS.ANGLER_ROD,ITEM_IDS.FISHING_ROD_III,ITEM_IDS.FISHING_ROD_IV,ITEM_IDS.FISHING_ROD_V,ITEM_IDS.FISHING_ROD_VI];
+ assert.ok(ids.every(id=>{
+  const rod=getItemDef(id);
+  return rod?.maxDurability && rod.repairMaterialId && rod.repairQty;
+ }));
+ const recipeIds=['craft_bamboo_rod','craft_angler_rod','craft_fishing_rod_iii','craft_fishing_rod_iv','craft_fishing_rod_v','craft_fishing_rod_vi'];
+ assert.ok(recipeIds.every(id=>FURNACE_RECIPES.some(recipe=>recipe.id===id)));
 });
 
 test('existing fish species have overlapping depth bands and distinct preferred depths',()=>{
