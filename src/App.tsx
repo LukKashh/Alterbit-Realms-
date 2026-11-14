@@ -993,8 +993,6 @@ export default function App() {
 
       {fishing3dOpen && (
         <Fishing3dOverlay
-          playerId={playerId}
-          level={level}
           gems={gems}
           inventory={inventory}
           fiscore={fiscoreProgress}
