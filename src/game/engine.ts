@@ -489,23 +489,49 @@ export class BlockgroveEngine {
 
   private paintLayerTile(tx: number, ty: number) {
     const w = worldWidth(this.world);
+    const h = worldHeight(this.world);
+    if (tx < 0 || ty < 0 || tx >= w || ty >= h) return;
     const idx = ty * w + tx;
     const px = tx * TILE_SIZE;
     const py = ty * TILE_SIZE;
     this.worldLayerCtx.clearRect(px, py, TILE_SIZE, TILE_SIZE);
     const bgId = this.world.bg[idx];
     const fgId = this.world.fg[idx];
+    const fgDef = CATALOG[fgId];
     const fgTransparent =
       fgId === ITEM_IDS.AIR ||
-      !!CATALOG[fgId]?.transparent ||
+      !!fgDef?.transparent ||
       fgId === ITEM_IDS.ENTRANCE_PORTAL ||
-      fgId === ITEM_IDS.SMALL_LOCK;
+      fgId === ITEM_IDS.SMALL_LOCK ||
+      fgId === ITEM_IDS.LANDLORD_NPC;
+
+    const aboveFg = ty > 0 ? this.world.fg[(ty - 1) * w + tx] : ITEM_IDS.AIR;
+    const belowFg = ty + 1 < h ? this.world.fg[(ty + 1) * w + tx] : ITEM_IDS.BEDROCK;
+    const aboveSolid = aboveFg !== ITEM_IDS.AIR && CATALOG[aboveFg]?.collision === 'solid';
+    const belowSolid = belowFg !== ITEM_IDS.AIR && CATALOG[belowFg]?.collision === 'solid';
 
     if (bgId !== ITEM_IDS.BG_SKY && fgTransparent) {
       this.worldLayerCtx.drawImage(getTileSprite(bgId), px, py, TILE_SIZE, TILE_SIZE);
+      // Recessed depth tint so background walls sit visually behind foreground blocks
+      this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.24)';
+      this.worldLayerCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+      if (aboveSolid) {
+        this.worldLayerCtx.fillStyle = 'rgba(5, 9, 16, 0.36)';
+        this.worldLayerCtx.fillRect(px, py, TILE_SIZE, 8);
+      }
     }
     if (fgId !== ITEM_IDS.AIR) {
       this.worldLayerCtx.drawImage(getTileSprite(fgId), px, py, TILE_SIZE, TILE_SIZE);
+      if (fgDef?.collision === 'solid') {
+        if (!aboveSolid) {
+          this.worldLayerCtx.fillStyle = 'rgba(255, 250, 224, 0.16)';
+          this.worldLayerCtx.fillRect(px, py, TILE_SIZE, 3);
+        }
+        if (!belowSolid) {
+          this.worldLayerCtx.fillStyle = 'rgba(6, 11, 18, 0.28)';
+          this.worldLayerCtx.fillRect(px, py + TILE_SIZE - 4, TILE_SIZE, 4);
+        }
+      }
     }
   }
 
@@ -743,6 +769,8 @@ export class BlockgroveEngine {
     }
 
     this.paintLayerTile(tx, ty);
+    this.paintLayerTile(tx, ty - 1);
+    this.paintLayerTile(tx, ty + 1);
     this.cracks.delete(key);
 
     if (prevFg !== ITEM_IDS.AIR && fg === ITEM_IDS.AIR) {
@@ -1299,33 +1327,130 @@ export class BlockgroveEngine {
     const cx = Math.round((this.camX + shakeX) * snapScale) / snapScale;
     const cy = Math.round((this.camY + shakeY) * snapScale) / snapScale;
 
-    // 1. Sky or Deep Cavern backdrop (unscaled full viewport)
-    if (this.world.worldKind === 'mine_shaft') {
-      ctx.fillStyle = '#121824';
+    // 1. Biome-Aware Sky & Multi-Layer Parallax Backdrop (unscaled full viewport)
+    const family = this.world.worldFamily ?? 'temperate';
+    if (this.world.worldKind === 'mine_shaft' || family === 'cave_blast') {
+      const caveGrad = ctx.createLinearGradient(0, 0, 0, h);
+      caveGrad.addColorStop(0, '#090d16');
+      caveGrad.addColorStop(0.55, '#141d2e');
+      caveGrad.addColorStop(1, '#22182b');
+      ctx.fillStyle = caveGrad;
       ctx.fillRect(0, 0, w, h);
+
+      // Distant subterranean pillars & glowing crystal veins
+      ctx.fillStyle = 'rgba(26, 36, 56, 0.55)';
+      for (let i = 0; i < 10; i++) {
+        const px = ((i * 220 - Math.floor(cx * 0.16)) % (w + 260)) - 80;
+        ctx.fillRect(px, 0, 44, h);
+        ctx.fillStyle = 'rgba(140, 247, 238, 0.14)';
+        ctx.fillRect(px + 18, (i * 83) % Math.max(120, h - 80), 6, 28);
+        ctx.fillStyle = 'rgba(26, 36, 56, 0.55)';
+      }
+    } else if (family === 'arctic_tundra') {
+      const arcticGrad = ctx.createLinearGradient(0, 0, 0, h);
+      arcticGrad.addColorStop(0, '#0b1d33');
+      arcticGrad.addColorStop(0.48, '#1b4468');
+      arcticGrad.addColorStop(1, '#79bedb');
+      ctx.fillStyle = arcticGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Shimmering Aurora Borealis ribbons
+      for (let band = 0; band < 3; band++) {
+        const ay = 46 + band * 28 + Math.sin(nowMs * 0.0012 + band) * 8;
+        ctx.fillStyle = band === 1 ? 'rgba(140, 247, 238, 0.16)' : 'rgba(87, 200, 135, 0.15)';
+        ctx.fillRect(0, Math.round(ay), w, 14);
+      }
+
+      // Snow-capped parallax alpine peaks
+      ctx.fillStyle = 'rgba(42, 78, 112, 0.52)';
+      for (let i = 0; i < 12; i++) {
+        const mx = i * 220 - Math.floor(cx * 0.22);
+        const my = Math.floor(24 * TILE_SIZE - cy * 0.32 - 90);
+        ctx.beginPath();
+        ctx.moveTo(mx - 70, h);
+        ctx.lineTo(mx + 75, my);
+        ctx.lineTo(mx + 220, h);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (family === 'desert_blast') {
+      const desertGrad = ctx.createLinearGradient(0, 0, 0, h);
+      desertGrad.addColorStop(0, '#b84b29');
+      desertGrad.addColorStop(0.52, '#e6923a');
+      desertGrad.addColorStop(1, '#ffe39f');
+      ctx.fillStyle = desertGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Blazing desert sun with coronal rings
+      const sunX = Math.round(w * 0.76 - cx * 0.04);
+      const sunY = Math.round(Math.max(58, h * 0.18 - cy * 0.03));
+      ctx.fillStyle = 'rgba(255, 244, 184, 0.22)';
+      ctx.fillRect(sunX - 42, sunY - 42, 84, 84);
+      ctx.fillStyle = '#fff5bd';
+      ctx.fillRect(sunX - 24, sunY - 24, 48, 48);
+
+      // Layered red-sandstone mesas
+      ctx.fillStyle = 'rgba(156, 68, 42, 0.38)';
+      for (let i = 0; i < 10; i++) {
+        const mx = i * 250 - Math.floor(cx * 0.22);
+        const my = Math.floor(24 * TILE_SIZE - cy * 0.34 - 64);
+        ctx.fillRect(mx, my, 150, h - my);
+        ctx.fillStyle = 'rgba(224, 126, 69, 0.28)';
+        ctx.fillRect(mx + 12, my, 126, 8);
+        ctx.fillStyle = 'rgba(156, 68, 42, 0.38)';
+      }
     } else {
       ctx.fillStyle = this.skyGradient ?? '#7ec8f2';
       ctx.fillRect(0, 0, w, h);
 
-      // 2. Parallax pixel clouds & distant mountain silhouettes
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-      for (let i = 0; i < 8; i++) {
-        const cloudX = ((i * 260 - cx * 0.18 + nowMs * 0.008) % (w + 300)) - 140;
-        const cloudY = 128 + (i % 3) * 48 - cy * 0.05;
-        ctx.fillRect(Math.floor(cloudX), Math.floor(cloudY), 92, 18);
-        ctx.fillRect(Math.floor(cloudX + 18), Math.floor(cloudY - 12), 54, 14);
+      // Warm pixel sun with soft coronal glow rings
+      const sunX = Math.round(w * 0.78 - cx * 0.04);
+      const sunY = Math.round(Math.max(54, h * 0.16 - cy * 0.03));
+      ctx.fillStyle = 'rgba(255, 248, 196, 0.18)';
+      ctx.fillRect(sunX - 38, sunY - 38, 76, 76);
+      ctx.fillStyle = 'rgba(255, 242, 166, 0.35)';
+      ctx.fillRect(sunX - 26, sunY - 26, 52, 52);
+      ctx.fillStyle = '#fff9d2';
+      ctx.fillRect(sunX - 16, sunY - 16, 32, 32);
+
+      // Far misty mountain range
+      ctx.fillStyle = 'rgba(58, 112, 156, 0.26)';
+      for (let i = 0; i < 12; i++) {
+        const mx = i * 260 - Math.floor(cx * 0.16);
+        const my = Math.floor(24 * TILE_SIZE - cy * 0.28 - 110);
+        ctx.beginPath();
+        ctx.moveTo(mx - 80, h);
+        ctx.lineTo(mx + 90, my);
+        ctx.lineTo(mx + 260, h);
+        ctx.closePath();
+        ctx.fill();
       }
 
-      ctx.fillStyle = 'rgba(72, 130, 168, 0.28)';
+      // Mid-ground ridged mountains with sunlit snow caps
       for (let i = 0; i < 12; i++) {
-        const mx = i * 240 - Math.floor(cx * 0.25);
-        const my = Math.floor(24 * TILE_SIZE - cy * 0.35 - 70);
+        const mx = i * 220 - Math.floor(cx * 0.26);
+        const my = Math.floor(24 * TILE_SIZE - cy * 0.35 - 62);
+        ctx.fillStyle = 'rgba(42, 88, 128, 0.34)';
         ctx.beginPath();
         ctx.moveTo(mx - 60, h);
         ctx.lineTo(mx + 80, my);
         ctx.lineTo(mx + 220, h);
         ctx.closePath();
         ctx.fill();
+      }
+
+      // 3-tone sculpted pixel clouds (top sunlit rim, fluffy body, cool slate under-shadow)
+      for (let i = 0; i < 8; i++) {
+        const cloudX = Math.floor(((i * 260 - cx * 0.18 + nowMs * 0.008) % (w + 320)) - 150);
+        const cloudY = Math.floor(96 + (i % 3) * 46 - cy * 0.05);
+        ctx.fillStyle = 'rgba(182, 214, 240, 0.65)';
+        ctx.fillRect(cloudX + 4, cloudY + 14, 96, 8);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.86)';
+        ctx.fillRect(cloudX, cloudY, 96, 16);
+        ctx.fillRect(cloudX + 18, cloudY - 12, 58, 14);
+        ctx.fillRect(cloudX + 32, cloudY - 18, 30, 8);
+        ctx.fillStyle = 'rgba(255, 253, 235, 0.95)';
+        ctx.fillRect(cloudX + 18, cloudY - 12, 58, 3);
       }
     }
 
@@ -1345,7 +1470,35 @@ export class BlockgroveEngine {
       ctx.drawImage(this.worldLayerCanvas, sxTile, syTile, srcW, srcH, -subX, -subY, srcW, srcH);
     }
 
-    // 3b. Dynamic Water & Acid fluid cells in viewport
+    // 3a. Share Lock claimed rectangle boundaries & corner sigils
+    if (this.world.shareLocks) {
+      for (const lock of Object.values(this.world.shareLocks)) {
+        const lx = lock.x * TILE_SIZE - cx;
+        const ly = lock.y * TILE_SIZE - cy;
+        const lw = lock.width * TILE_SIZE;
+        const lh = lock.height * TILE_SIZE;
+        if (lx + lw < 0 || ly + lh < 0 || lx > viewW || ly > viewH) continue;
+        const borderCol =
+          lock.itemId === ITEM_IDS.MICRO_SHARE_LOCK
+            ? 'rgba(72, 198, 213, 0.75)'
+            : lock.itemId === ITEM_IDS.SMALL_SHARE_LOCK
+              ? 'rgba(87, 200, 135, 0.75)'
+              : 'rgba(182, 138, 255, 0.78)';
+        const fillCol =
+          lock.itemId === ITEM_IDS.MICRO_SHARE_LOCK
+            ? 'rgba(72, 198, 213, 0.07)'
+            : lock.itemId === ITEM_IDS.SMALL_SHARE_LOCK
+              ? 'rgba(87, 200, 135, 0.07)'
+              : 'rgba(182, 138, 255, 0.08)';
+        ctx.fillStyle = fillCol;
+        ctx.fillRect(lx, ly, lw, lh);
+        ctx.strokeStyle = borderCol;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(lx + 1, ly + 1, lw - 2, lh - 2);
+      }
+    }
+
+    // 3b. Dynamic Water & Acid fluid cells with subsurface shimmer & surface waves
     const ww = worldWidth(this.world);
     const wh = worldHeight(this.world);
     const tx0 = Math.max(0, Math.floor(cx / TILE_SIZE));
@@ -1362,11 +1515,16 @@ export class BlockgroveEngine {
             const fillH = Math.round((Math.min(4, fLvl) / 4) * TILE_SIZE);
             const fx = tx * TILE_SIZE - cx;
             const fy = ty * TILE_SIZE - cy + (TILE_SIZE - fillH);
-            ctx.fillStyle = fTyp === 2 ? 'rgba(98, 219, 60, 0.72)' : 'rgba(41, 148, 217, 0.68)';
+            ctx.fillStyle = fTyp === 2 ? 'rgba(84, 204, 48, 0.74)' : 'rgba(34, 138, 214, 0.70)';
             ctx.fillRect(fx, fy, TILE_SIZE, fillH);
             const waveOffset = Math.round(Math.sin(nowMs * 0.006 + tx * 0.9) * 2);
-            ctx.fillStyle = fTyp === 2 ? 'rgba(196, 255, 118, 0.85)' : 'rgba(148, 224, 255, 0.82)';
+            ctx.fillStyle = fTyp === 2 ? 'rgba(196, 255, 118, 0.88)' : 'rgba(158, 230, 255, 0.86)';
             ctx.fillRect(fx, fy + waveOffset, TILE_SIZE, 4);
+            if (fillH > 16) {
+              const causticX = fx + 8 + Math.round(Math.sin(nowMs * 0.004 + ty) * 6);
+              ctx.fillStyle = fTyp === 2 ? 'rgba(220, 255, 160, 0.35)' : 'rgba(200, 245, 255, 0.32)';
+              ctx.fillRect(causticX, fy + 10, 14, 3);
+            }
           }
         }
       }
@@ -1436,24 +1594,30 @@ export class BlockgroveEngine {
       ctx.drawImage(getCrackOverlay(stage), sx, sy, TILE_SIZE, TILE_SIZE);
     }
 
-    // 5. Collectible Drops floating where they originate
+    // 5. Collectible Drops floating with ground shadow & facet glint
     for (const drop of this.drops.values()) {
       const bob = Math.sin(nowMs * 0.005 + drop.x) * 4;
       const dx = Math.floor(drop.x - cx - 12);
       const dy = Math.floor(drop.y - cy - 12 + bob);
+      ctx.fillStyle = 'rgba(6, 12, 20, 0.34)';
+      ctx.fillRect(dx + 4, Math.floor(drop.y - cy + 8), 16, 4);
       if (drop.isGem) {
         ctx.fillStyle = '#151b26';
-        ctx.fillRect(dx + 5, dy + 2, 14, 18);
+        ctx.fillRect(dx + 4, dy + 1, 16, 20);
         ctx.fillStyle = '#186e75';
-        ctx.fillRect(dx + 6, dy + 3, 12, 16);
+        ctx.fillRect(dx + 5, dy + 2, 14, 18);
         ctx.fillStyle = '#38e8d8';
-        ctx.fillRect(dx + 7, dy + 4, 10, 13);
-        ctx.fillStyle = '#e0ffff';
-        ctx.fillRect(dx + 8, dy + 5, 4, 7);
+        ctx.fillRect(dx + 6, dy + 3, 12, 15);
+        ctx.fillStyle = '#8cf7ee';
+        ctx.fillRect(dx + 7, dy + 4, 8, 10);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(dx + 8, dy + 5, 4, 5);
       } else {
         ctx.fillStyle = '#151b26';
+        ctx.fillRect(dx, dy, 23, 23);
+        ctx.fillStyle = '#2d4863';
         ctx.fillRect(dx + 1, dy + 1, 21, 21);
-        ctx.drawImage(getTileSprite(drop.itemId), dx + 3, dy + 3, 18, 18);
+        ctx.drawImage(getTileSprite(drop.itemId), dx + 2, dy + 2, 19, 19);
         if (drop.qty > 1) {
           const label = drop.qty > 999 ? '999+' : String(drop.qty);
           ctx.font = 'bold 9px monospace';
@@ -1476,8 +1640,39 @@ export class BlockgroveEngine {
 
     const queuedNameplates: Array<{ name: string; screenX: number; screenY: number }> = [];
 
+    // 5b. Landlord Steward & WorldCore in-world presence cues
+    if (this.world.name === 'NEXUS') {
+      const landlordX = Math.min(ww - 4, this.world.spawnX + 4);
+      const landlordY = this.world.spawnY;
+      if (this.world.fg[landlordY * ww + landlordX] === ITEM_IDS.LANDLORD_NPC) {
+        const lsx = landlordX * TILE_SIZE - cx;
+        const lsy = landlordY * TILE_SIZE - cy;
+        const glowPulse = 0.28 + Math.sin(nowMs * 0.004) * 0.12;
+        ctx.strokeStyle = `rgba(255, 225, 140, ${glowPulse})`;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(lsx - 2, lsy - 2, TILE_SIZE + 4, TILE_SIZE + 4);
+        queuedNameplates.push({
+          name: 'LANDLORD · REALM STEWARD',
+          screenX: (lsx + TILE_SIZE * 0.5) * viewScale,
+          screenY: (lsy - 4) * viewScale,
+        });
+      }
+    }
+    if (this.world.worldLock && this.world.worldLock.lockItemId === ITEM_IDS.WORLD_CORE) {
+      const wcx = this.world.worldLock.x;
+      const wcy = this.world.worldLock.y;
+      const csx = wcx * TILE_SIZE - cx;
+      const csy = wcy * TILE_SIZE - cy;
+      const pulse = 0.35 + Math.sin(nowMs * 0.005) * 0.18;
+      ctx.strokeStyle = `rgba(244, 196, 95, ${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(csx + 1, csy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+    }
+
     // 6. Remote players
     for (const rp of this.remotePlayers.values()) {
+      ctx.fillStyle = 'rgba(6, 12, 20, 0.34)';
+      ctx.fillRect(Math.round(rp.renderX - cx + 6), Math.round(rp.renderY - cy + PLAYER_HEIGHT - 3), PLAYER_WIDTH - 12, 5);
       const topY = this.drawCharacter(
         ctx,
         rp.renderX - cx,
@@ -1504,6 +1699,13 @@ export class BlockgroveEngine {
     // 7. Local player, nearby Sign banner & targeting reticle (3-block reach check)
     const queuedSignBanners: Array<{ text: string; screenX: number; screenY: number }> = [];
     if (this.mode !== 'title') {
+      ctx.fillStyle = 'rgba(6, 12, 20, 0.36)';
+      ctx.fillRect(
+        Math.round(this.body.x - cx + 6),
+        Math.round(this.body.y - cy + PLAYER_HEIGHT - 3),
+        PLAYER_WIDTH - 12,
+        5
+      );
       const punchProgress =
         this.punchAnimTimer > 0
           ? Math.max(0, Math.min(1, 1 - this.punchAnimTimer / PUNCH_ANIM_DURATION))
@@ -1593,7 +1795,7 @@ export class BlockgroveEngine {
         }
       }
 
-      // Tile targeting reticle
+      // Tile targeting reticle with corner brackets
       const { tx, ty } = this.punchStick.active
         ? this.getTargetTileFromJoystick()
         : this.getTargetTileFromCursor();
@@ -1608,9 +1810,15 @@ export class BlockgroveEngine {
               ? true
               : canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok;
 
+        const rx = tx * TILE_SIZE - cx;
+        const ry = ty * TILE_SIZE - cy;
         ctx.strokeStyle = canAct ? 'rgba(255, 240, 128, 0.92)' : 'rgba(255, 110, 110, 0.55)';
         ctx.lineWidth = 2;
-        ctx.strokeRect(tx * TILE_SIZE - cx + 1, ty * TILE_SIZE - cy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        ctx.strokeRect(rx + 1, ry + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        if (canAct) {
+          ctx.fillStyle = 'rgba(255, 245, 158, 0.08)';
+          ctx.fillRect(rx + 2, ry + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        }
       }
     }
 
@@ -2170,19 +2378,35 @@ export function renderDungeonThirdPerson(
         const sx = ox + x * tileW;
         const sy = oy + y * tileH;
         const tile = map[y]?.[x] ?? '#';
+        const isHallwayRunner = y === 5 && x > 0 && x < mapW - 1 && tile !== '#';
         lctx.fillStyle = (x + y) % 2 === 0 ? pal.floorTop : pal.floorBot;
         lctx.fillRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
-        lctx.strokeStyle = 'rgba(7, 13, 22, 0.48)';
+        // Beveled stone flagstone highlight & mortar seam
+        lctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        lctx.fillRect(Math.round(sx + 1), Math.round(sy + 1), Math.max(1, Math.ceil(tileW - 3)), 2);
+        if (isHallwayRunner) {
+          lctx.fillStyle = 'rgba(242, 183, 56, 0.14)';
+          lctx.fillRect(
+            Math.round(sx + 2),
+            Math.round(sy + tileH * 0.2),
+            Math.ceil(tileW - 4),
+            Math.ceil(tileH * 0.6)
+          );
+        }
+        lctx.strokeStyle = 'rgba(7, 13, 22, 0.52)';
         lctx.lineWidth = 1;
         lctx.strokeRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
 
         if (tile === '#') {
+          // Cast floor drop-shadow under 3D wall block
+          lctx.fillStyle = 'rgba(4, 8, 14, 0.42)';
+          lctx.fillRect(sx, sy + tileH, tileW + 3, 5);
           lctx.fillStyle = pal.wallDark;
           lctx.fillRect(sx, sy + tileH - 1, tileW, wallH);
           lctx.fillStyle = pal.wallBase;
           lctx.fillRect(sx, sy - wallH, tileW, wallH);
           lctx.fillStyle = pal.wallLight;
-          lctx.fillRect(sx, sy - wallH, tileW, 3);
+          lctx.fillRect(sx, sy - wallH, tileW, 4);
           lctx.fillStyle = pal.wallDark;
           lctx.fillRect(sx + tileW - 3, sy - wallH, 3, wallH + tileH);
           const tex =

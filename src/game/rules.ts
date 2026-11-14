@@ -336,9 +336,9 @@ export function canPlaceTile(
   }
 
   if (itemId === ITEM_IDS.BFG_COLLECTOR) {
-    const hasProtection = hasEditPermission(world, player.id, tx, ty, 'interact');
+    const hasProtection = Boolean(world.worldLock && hasEditPermission(world, player.id, tx, ty, 'interact'));
     if (!hasProtection) {
-      return { ok: false, reason: 'BFG Collector must be placed inside your World Lock or Area Lock.' };
+      return { ok: false, reason: 'BFG Collector must be placed inside an owned realm or Share Lock.' };
     }
   }
 

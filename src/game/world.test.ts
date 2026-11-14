@@ -156,49 +156,54 @@ test('seed growth stages, splicing recipes, world name validation, and XP leveli
   assert.equal(xpRes.leveledUp, true);
 });
 
-test('world lock, area lock permissions, restricted entry, and vending machine protection', () => {
+test('world lock, share lock permissions, restricted entry, and vending machine protection', () => {
   const world = generateWorld('TRADE');
   const lx = world.spawnX + 2;
   const ly = world.spawnY;
 
-  world.areaLocks = world.areaLocks ?? {};
+  world.shareLocks = world.shareLocks ?? {};
   world.vendingMachines = world.vendingMachines ?? {};
 
-  // Place a 7x7 Area Lock owned by p1
-  world.fg[tileIndex(lx, ly)] = ITEM_IDS.SMALL_LOCK;
-  world.areaLocks[`${lx},${ly}`] = {
+  // Assign WorldCore ownership to p1 with private access
+  world.worldLock = {
+    lockItemId: ITEM_IDS.WORLD_CORE,
+    ownerId: 'p1',
+    ownerName: 'OwnerOne',
+    x: world.spawnX,
+    y: world.spawnY + 1,
+    editors: [],
+    editorNames: {},
+    publicAccess: false,
+  };
+
+  // Place a 5x5 Small-Share Lock owned by p1 granting p2 build/break/interact access
+  world.fg[tileIndex(lx, ly)] = ITEM_IDS.SMALL_SHARE_LOCK;
+  world.shareLocks[`${lx},${ly}`] = {
     ownerId: 'p1',
     ownerName: 'OwnerOne',
     x: lx,
     y: ly,
-    radius: 3,
-    editors: ['p2'],
-    editorNames: { p2: 'BuilderTwo' },
+    itemId: ITEM_IDS.SMALL_SHARE_LOCK,
+    width: 5,
+    height: 5,
+    access: {
+      p2: {
+        playerName: 'BuilderTwo',
+        permissions: { build: true, break: true, interact: true },
+      },
+    },
   };
 
-  assert.ok(getCoveringAreaLock(world, lx + 2, ly));
-  assert.equal(getCoveringAreaLock(world, lx + 10, ly), null);
-  assert.equal(hasAreaLockConflict(world, lx + 1, ly, 3), true);
-
-  // Owner (p1) and authorized builder (p2) can edit inside radius, stranger (p3) cannot
+  // Owner (p1) and authorized Share Lock builder (p2) can edit inside rectangle, stranger (p3) cannot
   assert.equal(hasEditPermission(world, 'p1', lx + 1, ly), true);
   assert.equal(hasEditPermission(world, 'p2', lx + 1, ly), true);
   assert.equal(hasEditPermission(world, 'p3', lx + 1, ly), false);
 
-  // Stranger (p3) can still edit outside the 7x7 area lock when no World Lock is present
-  assert.equal(hasEditPermission(world, 'p3', lx + 10, ly), true);
+  // Outside the 5x5 Share Lock, only the world owner (p1) can edit
+  assert.equal(hasEditPermission(world, 'p1', lx + 10, ly), true);
+  assert.equal(hasEditPermission(world, 'p2', lx + 10, ly), false);
+  assert.equal(hasEditPermission(world, 'p3', lx + 10, ly), false);
 
-  // Add World Lock with publicAccess = false
-  world.worldLock = {
-    lockItemId: ITEM_IDS.WORLD_LOCK,
-    ownerId: 'p1',
-    ownerName: 'OwnerOne',
-    x: world.spawnX - 1,
-    y: world.spawnY,
-    editors: ['p2'],
-    editorNames: { p2: 'BuilderTwo' },
-    publicAccess: false,
-  };
   assert.equal(canEnterWorld(world, 'p1').ok, true);
   assert.equal(canEnterWorld(world, 'p2').ok, true);
   assert.equal(canEnterWorld(world, 'p3').ok, false);
@@ -812,15 +817,17 @@ test('Global WL Exchange escrow, 5% WL sink, 10-Gem clearing fee, Claim Vault & 
   );
   assert.equal(unlockedCheck.ok, false, 'BFG Auto-Collector must reject placement in unlocked world');
 
-  // Place World Lock then BFG Auto-Collector
-  const wlPlace = store.handlePlaceTile(
-    joinedBfg.world,
-    seller,
-    ITEM_IDS.WORLD_LOCK,
-    bTx - 1,
-    bTy
-  );
-  assert.equal(wlPlace.ok, true);
+  // Assign WorldCore ownership to seller then place BFG Auto-Collector
+  joinedBfg.world.state.worldLock = {
+    x: joinedBfg.world.state.spawnX,
+    y: joinedBfg.world.state.spawnY + 1,
+    lockItemId: ITEM_IDS.WORLD_CORE,
+    ownerId: seller.id,
+    ownerName: seller.name,
+    editors: [],
+    editorNames: {},
+    publicAccess: false,
+  };
 
   store.addInventory(seller, ITEM_IDS.BFG_COLLECTOR, 1);
   const bfgPlace = store.handlePlaceTile(joinedBfg.world, seller, ITEM_IDS.BFG_COLLECTOR, bTx, bTy);
