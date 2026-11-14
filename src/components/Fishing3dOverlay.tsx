@@ -5,7 +5,6 @@ import { getRodUpgradeGemCost } from '../game/expansion.ts';
 import type { GameConfig } from '../game/config.ts';
 
 interface Fishing3dOverlayProps {
-  level: number;
   gems: number;
   inventory: InventorySlot[];
   fiscore: FiscoreProgress;
@@ -23,7 +22,6 @@ interface Fishing3dOverlayProps {
 }
 
 export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
-  level,
   gems,
   inventory,
   fiscore,
