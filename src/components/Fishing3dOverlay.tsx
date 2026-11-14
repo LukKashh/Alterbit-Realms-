@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
 import { getItemDef } from '../game/catalog.ts';
 import type { FishingCastState, FiscoreProgress, FishFightPattern, InventorySlot } from '../game/network.ts';
 import { getRodUpgradeGemCost } from '../game/expansion.ts';
@@ -113,131 +114,320 @@ export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
     };
   }, [castOrReel]);
 
-  // Lightweight island scene: movement updates a player marker without forcing
-  // React to render at 60fps. Encounter state is supplied only by the server.
+  // Real-time low-poly third-person island scene. Fishing encounters remain server-authoritative.
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
+    } catch {
+      const fallback = canvas.getContext('2d');
+      if (fallback) {
+        fallback.fillStyle = '#0b4263';
+        fallback.fillRect(0, 0, canvas.width = 640, canvas.height = 360);
+        fallback.fillStyle = '#d9b96b';
+        fallback.beginPath();
+        fallback.ellipse(320, 280, 190, 55, 0, 0, Math.PI * 2);
+        fallback.fill();
+        fallback.fillStyle = '#3d9a58';
+        fallback.beginPath();
+        fallback.ellipse(320, 270, 135, 40, 0, 0, Math.PI * 2);
+        fallback.fill();
+        fallback.fillStyle = '#ffffff';
+        fallback.font = '16px sans-serif';
+        fallback.fillText('3D graphics unavailable on this device', 185, 40);
+      }
+      return;
+    }
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#8ac9e8');
+    scene.fog = new THREE.Fog('#8ac9e8', 28, 78);
+
+    const camera = new THREE.PerspectiveCamera(54, 1, 0.1, 130);
+    camera.position.set(0, 5.5, 8);
+    const ambient = new THREE.HemisphereLight(0xdaf4ff, 0x45634b, 2.05);
+    scene.add(ambient);
+    const sun = new THREE.DirectionalLight(0xffedc7, 2.1);
+    sun.position.set(-12, 24, 10);
+    scene.add(sun);
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+
+    const waterGeometry = new THREE.PlaneGeometry(180, 180, 64, 64);
+    waterGeometry.rotateX(-Math.PI / 2);
+    const waterPositions = waterGeometry.attributes.position as THREE.BufferAttribute;
+    const waterBase = Float32Array.from(waterPositions.array as ArrayLike<number>);
+    const water = new THREE.Mesh(
+      waterGeometry,
+      new THREE.MeshPhongMaterial({ color: 0x087fa7, shininess: 90, specular: 0x72dfff, flatShading: true })
+    );
+    water.position.y = -0.18;
+    scene.add(water);
+
+    const createIslandTop = () => {
+      const vertices: number[] = [0, 1.15, 0];
+      const colors: number[] = [0.23, 0.53, 0.25];
+      const indices: number[] = [];
+      const rings = 9;
+      const segments = 56;
+      for (let ring = 1; ring <= rings; ring++) {
+        const ratio = ring / rings;
+        for (let segment = 0; segment < segments; segment++) {
+          const angle = (segment / segments) * Math.PI * 2;
+          const rough = 1 + Math.sin(angle * 5 + ring) * 0.035 + Math.cos(angle * 9 - ring) * 0.018;
+          const radius = 10.35 * ratio * rough;
+          const x = Math.cos(angle) * radius;
+          const z = Math.sin(angle) * radius;
+          const y = 0.42 + Math.pow(1 - ratio, 1.35) * 0.82 + Math.sin(angle * 3 + ring * 0.8) * 0.08 * ratio;
+          vertices.push(x, y, z);
+          const green = 0.36 + (1 - ratio) * 0.14 + Math.sin(angle * 4 + ring) * 0.025;
+          colors.push(0.18, green, 0.2);
+        }
+      }
+      for (let segment = 0; segment < segments; segment++) {
+        const next = (segment + 1) % segments;
+        indices.push(0, 1 + segment, 1 + next);
+      }
+      for (let ring = 1; ring < rings; ring++) {
+        const inner = 1 + (ring - 1) * segments;
+        const outer = 1 + ring * segments;
+        for (let segment = 0; segment < segments; segment++) {
+          const next = (segment + 1) % segments;
+          indices.push(inner + segment, outer + segment, outer + next);
+          indices.push(inner + segment, outer + next, inner + next);
+        }
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }));
+      mesh.position.y = 0.02;
+      scene.add(mesh);
+    };
+    createIslandTop();
+
+    const makeAnnulus = (innerRadius: number, outerRadius: number, y: number, color: number) => {
+      const geometry = new THREE.RingGeometry(innerRadius, outerRadius, 64, 2);
+      geometry.rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true }));
+      mesh.position.y = y;
+      scene.add(mesh);
+      return mesh;
+    };
+    makeAnnulus(10.05, 11.65, 0.12, 0xd8bd79);
+
+    const trunkGeometry = new THREE.CylinderGeometry(0.12, 0.2, 2.1, 5);
+    const leafGeometry = new THREE.ConeGeometry(0.34, 2.5, 5);
+    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x81512e, flatShading: true });
+    const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x267346, flatShading: true });
+    const palmPositions = [[-5.4, -2.8], [-2.8, 4.4], [3.8, 2.5], [6.0, -1.2], [-6.3, 2.1], [1.0, 6.1], [-1.4, -6.2]];
+    for (const [x, z] of palmPositions) {
+      const palm = new THREE.Group();
+      const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+      trunk.position.y = 1.1;
+      trunk.rotation.z = -0.12;
+      palm.add(trunk);
+      for (let leaf = 0; leaf < 6; leaf++) {
+        const angle = (leaf / 6) * Math.PI * 2;
+        const frond = new THREE.Mesh(leafGeometry, leafMaterial);
+        frond.position.set(Math.cos(angle) * 0.7, 2.15, Math.sin(angle) * 0.7);
+        frond.rotation.z = Math.cos(angle) * 1.05;
+        frond.rotation.x = Math.sin(angle) * 1.05;
+        palm.add(frond);
+      }
+      palm.position.set(x, 0.42, z);
+      palm.scale.setScalar(0.85 + ((Math.abs(x * 7 + z * 3) % 4) * 0.08));
+      scene.add(palm);
+    }
+
+    const rockGeometry = new THREE.DodecahedronGeometry(1, 0);
+    const rockMaterials = [
+      new THREE.MeshStandardMaterial({ color: 0x687b7d, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x52666d, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0x8b8b78, flatShading: true }),
+    ];
+    const rockPositions = [[-8.2, -3.5], [-8.8, 0.4], [7.8, 4.3], [8.7, -2.2], [4.5, 8.1], [-4.3, 8.2], [0.2, -9.1], [-7.1, -6.5]];
+    rockPositions.forEach(([x, z], index) => {
+      const rock = new THREE.Mesh(rockGeometry, rockMaterials[index % rockMaterials.length]);
+      rock.position.set(x, 0.6, z);
+      rock.scale.set(0.7 + (index % 3) * 0.28, 0.55 + (index % 2) * 0.3, 0.65 + (index % 4) * 0.12);
+      rock.rotation.set(index * 0.4, index * 0.8, index * 0.2);
+      scene.add(rock);
+    });
+
+    // Timber pier, fishing hut and a small moored skiff establish the shore hub.
+    const wood = new THREE.MeshStandardMaterial({ color: 0x91633e, roughness: 0.9 });
+    const darkWood = new THREE.MeshStandardMaterial({ color: 0x543a2c, roughness: 1 });
+    const dock = new THREE.Group();
+    for (let plank = 0; plank < 8; plank++) {
+      const board = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.12, 0.55), wood);
+      board.position.set(4.2, 0.28, -8.2 - plank * 0.62);
+      dock.add(board);
+    }
+    for (const x of [3.65, 4.75]) {
+      for (const z of [-8.3, -10.2, -12.2]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 1.35, 5), darkWood);
+        post.position.set(x, -0.15, z);
+        dock.add(post);
+      }
+    }
+    scene.add(dock);
+
+    const hut = new THREE.Group();
+    const hutBody = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.5, 1.8), new THREE.MeshStandardMaterial({ color: 0xb97945, flatShading: true }));
+    hutBody.position.y = 1.2;
+    hut.add(hutBody);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.65, 1.15, 4), new THREE.MeshStandardMaterial({ color: 0x70432f, flatShading: true }));
+    roof.position.y = 2.45;
+    roof.rotation.y = Math.PI / 4;
+    hut.add(roof);
+    hut.position.set(-3.4, 0.4, -5.2);
+    scene.add(hut);
+
+    const boat = new THREE.Group();
+    const hull = new THREE.Mesh(new THREE.CapsuleGeometry(0.55, 2.3, 3, 7), new THREE.MeshStandardMaterial({ color: 0x8b5434, flatShading: true }));
+    hull.rotation.z = Math.PI / 2;
+    hull.scale.set(0.8, 0.5, 1);
+    boat.add(hull);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.8), darkWood);
+    seat.position.y = 0.22;
+    boat.add(seat);
+    boat.position.set(5.0, -0.02, -13.4);
+    boat.rotation.y = -0.25;
+    scene.add(boat);
+
+    // Distant rocky islets add a horizon and make the fishing waters feel open.
+    for (let island = 0; island < 5; island++) {
+      const angle = island * (Math.PI * 2 / 5) + 0.35;
+      const radius = 24 + (island % 2) * 4;
+      const rockIsland = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(1, 1),
+        new THREE.MeshStandardMaterial({ color: 0x637d78, flatShading: true })
+      );
+      rockIsland.position.set(Math.cos(angle) * radius, 0.2, Math.sin(angle) * radius);
+      rockIsland.scale.set(3.2, 1.3, 2.5);
+      scene.add(rockIsland);
+    }
+
+    // Simple stylized third-person avatar with visible facing direction.
+    const player = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.72, 3, 6), new THREE.MeshStandardMaterial({ color: 0x1c4058, flatShading: true }));
+    body.position.y = 0.86;
+    player.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.29, 8, 6), new THREE.MeshStandardMaterial({ color: 0xe5b68d, flatShading: true }));
+    head.position.y = 1.58;
+    player.add(head);
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.55), new THREE.MeshStandardMaterial({ color: 0x30251f, flatShading: true }));
+    hair.position.y = 1.69;
+    player.add(hair);
+    const shirt = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.46, 0.38), new THREE.MeshStandardMaterial({ color: 0x38bfc1, flatShading: true }));
+    shirt.position.y = 1.02;
+    player.add(shirt);
+    const legMaterial = new THREE.MeshStandardMaterial({ color: 0x172435, flatShading: true });
+    for (const side of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.48, 0.24), legMaterial);
+      leg.position.set(side * 0.16, 0.27, 0);
+      player.add(leg);
+    }
+    player.position.set(0, 0.48, 0);
+    scene.add(player);
+
+    const encounterMarker = new THREE.Mesh(
+      new THREE.TorusGeometry(0.55, 0.06, 6, 18),
+      new THREE.MeshBasicMaterial({ color: 0xffd46a })
+    );
+    encounterMarker.rotation.x = Math.PI / 2;
+    encounterMarker.position.set(4.9, 0.03, -14.7);
+    scene.add(encounterMarker);
+
+    positionRef.current = { x: 0, y: 0, yaw: 0 };
     let rafId = 0;
     let lastMs = performance.now();
+    const resize = () => {
+      const width = Math.max(1, canvas.clientWidth);
+      const height = Math.max(1, canvas.clientHeight);
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
+    resizeObserver?.observe(canvas);
+    window.addEventListener('resize', resize);
+    resize();
 
     const frame = (nowMs: number) => {
-      const dt = Math.min(0.05, Math.max(0.001, (nowMs - lastMs) / 1000));
+      const dt = Math.min(0.04, Math.max(0.001, (nowMs - lastMs) / 1000));
       lastMs = nowMs;
       const keys = keyboardRef.current;
       const pos = positionRef.current;
-      if (keys.has('arrowleft') || keys.has('a')) pos.yaw -= dt * 1.9;
-      if (keys.has('arrowright') || keys.has('d')) pos.yaw += dt * 1.9;
-      let moveX = joystickRef.current.x;
-      let moveY = joystickRef.current.y;
-      if (keys.has('arrowup') || keys.has('w')) moveY -= 1;
-      if (keys.has('arrowdown') || keys.has('s')) moveY += 1;
-      const magnitude = Math.hypot(moveX, moveY);
-      if (magnitude > 1) { moveX /= magnitude; moveY /= magnitude; }
-      const speed = 0.28 * dt;
-      pos.x = Math.max(0.08, Math.min(0.92, pos.x + moveX * speed));
-      pos.y = Math.max(0.18, Math.min(0.82, pos.y + moveY * speed));
-
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const rect = canvas.getBoundingClientRect();
-        const w = Math.max(320, Math.floor(rect.width));
-        const h = Math.max(200, Math.floor(rect.height));
-        if (canvas.width !== w || canvas.height !== h) {
-          canvas.width = w;
-          canvas.height = h;
-        }
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.imageSmoothingEnabled = false;
-          const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.5);
-          skyGrad.addColorStop(0, '#123b5c');
-          skyGrad.addColorStop(1, '#79bfe5');
-          ctx.fillStyle = skyGrad;
-          ctx.fillRect(0, 0, w, h * 0.52);
-
-          const waterGrad = ctx.createLinearGradient(0, h * 0.48, 0, h);
-          waterGrad.addColorStop(0, '#087ca8');
-          waterGrad.addColorStop(1, '#042e55');
-          ctx.fillStyle = waterGrad;
-          ctx.fillRect(0, h * 0.48, w, h * 0.52);
-
-          ctx.fillStyle = 'rgba(195,244,255,0.32)';
-          const waveOffset = Math.sin(nowMs * 0.004) * 16;
-          for (let i = 0; i < 8; i++) {
-            const x = ((i * 137 + waveOffset) % (w + 70)) - 35;
-            ctx.fillRect(x, h * 0.54 + i * 19, 58, 3);
-            ctx.fillRect((x + w * 0.43) % w, h * 0.58 + i * 17, 32, 2);
-          }
-
-          ctx.fillStyle = '#d9b96b';
-          ctx.beginPath();
-          ctx.moveTo(0, h * 0.72);
-          ctx.bezierCurveTo(w * 0.2, h * 0.52, w * 0.8, h * 0.52, w, h * 0.72);
-          ctx.lineTo(w, h);
-          ctx.lineTo(0, h);
-          ctx.fill();
-          ctx.fillStyle = '#3d9a58';
-          ctx.beginPath();
-          ctx.ellipse(w * 0.5, h * 0.67, w * 0.23, h * 0.105, 0, Math.PI, Math.PI * 2);
-          ctx.fill();
-
-          // Palm silhouette and small island hut.
-          ctx.fillStyle = '#754522';
-          ctx.fillRect(w * 0.31, h * 0.49, 9, h * 0.18);
-          ctx.strokeStyle = '#276b3e';
-          ctx.lineWidth = 9;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(w * 0.315, h * 0.51);
-          ctx.lineTo(w * 0.25, h * 0.43);
-          ctx.moveTo(w * 0.315, h * 0.51);
-          ctx.lineTo(w * 0.38, h * 0.42);
-          ctx.moveTo(w * 0.315, h * 0.51);
-          ctx.lineTo(w * 0.31, h * 0.39);
-          ctx.stroke();
-          ctx.fillStyle = '#b66c3d';
-          ctx.fillRect(w * 0.61, h * 0.57, 36, 27);
-          ctx.fillStyle = '#74422f';
-          ctx.beginPath();
-          ctx.moveTo(w * 0.59, h * 0.58);
-          ctx.lineTo(w * 0.63, h * 0.52);
-          ctx.lineTo(w * 0.68, h * 0.58);
-          ctx.fill();
-
-          // Player marker responds to the movement controls.
-          const px = w * (0.35 + pos.x * 0.3);
-          const py = h * (0.59 + pos.y * 0.12);
-          ctx.fillStyle = '#15263b';
-          ctx.fillRect(px - 7, py - 20, 14, 22);
-          ctx.fillStyle = '#e7b88c';
-          ctx.fillRect(px - 6, py - 29, 12, 10);
-          ctx.fillStyle = '#38e8d8';
-          ctx.fillRect(px - 6, py - 17, 12, 7);
-          ctx.fillStyle = '#111827';
-          ctx.fillRect(px - 6, py + 1, 5, 7);
-          ctx.fillRect(px + 1, py + 1, 5, 7);
-
-          const encounter = encounterRef.current;
-          if (encounter.active) {
-            const bx = w * 0.78 + Math.sin(nowMs * 0.003) * 8;
-            const by = h * 0.68 + Math.cos(nowMs * 0.005) * 5;
-            ctx.strokeStyle = encounter.biting ? '#ff6b62' : '#ffe18c';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(bx, by, encounter.biting ? 11 : 7, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = encounter.tension > 0.82 ? '#ef4444' : '#38e8d8';
-            ctx.fillRect(bx - 16, by + 17, 32 * Math.min(1, encounter.tension), 3);
-          }
-
-          ctx.strokeStyle = '#254965';
-          ctx.lineWidth = 4;
-          ctx.strokeRect(0, 0, w, h);
-        }
+      let turn = joystickRef.current.x;
+      let forward = -joystickRef.current.y;
+      if (keys.has('arrowleft') || keys.has('a')) turn -= 1;
+      if (keys.has('arrowright') || keys.has('d')) turn += 1;
+      if (keys.has('arrowup') || keys.has('w')) forward += 1;
+      if (keys.has('arrowdown') || keys.has('s')) forward -= 1;
+      pos.yaw += turn * dt * 2.25;
+      const stride = forward * dt * 4.1;
+      pos.x += Math.sin(pos.yaw) * stride;
+      pos.y -= Math.cos(pos.yaw) * stride;
+      const distance = Math.hypot(pos.x, pos.y);
+      if (distance > 9.2) {
+        pos.x = (pos.x / distance) * 9.2;
+        pos.y = (pos.y / distance) * 9.2;
       }
+
+      player.position.set(pos.x, 0.48 + Math.abs(Math.sin(nowMs * 0.009)) * (Math.abs(forward) > 0.05 ? 0.055 : 0.012), pos.y);
+      player.rotation.y = pos.yaw;
+      const cameraOffset = new THREE.Vector3(Math.sin(pos.yaw) * 6.2, 4.2, Math.cos(pos.yaw) * 6.2);
+      const cameraTarget = new THREE.Vector3(pos.x, 1.25, pos.y);
+      const desiredCamera = cameraTarget.clone().add(cameraOffset);
+      camera.position.lerp(desiredCamera, 1 - Math.pow(0.001, dt));
+      camera.lookAt(cameraTarget);
+
+      const positions = waterGeometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < positions.count; i++) {
+        const x = waterBase[i * 3];
+        const z = waterBase[i * 3 + 1];
+        positions.setZ(i, Math.sin(x * 0.12 + nowMs * 0.0007) * 0.11 + Math.cos(z * 0.15 + nowMs * 0.0009) * 0.07);
+      }
+      positions.needsUpdate = true;
+      waterGeometry.computeVertexNormals();
+      boat.position.y = -0.02 + Math.sin(nowMs * 0.0018) * 0.08;
+      boat.rotation.z = Math.sin(nowMs * 0.0012) * 0.035;
+      encounterMarker.rotation.z += dt * 0.65;
+      encounterMarker.visible = encounterRef.current.active;
+      encounterMarker.material = encounterRef.current.biting
+        ? new THREE.MeshBasicMaterial({ color: 0xff655d })
+        : new THREE.MeshBasicMaterial({ color: 0xffd46a });
+
+      renderer.render(scene, camera);
       rafId = requestAnimationFrame(frame);
     };
     rafId = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(rafId);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', resize);
+      scene.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          const material = object.material;
+          if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
+          else material.dispose();
+        }
+      });
+      renderer.dispose();
+    };
   }, []);
 
   const updateJoystick = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -279,7 +469,7 @@ export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
       </header>
 
       <div className="relative flex-1 min-h-0">
-        <canvas ref={canvasRef} data-testid="fishing-3d-canvas" className="absolute inset-0 w-full h-full pixelated touch-none" />
+        <canvas ref={canvasRef} data-testid="fishing-3d-canvas" className="absolute inset-0 w-full h-full touch-none" />
 
         <div className="absolute top-3 left-3 z-20 rounded-lg border border-[#37617c] bg-[#081725]/90 px-3 py-2 text-[11px] text-[#d6edf8]">
           <div className="font-pixel text-[9px] text-[#8de8ff]">ISLAND SHORE</div>
