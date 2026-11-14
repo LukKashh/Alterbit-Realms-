@@ -2151,7 +2151,7 @@ export class BlockgroveEngine {
     punchProgress: number,
     equipped?: EquippedWearables
   ): number {
-    let pose: PlayerPose = (`idle${Math.floor(nowMs / 280) % 4}` as PlayerPose) || 'idle0';
+    let pose: PlayerPose = (`idle${Math.floor(nowMs / 280) % 6}` as PlayerPose) || 'idle0';
     if (punching) {
       const pFrame = Math.min(3, Math.max(0, Math.floor(punchProgress * 4)));
       pose = (`mine${pFrame}` as PlayerPose) || 'mine2';
@@ -2160,7 +2160,7 @@ export class BlockgroveEngine {
     } else if (!grounded) {
       pose = vy < 0 ? 'jump' : 'fall';
     } else if (Math.abs(vx) > 15) {
-      const step = Math.floor(walkPhase) % 4;
+      const step = Math.floor(walkPhase) % 6;
       pose = (`walk${step}` as PlayerPose) || 'walk0';
     }
 
