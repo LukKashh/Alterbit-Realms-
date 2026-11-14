@@ -499,9 +499,9 @@ export default function App() {
           break;
         case 'fishing_started':
           if (msg.cast.mode === 'fiscore') setLastFiscoreCatch(null);
-          setFishingProgress(0);
-          setFishingLineTension(0.15);
-          setFishingFightPattern('darting');
+          setFishingProgress(msg.cast.pullProgress ?? 0);
+          setFishingLineTension(msg.cast.lineTension ?? 0.15);
+          setFishingFightPattern(msg.cast.fightPattern ?? 'darting');
           if (msg.cast.mode !== 'fiscore') engine.setFishingCast(msg.cast);
           if (msg.cast.playerId === playerIdRef.current) {
             setFishingCast(msg.cast);
