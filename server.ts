@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import express from 'express';
@@ -32,8 +33,31 @@ async function startServer() {
     return undefined;
   }
 
+  app.use('/api', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+    next();
+  });
+
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, worlds: store.listWorlds().length });
+    let bundle = isProd ? 'unknown' : 'vite-dev';
+    if (isProd) {
+      try {
+        const html = fs.readFileSync(path.resolve(process.cwd(), 'dist', 'index.html'), 'utf8');
+        const match = html.match(/\/assets\/index-([a-zA-Z0-9_-]+)\.js/);
+        if (match) bundle = match[1];
+      } catch {
+        bundle = 'missing-dist';
+      }
+    }
+    res.json({
+      ok: true,
+      mode: isProd ? 'production' : 'development',
+      bundle,
+      worlds: store.listWorlds().length,
+    });
   });
 
   app.get('/api/worlds', (_req, res) => {
@@ -950,6 +974,10 @@ async function startServer() {
   process.once('SIGINT', flushOnExit);
   process.once('SIGTERM', flushOnExit);
 
+  app.use('/api/*', (_req, res) => {
+    res.status(404).json({ ok: false, message: 'API route not found.' });
+  });
+
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -959,9 +987,47 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distDir));
+    const assetsDir = path.join(distDir, 'assets');
+    const indexHtmlPath = path.join(distDir, 'index.html');
+
+    const applyNoStoreHeaders = (res: express.Response) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+    };
+
+    app.use(
+      '/assets',
+      express.static(assetsDir, {
+        maxAge: '1y',
+        immutable: true,
+        fallthrough: false,
+      })
+    );
+    app.use('/assets', (err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (err) {
+        applyNoStoreHeaders(res);
+        res.status(404).type('text/plain').send('Asset not found');
+        return;
+      }
+      next();
+    });
+
+    app.use(
+      express.static(distDir, {
+        index: false,
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.html')) {
+            applyNoStoreHeaders(res);
+          }
+        },
+      })
+    );
+
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(distDir, 'index.html'));
+      applyNoStoreHeaders(res);
+      res.sendFile(indexHtmlPath);
     });
   }
 

@@ -194,8 +194,16 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
 
   let storeListings: GemStoreListing[] | undefined = undefined;
   if (Array.isArray(raw?.storeListings)) {
+    const RETIRED_LISTING_IDS = new Set(['store_locks_world_blocks']);
     storeListings = raw.storeListings
-      .filter((l) => l && typeof l === 'object' && typeof l.id === 'string' && l.id.trim().length > 0)
+      .filter(
+        (l) =>
+          l &&
+          typeof l === 'object' &&
+          typeof l.id === 'string' &&
+          l.id.trim().length > 0 &&
+          !RETIRED_LISTING_IDS.has(l.id.trim())
+      )
       .map((l, idx) => ({
         id: String(l.id).trim().slice(0, 48) || `store_${idx}`,
         section: (['locks', 'blocks', 'seeds', 'wearables', 'tools'].includes(l.section)
