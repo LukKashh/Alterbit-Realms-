@@ -142,6 +142,10 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean>(false);
 
+  useEffect(() => {
+    if (fishing3dOpen && connected) socketRef.current?.send({ type: 'fiscore_enter' });
+  }, [fishing3dOpen, connected]);
+
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     window.setTimeout(() => {
@@ -831,7 +835,6 @@ export default function App() {
             soundEngine.uiClick();
             setLastFiscoreCatch(null);
             setFishing3dOpen(true);
-            socketRef.current?.send({ type: 'fiscore_enter' });
           }}
           onSignOut={handleSignOut}
         />
