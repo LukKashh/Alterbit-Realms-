@@ -193,15 +193,15 @@ export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
       }
       for (let segment = 0; segment < segments; segment++) {
         const next = (segment + 1) % segments;
-        indices.push(0, 1 + segment, 1 + next);
+        indices.push(0, 1 + next, 1 + segment);
       }
       for (let ring = 1; ring < rings; ring++) {
         const inner = 1 + (ring - 1) * segments;
         const outer = 1 + ring * segments;
         for (let segment = 0; segment < segments; segment++) {
           const next = (segment + 1) % segments;
-          indices.push(inner + segment, outer + segment, outer + next);
-          indices.push(inner + segment, outer + next, inner + next);
+          indices.push(inner + segment, outer + next, outer + segment);
+          indices.push(inner + segment, inner + next, outer + next);
         }
       }
       const geometry = new THREE.BufferGeometry();
@@ -397,7 +397,7 @@ export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
       const positions = waterGeometry.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < positions.count; i++) {
         const x = waterBase[i * 3];
-        const z = waterBase[i * 3 + 2];
+        const z = waterBase[i * 3 + 1];
         positions.setZ(i, Math.sin(x * 0.12 + nowMs * 0.0007) * 0.11 + Math.cos(z * 0.15 + nowMs * 0.0009) * 0.07);
       }
       positions.needsUpdate = true;
