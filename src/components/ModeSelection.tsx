@@ -8,6 +8,7 @@ interface ModeSelectionProps {
   onReconnectNow: () => void;
   onEnterWorld: (worldName: string) => void;
   onOpenDungeons: () => void;
+  onOpenFishing3d: () => void;
   onSignOut: () => void;
 }
 
@@ -36,10 +37,10 @@ const MODES = [
     id: 'fishing',
     title: 'FISCORE',
     subtitle: 'Explore the waters and master the fishing depths.',
-    detail: 'Fishing and discovery · 6 depth zones',
+    detail: '3D Desert Island · Bamboo Rod & Starter Bait',
     accent: 'border-[#2fb8b0] bg-[#0d262b] hover:border-[#7cf7ee]',
     ctaBg: 'bg-[#144c52] border-[#38e8d8] text-[#e8ffff]',
-    action: 'world',
+    action: 'fishing_3d',
     worldName: 'FISHING',
   },
   {
@@ -176,6 +177,7 @@ export const ModeSelection: React.FC<ModeSelectionProps> = ({
   onReconnectNow,
   onEnterWorld,
   onOpenDungeons,
+  onOpenFishing3d,
   onSignOut,
 }) => (
   <div className="fixed inset-0 z-20 flex items-center justify-center overflow-y-auto bg-[#07101a]/95 p-3 sm:p-6">
@@ -221,7 +223,11 @@ export const ModeSelection: React.FC<ModeSelectionProps> = ({
             type="button"
             data-testid={`mode-${mode.id}`}
             onClick={() =>
-              mode.action === 'dungeon' ? onOpenDungeons() : onEnterWorld(mode.worldName)
+              mode.action === 'dungeon'
+                ? onOpenDungeons()
+                : mode.action === 'fishing_3d'
+                  ? onOpenFishing3d()
+                  : onEnterWorld(mode.worldName)
             }
             className={`group rounded-lg border-2 p-4 text-left shadow-[0_6px_0_rgba(6,12,20,0.85)] transition-transform duration-150 hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between ${mode.accent}`}
           >

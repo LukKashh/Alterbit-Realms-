@@ -77,6 +77,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
       if (
         category === 'blocks' &&
         def.category !== 'foreground' &&
+        def.category !== 'farmable' &&
         def.category !== 'background' &&
         def.category !== 'fluid' &&
         def.category !== 'interactive'

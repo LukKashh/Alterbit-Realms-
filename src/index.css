@@ -15,16 +15,20 @@
     user-select: none;
     -webkit-user-select: none;
     touch-action: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
 .font-pixel {
   font-family: "Silkscreen", monospace;
+  letter-spacing: 0.05em;
 }
 
 .font-mono-num {
   font-family: "JetBrains Mono", monospace;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 .pixelated {
@@ -36,3 +40,18 @@
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* UI Component Font Texture Enhancements */
+.ui-text-shadow {
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.75), 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.ui-text-glow {
+  text-shadow: 0 0 10px rgba(250, 204, 21, 0.6), 0 0 20px rgba(234, 179, 8, 0.3);
+}
+
+.ui-pixel-heading {
+  font-family: "Silkscreen", monospace;
+  text-shadow: 2px 2px 0px #020617, 0 3px 6px rgba(0, 0, 0, 0.8);
+}
+

@@ -170,6 +170,7 @@ export class BlockgroveEngine {
   private lastPlantInspectKey: string | null = null;
   private lastPlantInspectAt = 0;
   private titlePanTime = 0;
+  private stepDistanceAccum = 0;
   private gameConfig: GameConfig = cloneGameConfig(DEFAULT_GAME_CONFIG);
   private viewScale = DEFAULT_VIEW_SCALE;
 
@@ -689,12 +690,18 @@ export class BlockgroveEngine {
   }
 
   public applyTileDamaged(tx: number, ty: number, hits: number, maxHits: number) {
-    this.cracks.set(`${tx},${ty}`, { hits, maxHits, expiresAt: performance.now() + 4000 });
+    const key = `${tx},${ty}`;
+    this.cracks.set(key, { hits, maxHits, expiresAt: performance.now() + 4000 });
     const idx = tileIndexIn(this.world, tx, ty);
     const fgId = this.world.fg[idx];
+    const plant = this.world.plants[key];
+    const bgId = this.world.bg[idx];
+    const targetId = fgId !== ITEM_IDS.AIR ? fgId : plant ? plant.seedId : bgId;
     const def =
       getEffectiveItemDef(fgId, this.gameConfig) ??
-      getEffectiveItemDef(this.world.bg[idx], this.gameConfig);
+      (plant ? getEffectiveItemDef(plant.seedId, this.gameConfig) : undefined) ??
+      getEffectiveItemDef(bgId, this.gameConfig);
+    soundEngine.hitBlock(targetId, this.selectedItemId, hits / Math.max(1, maxHits));
     this.spawnParticles(
       tx * TILE_SIZE + TILE_SIZE * 0.5,
       ty * TILE_SIZE + TILE_SIZE * 0.5,
@@ -722,6 +729,8 @@ export class BlockgroveEngine {
     const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
     const prevFg = this.world.fg[idx];
+    const prevBg = this.world.bg[idx];
+    const prevPlant = this.world.plants[key];
     this.world.fg[idx] = fg;
     this.world.bg[idx] = bg;
 
@@ -783,7 +792,27 @@ export class BlockgroveEngine {
       );
       this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.25);
       this.hitstopTimer = 0.035;
-      soundEngine.breakBlock();
+      soundEngine.breakBlock(prevFg);
+    } else if (prevPlant && !plant) {
+      const seedDef = getItemDef(prevPlant.seedId);
+      this.spawnParticles(
+        tx * TILE_SIZE + TILE_SIZE * 0.5,
+        ty * TILE_SIZE + TILE_SIZE * 0.5,
+        14,
+        seedDef?.colorPrimary ?? '#5fc95a'
+      );
+      this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.18);
+      soundEngine.breakBlock(prevPlant.seedId);
+    } else if (prevBg !== ITEM_IDS.BG_SKY && bg === ITEM_IDS.BG_SKY) {
+      const bgDef = getItemDef(prevBg);
+      this.spawnParticles(
+        tx * TILE_SIZE + TILE_SIZE * 0.5,
+        ty * TILE_SIZE + TILE_SIZE * 0.5,
+        12,
+        bgDef?.colorPrimary ?? '#7c6b5e'
+      );
+      this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.18);
+      soundEngine.breakBlock(prevBg);
     } else if (fg !== ITEM_IDS.AIR) {
       const def = getItemDef(fg);
       this.spawnParticles(
@@ -1025,11 +1054,11 @@ export class BlockgroveEngine {
     if (selectedDef?.toolKind === 'rod') {
       if (this.activeCasts.has(this.localPlayerId)) {
         this.punchTimer = 0.35;
-        soundEngine.uiClick();
+        soundEngine.reelTick(0.45);
         this.callbacks.onReelFishing?.();
       } else {
         this.punchTimer = 0.45;
-        soundEngine.punch();
+        soundEngine.castRod();
         this.callbacks.onCastFishing?.(tx, ty, this.selectedItemId);
       }
       return;
@@ -1049,7 +1078,7 @@ export class BlockgroveEngine {
       this.punchTimer = Math.max(0.08, baseCd * toolFactor * buffFactor);
       this.punchAnimTimer = PUNCH_ANIM_DURATION;
       const check = canBreakTile(this.world, playerCtx, tx, ty, reach);
-      soundEngine.punch();
+      soundEngine.swingTool(this.selectedItemId);
       if (check.ok) {
         this.callbacks.onPunchTile?.(tx, ty, this.selectedItemId);
       } else {
@@ -1076,7 +1105,7 @@ export class BlockgroveEngine {
     if (check.ok) {
       this.placeAnimTimer = PLACE_ANIM_DURATION;
       if (check.layer === 'seed') soundEngine.plant();
-      else soundEngine.placeBlock();
+      else soundEngine.placeBlock(this.selectedItemId);
       this.callbacks.onPlaceTile?.(tx, ty, this.selectedItemId);
     }
   }
@@ -1215,15 +1244,33 @@ export class BlockgroveEngine {
     );
     this.jumpJustPressed = false;
 
+    const footTx = Math.max(0, Math.min(worldWidth(this.world) - 1, Math.floor((this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE)));
+    const footTy = Math.max(0, Math.min(worldHeight(this.world) - 1, Math.floor((this.body.y + PLAYER_HEIGHT + 2) / TILE_SIZE)));
+    const bodyTy = Math.max(0, Math.min(worldHeight(this.world) - 1, Math.floor((this.body.y + PLAYER_HEIGHT * 0.7) / TILE_SIZE)));
+    const groundFgId = this.world.fg[tileIndexIn(this.world, footTx, footTy)];
+    const inFluid = (this.world.fluidLevel?.[tileIndexIn(this.world, footTx, bodyTy)] ?? 0) > 0;
+
     if (result.bounced) {
-      soundEngine.jump();
+      soundEngine.jump(true);
+      this.stepDistanceAccum = 0;
     } else if (result.jumped) {
-      soundEngine.jump();
+      soundEngine.jump(false);
+      this.stepDistanceAccum = 0;
     } else if (result.landed) {
-      soundEngine.land();
+      soundEngine.land(groundFgId, inFluid);
+      this.stepDistanceAccum = 0;
+    } else if (this.body.grounded && Math.abs(this.body.vx) > 28) {
+      this.stepDistanceAccum += Math.abs(this.body.vx) * dt;
+      if (this.stepDistanceAccum >= 34) {
+        this.stepDistanceAccum %= 34;
+        soundEngine.footstep(groundFgId, inFluid);
+      }
+    } else if (!this.body.grounded || Math.abs(this.body.vx) <= 10) {
+      this.stepDistanceAccum = Math.min(this.stepDistanceAccum, 24);
     }
 
     if (result.hazardHit) {
+      soundEngine.hazardHit(result.hazardHit);
       this.spawnParticles(
         this.body.x + PLAYER_WIDTH * 0.5,
         this.body.y + PLAYER_HEIGHT * 0.5,
@@ -1594,44 +1641,138 @@ export class BlockgroveEngine {
       ctx.drawImage(getCrackOverlay(stage), sx, sy, TILE_SIZE, TILE_SIZE);
     }
 
-    // 5. Collectible Drops floating with ground shadow & facet glint
+    // 5. Collectible Drops floating with compact frame & faceted pixel-art gem jewels
     for (const drop of this.drops.values()) {
-      const bob = Math.sin(nowMs * 0.005 + drop.x) * 4;
-      const dx = Math.floor(drop.x - cx - 12);
-      const dy = Math.floor(drop.y - cy - 12 + bob);
-      ctx.fillStyle = 'rgba(6, 12, 20, 0.34)';
-      ctx.fillRect(dx + 4, Math.floor(drop.y - cy + 8), 16, 4);
+      const bob = Math.sin(nowMs * 0.0055 + drop.x * 0.35 + drop.y * 0.2) * 2.5;
       if (drop.isGem) {
-        ctx.fillStyle = '#151b26';
-        ctx.fillRect(dx + 4, dy + 1, 16, 20);
-        ctx.fillStyle = '#186e75';
-        ctx.fillRect(dx + 5, dy + 2, 14, 18);
-        ctx.fillStyle = '#38e8d8';
-        ctx.fillRect(dx + 6, dy + 3, 12, 15);
-        ctx.fillStyle = '#8cf7ee';
-        ctx.fillRect(dx + 7, dy + 4, 8, 10);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(dx + 8, dy + 5, 4, 5);
-      } else {
-        ctx.fillStyle = '#151b26';
-        ctx.fillRect(dx, dy, 23, 23);
-        ctx.fillStyle = '#2d4863';
-        ctx.fillRect(dx + 1, dy + 1, 21, 21);
-        ctx.drawImage(getTileSprite(drop.itemId), dx + 2, dy + 2, 19, 19);
+        const qty = drop.qty || 1;
+        let sz = 10;
+        let darkColor = '#713f12';
+        let baseColor = '#ca8a04';
+        let lightColor = '#fde047';
+        let sparkColor = '#fef08a';
+
+        if (qty >= 100) {
+          sz = 18;
+          darkColor = '#581c87';
+          baseColor = '#9333ea';
+          lightColor = '#c084fc';
+          sparkColor = '#f3e8ff';
+        } else if (qty >= 50) {
+          sz = 16;
+          darkColor = '#14532d';
+          baseColor = '#16a34a';
+          lightColor = '#4ade80';
+          sparkColor = '#dcfce7';
+        } else if (qty >= 10) {
+          sz = 14;
+          darkColor = '#991b1b';
+          baseColor = '#dc2626';
+          lightColor = '#f87171';
+          sparkColor = '#fee2e2';
+        } else if (qty >= 5) {
+          sz = 12;
+          darkColor = '#0369a1';
+          baseColor = '#0284c7';
+          lightColor = '#38bdf8';
+          sparkColor = '#e0f2fe';
+        } else {
+          sz = 10;
+          darkColor = '#713f12';
+          baseColor = '#ca8a04';
+          lightColor = '#fde047';
+          sparkColor = '#fef08a';
+        }
+
+        const half = Math.floor(sz / 2);
+        const gx = Math.floor(drop.x - cx - half);
+        const gy = Math.floor(drop.y - cy - half + bob);
+
+        // Ground shadow
+        ctx.fillStyle = 'rgba(4, 8, 14, 0.35)';
+        ctx.fillRect(gx + 1, Math.floor(drop.y - cy + half), sz - 2, 2);
+
+        // Gem silhouette (brilliant octagon/diamond cut)
+        ctx.fillStyle = '#090d16';
+        ctx.fillRect(gx + 2, gy, sz - 4, sz);
+        ctx.fillRect(gx, gy + 2, sz, sz - 4);
+        ctx.fillRect(gx + 1, gy + 1, sz - 2, sz - 2);
+
+        // Deep facet shadows (left & bottom)
+        ctx.fillStyle = darkColor;
+        ctx.fillRect(gx + 1, gy + 2, Math.max(1, Math.floor(sz * 0.3)), sz - 4);
+        ctx.fillRect(gx + 2, gy + sz - 2, sz - 4, Math.max(1, Math.floor(sz * 0.3)));
+
+        // Mid base color facets
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(gx + Math.floor(sz * 0.3), gy + 1, Math.max(2, sz - Math.floor(sz * 0.3) - 2), sz - 2);
+
+        // Brilliant crown highlight (top right)
+        ctx.fillStyle = lightColor;
+        ctx.fillRect(gx + Math.floor(sz * 0.35), gy + 1, Math.max(2, Math.floor(sz * 0.45)), Math.max(2, Math.floor(sz * 0.45)));
+
+        // Sparkling glint (animated)
+        const glintPhase = Math.sin(nowMs * 0.008 + drop.x * 1.5) > 0.2;
+        if (glintPhase) {
+          ctx.fillStyle = sparkColor;
+          ctx.fillRect(gx + Math.floor(sz * 0.4), gy + 1, 2, 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(gx + Math.floor(sz * 0.45), gy + 1, 1, 1);
+        }
+      } else if (getItemDef(drop.itemId)?.category === 'seed') {
+        const dx = Math.floor(drop.x - cx - 7);
+        const dy = Math.floor(drop.y - cy - 7 + bob);
+        // Subtle ground shadow
+        ctx.fillStyle = 'rgba(6, 12, 20, 0.25)';
+        ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 6), 11, 3);
+
+        // Seeds only display their seed sprite (no background frame)
+        ctx.drawImage(getTileSprite(drop.itemId), dx + 2, dy + 2, 11, 11);
+
         if (drop.qty > 1) {
           const label = drop.qty > 999 ? '999+' : String(drop.qty);
-          ctx.font = 'bold 9px monospace';
-          const badgeW = Math.max(15, Math.ceil(ctx.measureText(label).width) + 8);
-          const badgeX = dx + 18 - badgeW + 5;
-          const badgeY = dy + 15;
-          ctx.fillStyle = '#101923';
-          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 12);
+          ctx.font = 'bold 7px monospace';
+          const badgeW = Math.max(10, Math.ceil(ctx.measureText(label).width) + 4);
+          const badgeX = dx + 15 - badgeW + 2;
+          const badgeY = dy + 9;
+          ctx.fillStyle = '#0d1520';
+          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 9);
           ctx.fillStyle = '#e8f2fa';
-          ctx.fillRect(badgeX, badgeY, badgeW, 10);
-          ctx.fillStyle = '#172536';
+          ctx.fillRect(badgeX, badgeY, badgeW, 7);
+          ctx.fillStyle = '#142233';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 5);
+          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 3.5);
+          ctx.textAlign = 'start';
+          ctx.textBaseline = 'alphabetic';
+        }
+      } else {
+        // Compact 15x15 floating item frame (reduced from 23x23)
+        const dx = Math.floor(drop.x - cx - 7);
+        const dy = Math.floor(drop.y - cy - 7 + bob);
+        ctx.fillStyle = 'rgba(6, 12, 20, 0.30)';
+        ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 6), 11, 3);
+
+        ctx.fillStyle = '#111824';
+        ctx.fillRect(dx, dy, 15, 15);
+        ctx.fillStyle = '#2d4863';
+        ctx.fillRect(dx + 1, dy + 1, 13, 13);
+        ctx.drawImage(getTileSprite(drop.itemId), dx + 2, dy + 2, 11, 11);
+
+        if (drop.qty > 1) {
+          const label = drop.qty > 999 ? '999+' : String(drop.qty);
+          ctx.font = 'bold 7px monospace';
+          const badgeW = Math.max(10, Math.ceil(ctx.measureText(label).width) + 4);
+          const badgeX = dx + 15 - badgeW + 2;
+          const badgeY = dy + 9;
+          ctx.fillStyle = '#0d1520';
+          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 9);
+          ctx.fillStyle = '#e8f2fa';
+          ctx.fillRect(badgeX, badgeY, badgeW, 7);
+          ctx.fillStyle = '#142233';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 3.5);
           ctx.textAlign = 'start';
           ctx.textBaseline = 'alphabetic';
         }

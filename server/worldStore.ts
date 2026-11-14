@@ -1388,7 +1388,12 @@ export class AuthoritativeWorldStore {
           spawnedDrops.push(this.createDrop(live, reward.itemId, reward.qty, tx, ty, spawnedDrops.length));
         }
         if (!isMineShaft) {
-          gemsGained = 2 + Math.floor(Math.random() * 4);
+          const producedDef = getEffectiveItemDef(targetDef.producesTileId, this.gameConfig);
+          const farmTier = targetDef.farmableTier ?? producedDef?.farmableTier ?? 0;
+          gemsGained =
+            farmTier > 0
+              ? farmTier * 3 + Math.floor(Math.random() * (farmTier * 2 + 3))
+              : 2 + Math.floor(Math.random() * 4);
         }
         xpGained += 4;
       } else {
@@ -1444,13 +1449,18 @@ export class AuthoritativeWorldStore {
           }
         }
       }
-      if (
-        !isMineShaft &&
-        targetDef &&
-        targetDef.gemValue > 0 &&
-        Math.random() <= this.gameConfig.mechanics.globalGemDropChance
-      ) {
-        gemsGained = 1 + Math.floor(Math.random() * targetDef.gemValue);
+      const isFarmableBlock = targetDef?.category === 'farmable' || Boolean(targetDef?.farmableTier);
+      const effectiveGemChance = isFarmableBlock
+        ? Math.max(0.88, this.gameConfig.mechanics.globalGemDropChance)
+        : this.gameConfig.mechanics.globalGemDropChance;
+      if (!isMineShaft && targetDef && targetDef.gemValue > 0 && Math.random() <= effectiveGemChance) {
+        if (isFarmableBlock) {
+          const minGems = Math.max(2, Math.ceil(targetDef.gemValue * 0.45));
+          const span = Math.max(1, targetDef.gemValue - minGems + 1);
+          gemsGained = minGems + Math.floor(Math.random() * span);
+        } else {
+          gemsGained = 1 + Math.floor(Math.random() * targetDef.gemValue);
+        }
       }
 
       // Decrement Pickaxe durability on foreground break
@@ -1485,17 +1495,37 @@ export class AuthoritativeWorldStore {
     }
 
     if (gemsGained > 0) {
-      const slotOffset = spawnedDrops.length === 0 ? 0 : spawnedDrops.length % 2 === 1 ? -4 : 4;
-      const gemDrop: WorldDrop = {
-        id: `gem_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        itemId: 0,
-        qty: gemsGained,
-        x: tx * TILE_SIZE + TILE_SIZE * 0.5 + slotOffset,
-        y: ty * TILE_SIZE + TILE_SIZE * 0.5,
-        isGem: true,
-      };
-      spawnedDrops.push(gemDrop);
-      live.drops.set(gemDrop.id, gemDrop);
+      const gemSpreadOffsets: ReadonlyArray< readonly [number, number] > = [
+        [0, 0],
+        [-15, -7],
+        [15, -7],
+        [-12, 10],
+        [12, 10],
+        [0, -13],
+        [-18, 3],
+        [18, 3],
+        [-7, 13],
+        [7, -12],
+      ];
+      const packetCount = gemsGained >= 14 ? 3 : gemsGained >= 5 ? 2 : 1;
+      let remGems = gemsGained;
+      for (let p = 0; p < packetCount; p++) {
+        const chunkQty = p === packetCount - 1 ? remGems : Math.max(1, Math.floor(gemsGained / packetCount));
+        remGems -= chunkQty;
+        if (chunkQty <= 0) continue;
+        const spreadIdx = (spawnedDrops.length + (spawnedDrops.length === 0 && p === 0 ? 0 : 1)) % gemSpreadOffsets.length;
+        const [gxOff, gyOff] = gemSpreadOffsets[spreadIdx];
+        const gemDrop: WorldDrop = {
+          id: `gem_${Date.now()}_${p}_${Math.random().toString(36).slice(2, 7)}`,
+          itemId: 0,
+          qty: chunkQty,
+          x: tx * TILE_SIZE + TILE_SIZE * 0.5 + gxOff,
+          y: ty * TILE_SIZE + TILE_SIZE * 0.5 + gyOff,
+          isGem: true,
+        };
+        spawnedDrops.push(gemDrop);
+        live.drops.set(gemDrop.id, gemDrop);
+      }
     }
 
     const leveled = addXp(account.level, account.xp, xpGained);
@@ -1532,9 +1562,14 @@ export class AuthoritativeWorldStore {
     const originY = ty * TILE_SIZE + TILE_SIZE * 0.5;
     let remaining = Math.max(1, Math.floor(qty));
     let firstDrop: WorldDrop | undefined;
+    let existingInTileCount = 0;
     // Merge nearby identical item drops before creating another visible stack.
     for (const existing of live.drops.values()) {
-      if (existing.isGem || existing.itemId !== itemId || Math.hypot(existing.x - originX, existing.y - originY) > TILE_SIZE * 1.35) continue;
+      const dist = Math.hypot(existing.x - originX, existing.y - originY);
+      if (dist <= TILE_SIZE * 0.58) {
+        existingInTileCount += 1;
+      }
+      if (existing.isGem || existing.itemId !== itemId || dist > TILE_SIZE * 1.35) continue;
       const room = Math.max(0, maxStack - existing.qty);
       if (room <= 0) continue;
       const added = Math.min(room, remaining);
@@ -1543,16 +1578,28 @@ export class AuthoritativeWorldStore {
       firstDrop ??= existing;
       if (remaining <= 0) return firstDrop;
     }
-    const offsets = [[0, 0], [-5, -2], [5, -2], [0, 4]];
+    const offsets: ReadonlyArray< readonly [number, number] > = [
+      [0, 0],
+      [-15, -6],
+      [15, -6],
+      [-11, 10],
+      [11, 10],
+      [0, -13],
+      [-18, 3],
+      [18, 3],
+      [-7, 13],
+      [7, -12],
+    ];
     let created = 0;
+    const baseSlot = Math.max(slotIndex, existingInTileCount);
     while (remaining > 0) {
-      const [ox, oy] = offsets[(slotIndex + created) % offsets.length];
+      const [ox, oy] = offsets[(baseSlot + created) % offsets.length];
       const stackQty = Math.min(maxStack, remaining);
       const drop: WorldDrop = {
         id: `drp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         itemId,
         qty: stackQty,
-        x: originX + ox + created * 2,
+        x: originX + ox + (created > 0 ? created * 3 : 0),
         y: originY + oy,
       };
       live.drops.set(drop.id, drop);
@@ -1603,17 +1650,43 @@ export class AuthoritativeWorldStore {
       live.state.bg[idx] = itemId;
       account.stats.blocksPlaced = (account.stats.blocksPlaced ?? 0) + 1;
     } else if (check.layer === 'seed') {
-      const def = getEffectiveItemDef(itemId, this.gameConfig);
+      const existingPlant = live.state.plants[key];
       const mult = Math.max(0.1, this.gameConfig.mechanics.growthMultiplier || 1);
-      const growDuration = Math.round((def?.growthTimeMs ?? PLANT_DEFAULT_GROWTH_MS) / mult);
-      live.state.plants[key] = {
-        x: tx,
-        y: ty,
-        seedId: itemId,
-        plantedAt: now,
-        maturityAt: now + growDuration,
-        ownerId: account.id,
-      };
+      if (existingPlant) {
+        const splicedSeedId = resolveSplice(existingPlant.seedId, itemId);
+        if (splicedSeedId) {
+          const seedADef = getEffectiveItemDef(existingPlant.seedId, this.gameConfig);
+          const seedBDef = getEffectiveItemDef(itemId, this.gameConfig);
+          const hybridDef = getEffectiveItemDef(splicedSeedId, this.gameConfig);
+          const growDuration = Math.round((hybridDef?.growthTimeMs ?? PLANT_DEFAULT_GROWTH_MS) / mult);
+          live.state.plants[key] = {
+            x: tx,
+            y: ty,
+            seedId: splicedSeedId,
+            plantedAt: now,
+            maturityAt: now + growDuration,
+            ownerId: account.id,
+          };
+          account.stats.seedsSpliced = (account.stats.seedsSpliced ?? 0) + 1;
+          const leveled = addXp(account.level, account.xp, 8);
+          account.level = leveled.level;
+          account.xp = leveled.xp;
+          playerState.level = account.level;
+          const producedDef = hybridDef?.producesTileId ? getItemDef(hybridDef.producesTileId) : undefined;
+          notice = `Spliced ${seedADef?.name ?? 'Seed'} + ${seedBDef?.name ?? 'Seed'} → ${producedDef?.name ?? hybridDef?.name ?? 'Hybrid'} Tree!`;
+        }
+      } else {
+        const def = getEffectiveItemDef(itemId, this.gameConfig);
+        const growDuration = Math.round((def?.growthTimeMs ?? PLANT_DEFAULT_GROWTH_MS) / mult);
+        live.state.plants[key] = {
+          x: tx,
+          y: ty,
+          seedId: itemId,
+          plantedAt: now,
+          maturityAt: now + growDuration,
+          ownerId: account.id,
+        };
+      }
     } else if (check.layer === 'fluid') {
       ensureFluidArrays(live.state);
       const fType = itemId === ITEM_IDS.ACID_SOURCE ? 2 : 1;

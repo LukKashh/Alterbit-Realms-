@@ -31,6 +31,7 @@ export interface ItemConfigOverride {
   hardness?: number;
   gemValue?: number;
   xpValue?: number;
+  growthTimeMs?: number;
   drops?: DropEntry[];
   treeHarvestYield?: { minBlocks: number; maxBlocks: number; seedChance: number };
   bonusHarvestDrops?: DropEntry[];
@@ -159,6 +160,9 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
       if (ov.hardness !== undefined) cleanOv.hardness = Math.round(clamp(ov.hardness, 3, 1, 20));
       if (ov.gemValue !== undefined) cleanOv.gemValue = Math.round(clamp(ov.gemValue, 0, 0, 100));
       if (ov.xpValue !== undefined) cleanOv.xpValue = Math.round(clamp(ov.xpValue, 1, 0, 200));
+      if (ov.growthTimeMs !== undefined) {
+        cleanOv.growthTimeMs = Math.round(clamp(ov.growthTimeMs, 15000, 1000, 3600000));
+      }
       const sanitizeDropEntries = (entries: unknown): DropEntry[] => {
         if (!Array.isArray(entries)) return [];
         return entries
@@ -235,15 +239,27 @@ export function getEffectiveItemDef(
   const base = CATALOG[itemId];
   if (!base) return undefined;
   const ov = config?.itemOverrides?.[itemId];
-  if (!ov) return base;
+  const linkedPartnerId = base.category === 'seed' ? base.producesTileId : base.seedId;
+  const partnerOv = linkedPartnerId ? config?.itemOverrides?.[linkedPartnerId] : undefined;
+  const partnerBase = linkedPartnerId ? CATALOG[linkedPartnerId] : undefined;
+  if (!ov && !partnerOv) return base;
   return {
     ...base,
-    hardness: ov.hardness ?? base.hardness,
-    gemValue: ov.gemValue ?? base.gemValue,
-    xpValue: ov.xpValue ?? base.xpValue,
-    drops: ov.drops ?? base.drops,
-    treeHarvestYield: ov.treeHarvestYield ?? base.treeHarvestYield,
-    bonusHarvestDrops: ov.bonusHarvestDrops ?? base.bonusHarvestDrops,
+    hardness: ov?.hardness ?? base.hardness,
+    gemValue: ov?.gemValue ?? base.gemValue,
+    xpValue: ov?.xpValue ?? base.xpValue,
+    growthTimeMs:
+      ov?.growthTimeMs ??
+      partnerOv?.growthTimeMs ??
+      base.growthTimeMs ??
+      partnerBase?.growthTimeMs,
+    drops: ov?.drops ?? base.drops,
+    treeHarvestYield:
+      ov?.treeHarvestYield ??
+      partnerOv?.treeHarvestYield ??
+      base.treeHarvestYield ??
+      partnerBase?.treeHarvestYield,
+    bonusHarvestDrops: ov?.bonusHarvestDrops ?? partnerOv?.bonusHarvestDrops ?? base.bonusHarvestDrops,
   };
 }
 
@@ -359,6 +375,7 @@ export function calculateFarmabilityProfile(
     blockDef &&
       blockDef.breakable &&
       (blockDef.category === 'foreground' ||
+        blockDef.category === 'farmable' ||
         blockDef.category === 'background' ||
         blockDef.category === 'interactive' ||
         isSeed)

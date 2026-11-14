@@ -5,6 +5,7 @@ import type { InventorySlot } from '../game/network.ts';
 import { DEFAULT_DUNGEON_BALANCE, isDungeonPositionWalkable } from '../game/dungeon.ts';
 import type { DungeonAction, DungeonSnapshot } from '../game/dungeon.ts';
 import { BlockgroveEngine, renderDungeonThirdPerson } from '../game/engine.ts';
+import { soundEngine } from '../game/audio.ts';
 
 interface DungeonOverlayProps {
   engine?: BlockgroveEngine | null;
@@ -174,6 +175,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     if (!localPlayer) return;
     if (prevHpRef.current !== null && localPlayer.hp < prevHpRef.current) {
       hitFlashRef.current = 1;
+      soundEngine.hazardHit('spikes');
     }
     prevHpRef.current = localPlayer.hp;
   }, [localPlayer?.hp]);
@@ -184,6 +186,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
     if (now - lastStrikeAtRef.current < 120) return;
     lastStrikeAtRef.current = now;
     slashTimerRef.current = 1;
+    soundEngine.dungeonAttack();
 
     const snap = snapshotRef.current;
     const pred = predictedPositionRef.current;
@@ -315,6 +318,7 @@ export const DungeonOverlay: React.FC<DungeonOverlayProps> = ({
           }
 
           bobPhaseRef.current += dt * 11 * speedScale;
+          soundEngine.footstep(ITEM_IDS.GP_BRICKS, false);
 
           if (nowMs - lastMoveSentAtRef.current >= MOVE_SYNC_INTERVAL_MS) {
             lastMoveSentAtRef.current = nowMs;

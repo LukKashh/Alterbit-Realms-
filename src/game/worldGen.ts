@@ -141,8 +141,9 @@ export function generateWorld(worldName: string, terraBlast = false): WorldState
   const fluidType = new Array<number>(WORLD_TILE_COUNT).fill(0);
   const fluidLevel = new Array<number>(WORLD_TILE_COUNT).fill(0);
 
+  const isFishingIsland = normalized === 'FISHING' || normalized.includes('FISH');
   const spawnX = Math.floor(WORLD_WIDTH / 2); // 50
-  const baseSurfaceY = 24;
+  const baseSurfaceY = isFishingIsland ? 32 : 24;
   const blastFamilies: WorldFamily[] = ['desert_blast', 'arctic_tundra', 'cave_blast'];
   const worldFamily = terraBlast
     ? blastFamilies[hashWorldSeed(normalized + '_TERRA') % blastFamilies.length]
@@ -155,13 +156,21 @@ export function generateWorld(worldName: string, terraBlast = false): WorldState
   const phase2 = rand() * Math.PI * 2;
 
   for (let x = 0; x < WORLD_WIDTH; x++) {
-    const distFromSpawn = Math.abs(x - spawnX);
-    if (distFromSpawn <= 4) {
-      surfaceHeights[x] = baseSurfaceY;
+    if (isFishingIsland) {
+      if (x >= 32 && x <= 68) {
+        surfaceHeights[x] = 32;
+      } else {
+        surfaceHeights[x] = 42; // Deep ocean sides
+      }
     } else {
-      const wave = Math.sin(x * 0.14 + phase1) * 2.1 + Math.cos(x * 0.06 + phase2) * 1.6;
-      const blend = Math.min(1, (distFromSpawn - 4) / 6);
-      surfaceHeights[x] = Math.round(baseSurfaceY + wave * blend);
+      const distFromSpawn = Math.abs(x - spawnX);
+      if (distFromSpawn <= 4) {
+        surfaceHeights[x] = baseSurfaceY;
+      } else {
+        const wave = Math.sin(x * 0.14 + phase1) * 2.1 + Math.cos(x * 0.06 + phase2) * 1.6;
+        const blend = Math.min(1, (distFromSpawn - 4) / 6);
+        surfaceHeights[x] = Math.round(baseSurfaceY + wave * blend);
+      }
     }
   }
 
@@ -170,6 +179,36 @@ export function generateWorld(worldName: string, terraBlast = false): WorldState
     const sy = surfaceHeights[x];
     for (let y = 0; y < WORLD_HEIGHT; y++) {
       const idx = y * WORLD_WIDTH + x;
+
+      if (isFishingIsland && (x < 32 || x > 68)) {
+        if (y >= playableRows) {
+          fg[idx] = ITEM_IDS.BEDROCK;
+          bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
+        } else if (y >= 42) {
+          fg[idx] = ITEM_IDS.AIR;
+          bg[idx] = ITEM_IDS.BG_SKY;
+          fluidType[idx] = 1;
+          fluidLevel[idx] = 7;
+        } else {
+          fg[idx] = ITEM_IDS.AIR;
+          bg[idx] = ITEM_IDS.BG_SKY;
+        }
+        continue;
+      }
+
+      if (isFishingIsland && x >= 32 && x <= 68) {
+        bg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
+        if (y >= playableRows) {
+          fg[idx] = ITEM_IDS.BEDROCK;
+        } else if (y === sy) {
+          fg[idx] = ITEM_IDS.DESERT_SAND;
+        } else if (y < sy + 8) {
+          fg[idx] = ITEM_IDS.DESERT_SAND;
+        } else {
+          fg[idx] = ITEM_IDS.RED_SANDSTONE;
+        }
+        continue;
+      }
 
       // Bottom 6 rows (y = 54..59) are unbreakable bedrock
       if (y >= playableRows) {

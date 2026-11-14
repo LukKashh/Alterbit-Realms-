@@ -20,8 +20,6 @@ import {
   GEM_STORE_LISTINGS,
   getItemDef,
   ITEM_IDS,
-  SPLICE_RECIPES,
-  type BiomeBranch,
   type PlayerStatKey,
   type StoreSection,
 } from '../game/catalog.ts';
@@ -167,7 +165,6 @@ type ActivePanel =
   | 'backpack'
   | 'worlds'
   | 'chat'
-  | 'splice'
   | 'store'
   | 'friends'
   | 'profile'
@@ -342,7 +339,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   onToggleFavoriteWorld,
   chatMessages,
   onSendChat,
-  onSpliceSeeds,
+  onSpliceSeeds: _onSpliceSeeds,
   onBuyGemStore,
   onEquipWearable,
   onClaimAchievement,
@@ -381,13 +378,12 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [useTerraBlast, setUseTerraBlast] = useState(false);
   const [worldTab, setWorldTab] = useState<'public' | 'favorites' | 'recent'>('public');
   const [chatInput, setChatInput] = useState('');
-  const [spliceA, setSpliceA] = useState<number | null>(null);
-  const [spliceB, setSpliceB] = useState<number | null>(null);
-  const [spliceBranch, setSpliceBranch] = useState<'all' | BiomeBranch>('all');
+  const [bagFilter, setBagFilter] = useState<'all' | 'farmable' | 'seed' | 'block'>('all');
   const [assignSlot, setAssignSlot] = useState<number>(2);
   const [selectedRodInstanceId, setSelectedRodInstanceId] = useState<string | null>(null);
   const [storeCategory, setStoreCategory] = useState<StoreSection>('locks');
   const [profileTab, setProfileTab] = useState<'achievements' | 'wardrobe'>('achievements');
+  void _onSpliceSeeds;
   const [friendInput, setFriendInput] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -442,7 +438,7 @@ export const GameHud: React.FC<GameHudProps> = ({
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.code === 'KeyB' || e.code === 'KeyI') {
         e.preventDefault();
-        setActivePanel((cur) => (cur === 'backpack' || cur === 'splice' ? 'none' : 'backpack'));
+        setActivePanel((cur) => (cur === 'backpack' ? 'none' : 'backpack'));
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -462,7 +458,6 @@ export const GameHud: React.FC<GameHudProps> = ({
   const nextXp = xpForNextLevel(level);
   const xpPct = Math.min(100, Math.round((xp / nextXp) * 100));
   const selectedDef = getItemDef(selectedItemId);
-  const seedsInBag = inventory.filter((s) => getItemDef(s.itemId)?.category === 'seed' && s.qty > 0);
   const fishingRodsInBag = inventory.filter((s) => getItemDef(s.itemId)?.toolKind === 'rod' && s.qty > 0 && s.rodInstanceId);
   const selectedRodSlot = fishingRodsInBag.find((s) => s.rodInstanceId === selectedRodInstanceId) ?? fishingRodsInBag[0];
   const selectedRodDef = selectedRodSlot ? getItemDef(selectedRodSlot.itemId) : undefined;
@@ -1090,13 +1085,13 @@ export const GameHud: React.FC<GameHudProps> = ({
               tabIndex={-1}
               data-testid="hud-backpack-button"
               aria-label="Backpack Inventory Toggle"
-              aria-expanded={activePanel === 'backpack' || activePanel === 'splice'}
+              aria-expanded={activePanel === 'backpack'}
               onClick={(e) => {
                 e.currentTarget.blur();
-                setActivePanel((cur) => (cur === 'backpack' || cur === 'splice' ? 'none' : 'backpack'));
+                setActivePanel((cur) => (cur === 'backpack' ? 'none' : 'backpack'));
               }}
               className={`relative w-11 h-11 sm:w-12 sm:h-12 rounded-lg border-2 flex flex-col items-center justify-center gap-0.5 touch-none select-none cursor-pointer transition-transform ${
-                activePanel === 'backpack' || activePanel === 'splice'
+                activePanel === 'backpack'
                   ? 'bg-[#254463] border-[#f2b738] text-[#ffe18c] -translate-y-0.5'
                   : 'bg-[#09131d] border-[#314a66] hover:border-[#78c8f5] text-[#c7d9eb]'
               }`}
@@ -1252,26 +1247,32 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Backpack Drawer (anchored cleanly above bottom Toolbar) */}
+      {/* Backpack Drawer (anchored cleanly above bottom Toolbar; Splicing happens in-world by planting one seed on another) */}
       {activePanel === 'backpack' && (
         <div className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[144px] min-[620px]:bottom-24 z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[54vh] min-[620px]:max-h-[64vh] bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setActivePanel('backpack')}
-                className="px-2 py-0.5 rounded bg-[#254463] border border-[#f2b738] text-[11px] font-bold text-[#ffe18c] cursor-pointer"
-              >
-                Backpack
-              </button>
-              <button
-                type="button"
-                onClick={() => setActivePanel('splice')}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#09131d] hover:bg-[#142538] border border-[#263c52] text-[11px] font-bold text-[#9cb5cc] hover:text-[#82e068] cursor-pointer"
-              >
-                <Sparkles className="w-3 h-3" />
-                <span>Splice</span>
-              </button>
+            <div className="flex items-center gap-1 flex-wrap">
+              {(
+                [
+                  { id: 'all', label: 'All' },
+                  { id: 'farmable', label: 'Farmables' },
+                  { id: 'seed', label: 'Seeds' },
+                  { id: 'block', label: 'Blocks' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setBagFilter(tab.id)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer border ${
+                    bagFilter === tab.id
+                      ? 'bg-[#254463] border-[#f2b738] text-[#ffe18c]'
+                      : 'bg-[#09131d] border-[#263c52] text-[#9cb5cc] hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
             <button
               type="button"
@@ -1281,9 +1282,13 @@ export const GameHud: React.FC<GameHudProps> = ({
               Close
             </button>
           </div>
-          <p className="text-[11px] text-[#9cb5cc]">
-            Click an item to equip it to hotbar slot {assignSlot < 2 ? 3 : assignSlot + 1}.
-          </p>
+          <div className="flex items-center justify-between gap-2 text-[10px] text-[#9cb5cc] bg-[#09131d]/90 border border-[#243d57] rounded px-2 py-1">
+            <span>Tap item to equip slot {assignSlot < 2 ? 3 : assignSlot + 1}.</span>
+            <span className="flex items-center gap-1 text-[#82e068] font-semibold">
+              <Sparkles className="w-3 h-3 shrink-0" />
+              <span>Plant seed on seed to splice!</span>
+            </span>
+          </div>
           {selectedDef?.category === 'consumable' && (
             <button
               type="button"
@@ -1298,68 +1303,100 @@ export const GameHud: React.FC<GameHudProps> = ({
             </button>
           )}
           <div className="grid grid-cols-5 gap-1.5 overflow-y-auto pr-1">
-            {inventory.map((slot) => {
-              const def = getItemDef(slot.itemId);
-              if (!def) return null;
-              const isSelected = selectedItemId === slot.itemId;
-              const isEquippedWearable =
-                equipped.head === slot.itemId ||
-                equipped.face === slot.itemId ||
-                equipped.back === slot.itemId;
-              const hasDur = typeof slot.maxDurability === 'number' && slot.maxDurability > 0;
-              const durRatio = hasDur
-                ? Math.max(0, Math.min(1, (slot.durability ?? slot.maxDurability!) / slot.maxDurability!))
-                : 1;
-              return (
-                <button
-                  key={slot.rodInstanceId ?? slot.itemId}
-                  type="button"
-                  title={`${def.name} (${slot.qty})`}
-                  onContextMenu={(e) => { if (def.toolKind === 'rod' && slot.rodInstanceId) { e.preventDefault(); setSelectedRodInstanceId(slot.rodInstanceId); } }}
-                  onClick={() => {
-                    if (def.toolKind === 'rod' && slot.rodInstanceId) setSelectedRodInstanceId(slot.rodInstanceId);
-                    if (def.category === 'wearable') {
-                      onEquipWearable(slot.itemId);
-                      return;
-                    }
-                    onSelectItem(slot.itemId);
-                    if (slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH) {
-                      const targetIdx = assignSlot >= 2 ? assignSlot : 2;
-                      onAssignHotbar(targetIdx, slot.itemId);
-                    }
-                  }}
-                  className={`relative h-12 rounded border-2 flex items-center justify-center cursor-pointer ${
-                    isEquippedWearable
-                      ? 'bg-[#2b4d34] border-[#82e068]'
-                      : isSelected
-                        ? 'bg-[#254463] border-[#f2b738]'
-                        : 'bg-[#09131d] border-[#263c52] hover:border-[#4b7299]'
-                  }`}
-                >
-                  <img
-                    src={getItemIconUrl(slot.itemId)}
-                    alt={def.name}
-                    className="w-7 h-7 pixelated"
-                    referrerPolicy="no-referrer"
-                  />
-                  {slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH && !hasDur && (
-                    <span className="absolute bottom-0 right-1 text-[10px] font-mono-num font-bold text-white">
-                      {slot.qty}
-                    </span>
-                  )}
-                  {hasDur && (
-                    <div className="absolute inset-x-1 bottom-1 h-1 bg-[#060d14] rounded-xs overflow-hidden">
-                      <div
-                        className={`h-full ${
-                          durRatio > 0.4 ? 'bg-[#4ec46a]' : durRatio > 0.15 ? 'bg-[#f2b738]' : 'bg-[#e6482e]'
-                        }`}
-                        style={{ width: `${Math.round(durRatio * 100)}%` }}
-                      />
-                    </div>
-                  )}
-                </button>
-              );
-            })}
+            {inventory
+              .filter((slot) => {
+                const def = getItemDef(slot.itemId);
+                if (!def) return false;
+                if (bagFilter === 'farmable') {
+                  return def.category === 'farmable' || Boolean(def.farmableTier);
+                }
+                if (bagFilter === 'seed') {
+                  return def.category === 'seed';
+                }
+                if (bagFilter === 'block') {
+                  return (
+                    def.category === 'foreground' ||
+                    def.category === 'farmable' ||
+                    def.category === 'background'
+                  );
+                }
+                return true;
+              })
+              .map((slot) => {
+                const def = getItemDef(slot.itemId);
+                if (!def) return null;
+                const isSelected = selectedItemId === slot.itemId;
+                const isEquippedWearable =
+                  equipped.head === slot.itemId ||
+                  equipped.face === slot.itemId ||
+                  equipped.back === slot.itemId;
+                const hasDur = typeof slot.maxDurability === 'number' && slot.maxDurability > 0;
+                const durRatio = hasDur
+                  ? Math.max(0, Math.min(1, (slot.durability ?? slot.maxDurability!) / slot.maxDurability!))
+                  : 1;
+                const isFarmable = def.category === 'farmable' || Boolean(def.farmableTier);
+                return (
+                  <button
+                    key={slot.rodInstanceId ?? slot.itemId}
+                    type="button"
+                    title={`${def.name} (${slot.qty})${isFarmable ? ` · Tier ${def.farmableTier ?? 1} Farmable` : ''}`}
+                    onContextMenu={(e) => {
+                      if (def.toolKind === 'rod' && slot.rodInstanceId) {
+                        e.preventDefault();
+                        setSelectedRodInstanceId(slot.rodInstanceId);
+                      }
+                    }}
+                    onClick={() => {
+                      if (def.toolKind === 'rod' && slot.rodInstanceId) setSelectedRodInstanceId(slot.rodInstanceId);
+                      if (def.category === 'wearable') {
+                        onEquipWearable(slot.itemId);
+                        return;
+                      }
+                      onSelectItem(slot.itemId);
+                      if (slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH) {
+                        const targetIdx = assignSlot >= 2 ? assignSlot : 2;
+                        onAssignHotbar(targetIdx, slot.itemId);
+                      }
+                    }}
+                    className={`relative h-12 rounded border-2 flex items-center justify-center cursor-pointer ${
+                      isEquippedWearable
+                        ? 'bg-[#2b4d34] border-[#82e068]'
+                        : isSelected
+                          ? 'bg-[#254463] border-[#f2b738]'
+                          : isFarmable
+                            ? 'bg-[#12261a] border-[#3d7a4f] hover:border-[#82e068]'
+                            : 'bg-[#09131d] border-[#263c52] hover:border-[#4b7299]'
+                    }`}
+                  >
+                    <img
+                      src={getItemIconUrl(slot.itemId)}
+                      alt={def.name}
+                      className="w-7 h-7 pixelated"
+                      referrerPolicy="no-referrer"
+                    />
+                    {isFarmable && (
+                      <span className="absolute top-0 left-0.5 text-[8px] font-mono-num font-bold text-[#fde047]">
+                        T{def.farmableTier ?? 1}
+                      </span>
+                    )}
+                    {slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH && !hasDur && (
+                      <span className="absolute bottom-0 right-1 text-[10px] font-mono-num font-bold text-white">
+                        {slot.qty}
+                      </span>
+                    )}
+                    {hasDur && (
+                      <div className="absolute inset-x-1 bottom-1 h-1 bg-[#060d14] rounded-xs overflow-hidden">
+                        <div
+                          className={`h-full ${
+                            durRatio > 0.4 ? 'bg-[#4ec46a]' : durRatio > 0.15 ? 'bg-[#f2b738]' : 'bg-[#e6482e]'
+                          }`}
+                          style={{ width: `${Math.round(durRatio * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
           </div>
           {fishingRodsInBag.length > 0 && (
             <div className="border-t border-[#28425e] pt-2 flex flex-col gap-2">
@@ -1395,173 +1432,6 @@ export const GameHud: React.FC<GameHudProps> = ({
               )}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Seed Splicer Drawer (anchored cleanly above bottom Toolbar) */}
-      {activePanel === 'splice' && (
-        <div className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[144px] min-[620px]:bottom-24 z-20 w-88 max-w-[calc(100vw-1.25rem)] max-h-[56vh] min-[620px]:max-h-[68vh] overflow-y-auto bg-[#0f1d2c]/96 border-2 border-[#46678a] rounded-md p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col gap-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setActivePanel('backpack')}
-                className="px-2 py-0.5 rounded bg-[#09131d] hover:bg-[#142538] border border-[#263c52] text-[11px] font-bold text-[#9cb5cc] hover:text-[#ffe18c] cursor-pointer"
-              >
-                Backpack
-              </button>
-              <button
-                type="button"
-                onClick={() => setActivePanel('splice')}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#1f422b] border border-[#82e068] text-[11px] font-bold text-[#b4f7a1] cursor-pointer"
-              >
-                <Sparkles className="w-3 h-3" />
-                <span>Splice</span>
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActivePanel('none')}
-              className="text-xs font-bold text-[#9cb5cc] hover:text-white cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
-          <div className="grid grid-cols-6 gap-1">
-            {(['all', 'starter', 'desert', 'arctic', 'cave', 'tech'] as const).map((branch) => (
-              <button
-                key={branch}
-                type="button"
-                onClick={() => setSpliceBranch(branch)}
-                className={`py-1 rounded text-[9px] font-bold uppercase cursor-pointer border ${
-                  spliceBranch === branch
-                    ? 'bg-[#1f422b] border-[#82e068] text-[#b4f7a1]'
-                    : 'bg-[#09131d] border-[#263c52] text-[#9cb5cc]'
-                }`}
-              >
-                {branch}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center justify-center gap-3 py-1">
-            <div className="w-12 h-12 rounded border-2 border-[#3a597a] bg-[#08101a] flex items-center justify-center">
-              {spliceA ? (
-                <img src={getItemIconUrl(spliceA)} alt="Seed A" className="w-7 h-7 pixelated" referrerPolicy="no-referrer" />
-              ) : (
-                <span className="text-[10px] text-[#6d8ba8]">Seed 1</span>
-              )}
-            </div>
-            <span className="font-bold text-[#ffe18c]">+</span>
-            <div className="w-12 h-12 rounded border-2 border-[#3a597a] bg-[#08101a] flex items-center justify-center">
-              {spliceB ? (
-                <img src={getItemIconUrl(spliceB)} alt="Seed B" className="w-7 h-7 pixelated" referrerPolicy="no-referrer" />
-              ) : (
-                <span className="text-[10px] text-[#6d8ba8]">Seed 2</span>
-              )}
-            </div>
-          </div>
-          <div className="grid grid-cols-5 gap-1.5">
-            {seedsInBag.length === 0 && (
-              <p className="col-span-5 text-xs text-[#8aa4bd]">Mine blocks to collect seeds first.</p>
-            )}
-            {seedsInBag
-              .filter((s) => {
-                if (spliceBranch === 'all') return true;
-                const def = getItemDef(s.itemId);
-                return (def?.biomeBranch ?? 'starter') === spliceBranch;
-              })
-              .map((s) => (
-                <button
-                  key={s.itemId}
-                  type="button"
-                  title={getItemDef(s.itemId)?.name ?? 'Seed'}
-                  onClick={() => {
-                    if (!spliceA) setSpliceA(s.itemId);
-                    else if (!spliceB) setSpliceB(s.itemId);
-                    else {
-                      setSpliceA(s.itemId);
-                      setSpliceB(null);
-                    }
-                  }}
-                  className="relative h-11 rounded bg-[#09131d] border-2 border-[#263c52] hover:border-[#82e068] flex items-center justify-center cursor-pointer"
-                >
-                  <img
-                    src={getItemIconUrl(s.itemId)}
-                    alt={getItemDef(s.itemId)?.name ?? 'Seed'}
-                    className="w-6 h-6 pixelated"
-                    referrerPolicy="no-referrer"
-                  />
-                  <span className="absolute bottom-0 right-1 text-[10px] font-mono-num text-white">{s.qty}</span>
-                </button>
-              ))}
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={!spliceA || !spliceB}
-              onClick={() => {
-                if (spliceA && spliceB) {
-                  onSpliceSeeds(spliceA, spliceB);
-                  setSpliceA(null);
-                  setSpliceB(null);
-                }
-              }}
-              className="flex-1 py-1.5 rounded bg-[#4aa64d] disabled:bg-[#233829] disabled:text-[#688770] text-[#081709] font-bold text-xs cursor-pointer"
-            >
-              Splice Seeds
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSpliceA(null);
-                setSpliceB(null);
-              }}
-              className="px-3 py-1.5 rounded bg-[#182c42] text-xs font-semibold text-[#c9dced] cursor-pointer"
-            >
-              Clear
-            </button>
-          </div>
-
-          <div className="border-t border-[#243d57] pt-2 flex flex-col gap-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#9cb5cc]">
-              Biome Tech Tree Recipes ({spliceBranch})
-            </span>
-            <div className="max-h-32 overflow-y-auto flex flex-col gap-1 pr-0.5">
-              {SPLICE_RECIPES.filter(
-                (r) => spliceBranch === 'all' || r.branch === spliceBranch
-              ).map((r) => {
-                const nameA = getItemDef(r.seedA)?.name.replace(/ Seed$/, '') ?? '';
-                const nameB = getItemDef(r.seedB)?.name.replace(/ Seed$/, '') ?? '';
-                const nameRes = getItemDef(r.resultSeedId)?.name ?? 'Hybrid';
-                const hasBoth =
-                  r.seedA === r.seedB
-                    ? getQty(r.seedA) >= 2
-                    : getQty(r.seedA) >= 1 && getQty(r.seedB) >= 1;
-                return (
-                  <button
-                    key={`${r.seedA}-${r.seedB}-${r.resultSeedId}`}
-                    type="button"
-                    onClick={() => {
-                      if (hasBoth) {
-                        setSpliceA(r.seedA);
-                        setSpliceB(r.seedB);
-                      }
-                    }}
-                    className={`flex items-center justify-between gap-2 px-2 py-1 rounded text-left text-[10px] border ${
-                      hasBoth
-                        ? 'bg-[#12261d] border-[#4aa64d] text-[#d8f7d4] cursor-pointer'
-                        : 'bg-[#09131d] border-[#1f344a] text-[#7e9ab5] cursor-default'
-                    }`}
-                  >
-                    <span className="truncate font-bold">{nameRes}</span>
-                    <span className="shrink-0 font-mono-num">
-                      {nameA} + {nameB}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </div>
       )}
 
@@ -2016,9 +1886,9 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* In-World Administrator Dev Config Panel */}
+      {/* In-World Administrator Dev Config Panel (Portrait Studio Optimized) */}
       {activePanel === 'admin' && role === 'admin' && (
-        <div className="pointer-events-auto fixed inset-x-2 top-12 bottom-2 md:inset-x-auto md:bottom-auto md:right-3 md:w-[700px] md:max-w-[94vw] md:h-[82vh] md:max-h-[640px] z-30 bg-[#0f1d2c]/98 border-2 border-[#f2b738] rounded-lg p-2.5 sm:p-3.5 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col overflow-hidden">
+        <div className="pointer-events-auto fixed inset-x-1.5 top-2 bottom-2 md:inset-x-auto md:top-10 md:bottom-auto md:right-3 md:w-[460px] md:max-w-[94vw] md:h-[88vh] md:max-h-[780px] z-30 bg-[#0f1d2c]/98 border-2 border-[#f2b738] rounded-lg p-2.5 sm:p-3 shadow-[0_8px_0_rgba(6,12,20,0.9)] flex flex-col overflow-hidden">
           <AdminPanel
             gameConfig={gameConfig}
             inWorld={true}

@@ -287,8 +287,23 @@ export function canPlaceTile(
     if (isMine) {
       return { ok: false, reason: 'Trees cannot be planted inside Mining Shafts.' };
     }
-    if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
+    if (world.fg[idx] !== ITEM_IDS.AIR) {
       return { ok: false, reason: 'Tile is occupied.' };
+    }
+    const existingPlant = world.plants[`${tx},${ty}`];
+    if (existingPlant) {
+      if (Date.now() >= existingPlant.maturityAt) {
+        return { ok: false, reason: 'Tree is already mature! Harvest it before planting.' };
+      }
+      const splicedSeedId = resolveSplice(existingPlant.seedId, itemId);
+      if (!splicedSeedId) {
+        const existingDef = getItemDef(existingPlant.seedId);
+        return {
+          ok: false,
+          reason: `${existingDef?.name ?? 'Seed'} and ${def.name} do not mix into a hybrid tree.`,
+        };
+      }
+      return { ok: true, layer: 'seed' };
     }
     if (ty + 1 >= worldHeight(world)) return { ok: false, reason: 'Cannot plant here.' };
     const belowId = world.fg[tileIndexIn(world, tx, ty + 1)];

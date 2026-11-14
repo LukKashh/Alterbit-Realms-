@@ -23,6 +23,7 @@ import { LoadingScreen } from './components/LoadingScreen.tsx';
 import { ModeSelection } from './components/ModeSelection.tsx';
 import { GameHud } from './components/GameHud.tsx';
 import { DungeonOverlay } from './components/DungeonOverlay.tsx';
+import { Fishing3dOverlay } from './components/Fishing3dOverlay.tsx';
 import { testFirestoreConnection } from './lib/firebase.ts';
 import {
   publishWorldPresence,
@@ -118,6 +119,7 @@ export default function App() {
   const [fishingFightPattern, setFishingFightPattern] = useState<'darting' | 'surging' | 'deep_run' | 'erratic'>('darting');
   const [dungeonSnapshot, setDungeonSnapshot] = useState<DungeonSnapshot | null>(null);
   const [dungeonOpen, setDungeonOpen] = useState<boolean>(false);
+  const [fishing3dOpen, setFishing3dOpen] = useState<boolean>(false);
   const [hotbarItemIds, setHotbarItemIds] = useState<number[]>(EMPTY_HOTBAR);
   const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.FIST);
   const [gameConfig, setGameConfig] = useState<GameConfig>(() => cloneGameConfig(DEFAULT_GAME_CONFIG));
@@ -209,14 +211,19 @@ export default function App() {
     [syncHotbarWithInventory]
   );
 
-  // Sync body dataset state & engine mode
+  // Sync body dataset state, engine mode & menu/world theme audio
   useEffect(() => {
     modeRef.current = appState;
     document.body.dataset.state = appState;
-    if (appState === 'playing' || appState === 'paused') {
-      engineRef.current?.setMode(appState);
+    if (appState === 'playing') {
+      engineRef.current?.setMode('playing');
+      soundEngine.startWorldTheme();
+    } else if (appState === 'paused') {
+      engineRef.current?.setMode('paused');
+      soundEngine.startMenuTheme();
     } else {
       engineRef.current?.setMode('title');
+      soundEngine.startMenuTheme();
     }
   }, [appState]);
 
@@ -504,6 +511,7 @@ export default function App() {
         case 'fishing_bite':
           engine.markFishingBite(msg.playerId);
           if (msg.playerId === playerIdRef.current) {
+            soundEngine.fishingBite();
             setFishingBiting(true);
             showToast('! Fish biting! Tap Reel Catch!');
           }
@@ -517,6 +525,7 @@ export default function App() {
             setFishingLineTension(0.15);
             setFishingFightPattern('darting');
             if (msg.caughtName) {
+              soundEngine.unlock();
               showToast(`Caught ${msg.caughtName}!`);
             }
           }
@@ -808,6 +817,10 @@ export default function App() {
             setDungeonOpen(true);
             socketRef.current?.send({ type: 'dungeon_resume' });
           }}
+          onOpenFishing3d={() => {
+            soundEngine.uiClick();
+            setFishing3dOpen(true);
+          }}
           onSignOut={handleSignOut}
         />
       )}
@@ -966,6 +979,18 @@ export default function App() {
             onDismiss={() => setDungeonSnapshot(null)}
           />
         )}
+
+      {fishing3dOpen && (
+        <Fishing3dOverlay
+          playerId={playerId}
+          level={level}
+          gems={gems}
+          inventory={inventory}
+          onClose={() => setFishing3dOpen(false)}
+          onCastFishing={(tx, ty, rodItemId) => socketRef.current?.send({ type: 'cast_fishing', tx, ty, rodItemId })}
+          onReelFishing={() => socketRef.current?.send({ type: 'reel_fishing' })}
+        />
+      )}
     </main>
   );
 }

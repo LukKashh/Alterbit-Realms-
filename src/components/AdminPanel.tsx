@@ -137,11 +137,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const isModified = Boolean(draft.itemOverrides[item.id]);
       const isBiome = item.id >= 700 && item.id <= 748;
 
-      if (quickFilter === 'blocks' && item.category !== 'foreground') return false;
+      if (
+        quickFilter === 'blocks' &&
+        item.category !== 'foreground' &&
+        item.category !== 'farmable'
+      ) {
+        return false;
+      }
       if (quickFilter === 'biome' && !isBiome) return false;
       if (quickFilter === 'backgrounds' && item.category !== 'background') return false;
       if (quickFilter === 'seeds' && item.category !== 'seed') return false;
-      if (quickFilter === 'farmable' && (!farm?.isFarmCandidate || !farm?.isPositiveYield)) {
+      if (
+        quickFilter === 'farmable' &&
+        item.category !== 'farmable' &&
+        !item.farmableTier &&
+        (!farm?.isFarmCandidate || !farm?.isPositiveYield)
+      ) {
         return false;
       }
       if (quickFilter === 'modified' && !isModified) return false;
@@ -242,20 +253,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const base = CATALOG[itemId];
     if (!base) return;
     const eff = getEffectiveItemDef(itemId, draft) ?? base;
+    const linkedPartnerId = base.category === 'seed' ? base.producesTileId : base.seedId;
     setDraft((prev) => {
       const existing = prev.itemOverrides[itemId] ?? {};
       const merged: ItemConfigOverride = {
         hardness: patch.hardness ?? existing.hardness ?? eff.hardness,
         gemValue: patch.gemValue ?? existing.gemValue ?? eff.gemValue,
         xpValue: patch.xpValue ?? existing.xpValue ?? eff.xpValue,
+        growthTimeMs: patch.growthTimeMs ?? existing.growthTimeMs ?? eff.growthTimeMs,
         drops: patch.drops ?? existing.drops ?? eff.drops ?? [],
+        treeHarvestYield:
+          patch.treeHarvestYield ?? existing.treeHarvestYield ?? eff.treeHarvestYield,
+        bonusHarvestDrops:
+          patch.bonusHarvestDrops ?? existing.bonusHarvestDrops ?? eff.bonusHarvestDrops,
       };
+      const nextOverrides: Record<number, ItemConfigOverride> = {
+        ...prev.itemOverrides,
+        [itemId]: merged,
+      };
+      // Sync tree growth time & harvest yield onto linked partner (seed <-> block)
+      if (linkedPartnerId && CATALOG[linkedPartnerId] && (patch.growthTimeMs !== undefined || patch.treeHarvestYield !== undefined)) {
+        const partnerEff = getEffectiveItemDef(linkedPartnerId, prev) ?? CATALOG[linkedPartnerId];
+        const partnerExisting = prev.itemOverrides[linkedPartnerId] ?? {};
+        nextOverrides[linkedPartnerId] = {
+          ...partnerExisting,
+          hardness: partnerExisting.hardness ?? partnerEff.hardness,
+          gemValue: partnerExisting.gemValue ?? partnerEff.gemValue,
+          xpValue: partnerExisting.xpValue ?? partnerEff.xpValue,
+          growthTimeMs: patch.growthTimeMs ?? partnerExisting.growthTimeMs ?? partnerEff.growthTimeMs,
+          drops: partnerExisting.drops ?? partnerEff.drops ?? [],
+          treeHarvestYield:
+            patch.treeHarvestYield ?? partnerExisting.treeHarvestYield ?? partnerEff.treeHarvestYield,
+        };
+      }
       return {
         ...prev,
-        itemOverrides: {
-          ...prev.itemOverrides,
-          [itemId]: merged,
-        },
+        itemOverrides: nextOverrides,
       };
     });
   };
@@ -297,6 +330,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         (i) =>
           i.breakable &&
           (i.category === 'foreground' ||
+            i.category === 'farmable' ||
             i.category === 'background' ||
             i.category === 'interactive')
       )
@@ -395,11 +429,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const filterChips: { id: QuickFilterChip; label: string }[] = [
     { id: 'all', label: `All (${editableItems.length})` },
+    { id: 'farmable', label: 'Farmables' },
     { id: 'blocks', label: 'Blocks' },
+    { id: 'seeds', label: 'Seeds' },
     { id: 'biome', label: 'Biomes' },
     { id: 'backgrounds', label: 'Walls' },
-    { id: 'seeds', label: 'Seeds' },
-    { id: 'farmable', label: 'Farmable' },
     { id: 'modified', label: `Edited (${modifiedCount})` },
     { id: 'locks', label: 'Locks' },
     { id: 'wearables', label: 'Gear' },
@@ -616,13 +650,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
             </div>
 
-            {/* Responsive Mobile-Friendly Catalogue Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {/* Portrait-Optimized Single-Column Catalogue Cards with Tree Growth & Drop Values */}
+            <div className="grid grid-cols-1 gap-1.5">
               {filteredCatalogItems.map((item) => {
                 const eff = getEffectiveItemDef(item.id, draft) ?? item;
                 const isModified = Boolean(draft.itemOverrides[item.id]);
                 const farm = farmabilityMap.get(item.id);
                 const canFarm = Boolean(farm?.isFarmCandidate);
+                const linkedSeedDef =
+                  item.category === 'seed'
+                    ? eff
+                    : item.seedId
+                      ? getEffectiveItemDef(item.seedId, draft)
+                      : undefined;
+                const treeGrowthSec = linkedSeedDef?.growthTimeMs
+                  ? Math.round(linkedSeedDef.growthTimeMs / 1000)
+                  : eff.growthTimeMs
+                    ? Math.round(eff.growthTimeMs / 1000)
+                    : null;
+                const treeYield = eff.treeHarvestYield ?? linkedSeedDef?.treeHarvestYield;
 
                 return (
                   <div
@@ -658,6 +704,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <span className="text-[10px] font-mono-num text-[#7897b5]">
                             #{item.id}
                           </span>
+                          {item.farmableTier && (
+                            <span className="px-1 py-0.2 rounded text-[9px] font-bold uppercase bg-[#193829] text-[#fde047] border border-[#82e068]">
+                              FARM T{item.farmableTier}
+                            </span>
+                          )}
                           <span
                             className={`px-1 py-0.2 rounded text-[9px] font-bold uppercase border ${
                               RARITY_BADGE[item.rarity] ?? RARITY_BADGE.common
@@ -667,10 +718,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-2 mt-0.5 text-[10px] font-mono-num text-[#9cb5cc] flex-wrap">
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono-num text-[#9cb5cc] flex-wrap">
                           <span>{eff.hardness} Hits</span>
                           <span>·</span>
                           <span className="text-[#8cf7ee]">{eff.gemValue}G</span>
+                          {treeGrowthSec !== null && (
+                            <>
+                              <span>·</span>
+                              <span className="text-[#a8f794]">🌳 {treeGrowthSec}s</span>
+                            </>
+                          )}
+                          {treeYield && (
+                            <>
+                              <span>·</span>
+                              <span className="text-[#ffe18c]">
+                                Drop {treeYield.minBlocks}–{treeYield.maxBlocks} ({Math.round(treeYield.seedChance * 100)}%🌱)
+                              </span>
+                            </>
+                          )}
                           {canFarm && farm && (
                             <>
                               <span>·</span>
@@ -722,7 +787,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         }}
                         className="px-2 py-1.5 rounded bg-[#2b2312] hover:bg-[#3d3118] border border-[#f2b738]/70 text-[10px] font-bold text-[#ffe18c] cursor-pointer"
                       >
-                        Rates
+                        Tune
                       </button>
                     </div>
                   </div>
@@ -1060,6 +1125,178 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Portrait Studio Card: Tree Growth Time & Tree Harvest Drop Values */}
+            {(selectedFarm.hasSeedCycle ||
+              effectiveItem.category === 'seed' ||
+              Boolean(effectiveItem.seedId) ||
+              Boolean(effectiveItem.treeHarvestYield)) && (() => {
+              const linkedSeedDef =
+                effectiveItem.category === 'seed'
+                  ? effectiveItem
+                  : effectiveItem.seedId
+                    ? getEffectiveItemDef(effectiveItem.seedId, draft)
+                    : undefined;
+              const rawGrowthMs =
+                effectiveItem.growthTimeMs ?? linkedSeedDef?.growthTimeMs ?? 30000;
+              const growthSeconds = Math.max(1, Math.round(rawGrowthMs / 1000));
+              const effectiveLiveSec = Math.max(
+                1,
+                Math.round(growthSeconds / Math.max(0.1, draft.mechanics.growthMultiplier || 1))
+              );
+              const treeYield = effectiveItem.treeHarvestYield ??
+                linkedSeedDef?.treeHarvestYield ?? {
+                  minBlocks: 2,
+                  maxBlocks: 4,
+                  seedChance: 0.25,
+                };
+              const seedChancePct = Math.round(treeYield.seedChance * 100);
+
+              return (
+                <div
+                  data-testid="tree-growth-and-yield-card"
+                  className="bg-[#0b1b16] border border-[#3d7a4f] rounded-md p-2.5 flex flex-col gap-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-[#a8f794] flex items-center gap-1.5">
+                      <Sprout className="w-3.5 h-3.5 text-[#82e068]" />
+                      <span>Tree Growth Time &amp; Harvest Drop Values</span>
+                    </span>
+                    <span className="text-[10px] font-mono-num text-[#fde047]">
+                      Live Grow: {effectiveLiveSec}s ({draft.mechanics.growthMultiplier.toFixed(1)}× speed)
+                    </span>
+                  </div>
+
+                  {/* Row 1: Tree Growth Time (Seconds) + Quick Presets */}
+                  <div className="bg-[#06110d] border border-[#234d33] rounded p-2 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold text-[#c7eed4]">
+                        Tree Growth Time (Seconds)
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {[5, 15, 30, 60, 90].map((sec) => (
+                          <button
+                            key={sec}
+                            type="button"
+                            onClick={() =>
+                              updateItemOverride(selectedItemId, {
+                                growthTimeMs: sec * 1000,
+                              })
+                            }
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-mono-num font-bold cursor-pointer border ${
+                              growthSeconds === sec
+                                ? 'bg-[#193829] border-[#82e068] text-white'
+                                : 'bg-[#091712] border-[#264a34] text-[#9cb5cc]'
+                            }`}
+                          >
+                            {sec}s
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={1}
+                        max={300}
+                        step={1}
+                        value={Math.min(300, growthSeconds)}
+                        onChange={(e) =>
+                          updateItemOverride(selectedItemId, {
+                            growthTimeMs: Math.max(1, Number(e.target.value) || 1) * 1000,
+                          })
+                        }
+                        className="flex-1 accent-[#82e068]"
+                      />
+                      <input
+                        type="number"
+                        aria-label="Tree Growth Seconds"
+                        min={1}
+                        max={3600}
+                        value={growthSeconds}
+                        onChange={(e) =>
+                          updateItemOverride(selectedItemId, {
+                            growthTimeMs:
+                              Math.max(1, Math.min(3600, Number(e.target.value) || 1)) * 1000,
+                          })
+                        }
+                        className="w-16 px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-center text-[#a8f794]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Tree Harvest Drop Values (Min Blocks, Max Blocks, Seed Refund %) */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <label className="flex flex-col gap-1 bg-[#06110d] border border-[#234d33] rounded p-1.5 text-[10px] text-[#c7eed4]">
+                      <span>Tree Min Blocks</span>
+                      <input
+                        type="number"
+                        aria-label="Tree Min Blocks"
+                        min={1}
+                        max={50}
+                        value={treeYield.minBlocks}
+                        onChange={(e) => {
+                          const minB = Math.max(1, Math.min(50, Number(e.target.value) || 1));
+                          updateItemOverride(selectedItemId, {
+                            treeHarvestYield: {
+                              ...treeYield,
+                              minBlocks: minB,
+                              maxBlocks: Math.max(minB, treeYield.maxBlocks),
+                            },
+                          });
+                        }}
+                        className="w-full py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-center text-white"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 bg-[#06110d] border border-[#234d33] rounded p-1.5 text-[10px] text-[#c7eed4]">
+                      <span>Tree Max Blocks</span>
+                      <input
+                        type="number"
+                        aria-label="Tree Max Blocks"
+                        min={treeYield.minBlocks}
+                        max={50}
+                        value={treeYield.maxBlocks}
+                        onChange={(e) => {
+                          const maxB = Math.max(
+                            treeYield.minBlocks,
+                            Math.min(50, Number(e.target.value) || treeYield.minBlocks)
+                          );
+                          updateItemOverride(selectedItemId, {
+                            treeHarvestYield: {
+                              ...treeYield,
+                              maxBlocks: maxB,
+                            },
+                          });
+                        }}
+                        className="w-full py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-center text-white"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 bg-[#06110d] border border-[#234d33] rounded p-1.5 text-[10px] text-[#fde047]">
+                      <span>Tree Seed %</span>
+                      <input
+                        type="number"
+                        aria-label="Tree Seed Chance Percent"
+                        min={0}
+                        max={100}
+                        value={seedChancePct}
+                        onChange={(e) => {
+                          const pctVal = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                          updateItemOverride(selectedItemId, {
+                            treeHarvestYield: {
+                              ...treeYield,
+                              seedChance: pctVal / 100,
+                            },
+                          });
+                        }}
+                        className="w-full py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-center text-[#fde047]"
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Mobile-Friendly Drop Entries List */}
             <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 flex flex-col gap-2">
