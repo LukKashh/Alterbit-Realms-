@@ -1679,7 +1679,11 @@ function getDirectionalSpriteSheetFrame(
 ): HTMLCanvasElement | null {
   const isIdle = pose === 'idle' || /^idle[0-5]$/.test(pose);
   const isWalking = /^walk[0-5]$/.test(pose);
-  if ((!isIdle && !isWalking) || shirtColor.toLowerCase() !== '#3f8fd9' || equipped) return null;
+  const hasEquippedWearables = Boolean(
+    equipped &&
+    Object.values(equipped).some((itemId) => Number(itemId) > 0)
+  );
+  if ((!isIdle && !isWalking) || shirtColor.toLowerCase() !== '#3f8fd9' || hasEquippedWearables) return null;
   if (typeof Image === 'undefined' || typeof document === 'undefined') return null;
 
   if (!playerSpriteSheetImage) {
