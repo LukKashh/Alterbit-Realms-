@@ -5,7 +5,7 @@ import {
   PLAYER_WIDTH,
   TILE_SIZE,
 } from './constants.ts';
-import { CATALOG, getItemDef, ITEM_IDS } from './catalog.ts';
+import { CATALOG, getItemDef, isCropSeed, ITEM_IDS } from './catalog.ts';
 import {
   cloneGameConfig,
   DEFAULT_GAME_CONFIG,
@@ -16,6 +16,7 @@ import { ensureFluidArrays, type FluidDelta } from './fluids.ts';
 import { createPlayerBody, stepPlayerPhysics, type PlayerBody } from './physics.ts';
 import {
   getCrackOverlay,
+  getMarketStandSprite,
   getPlayerSprite,
   getTileSprite,
   type EquippedWearables,
@@ -25,10 +26,13 @@ import { PLAYER_LOGICAL_H, PLAYER_LOGICAL_W } from './playerSpriteHD.ts';
 import {
   canBreakTile,
   canPlaceTile,
+  canPlowTile,
   getCoveringAreaLock,
   getCoveringShareLock,
+  getMarketStandAt,
   getPlantGrowthState,
   inBoundsWorld,
+  isDoorBlock,
   tileIndexIn,
   worldHeight,
   worldWidth,
@@ -37,6 +41,7 @@ import {
   generateWorld,
   type AreaLockRecord,
   type AtmMachineRecord,
+  type DoorLinkRecord,
   type ShareLockRecord,
   type BfgCollectorRecord,
   type FurnaceRecord,
@@ -110,6 +115,7 @@ export interface TileInspectInfo {
   areaLock?: AreaLockRecord | null;
   shareLock?: ShareLockRecord | null;
   isLandlord?: boolean;
+  isGreensVendor?: boolean;
   isWorldCore?: boolean;
   vendingMachine?: VendingMachineRecord | null;
   furnace?: FurnaceRecord | null;
@@ -119,6 +125,10 @@ export interface TileInspectInfo {
   matteragenEngine?: MatteragenRecord | null;
   atmMachine?: AtmMachineRecord | null;
   vaultbox?: VaultboxRecord | null;
+  bgId?: number;
+  isDoor?: boolean;
+  isNexusDoor?: boolean;
+  doorLink?: DoorLinkRecord | null;
 }
 
 export interface EngineCallbacks {
@@ -134,6 +144,7 @@ export interface EngineCallbacks {
   }) => void;
   onPunchTile?: (tx: number, ty: number, toolItemId?: number, adminEdit?: boolean) => void;
   onPlaceTile?: (tx: number, ty: number, itemId: number, adminEdit?: boolean) => void;
+  onPlowTile?: (tx: number, ty: number, adminEdit?: boolean) => void;
   onPickupDrop?: (dropId: string) => void;
   onInspectTile?: (info: TileInspectInfo | null) => void;
   onCoordsChange?: (tx: number, ty: number) => void;
@@ -141,6 +152,7 @@ export interface EngineCallbacks {
   onReelFishing?: () => void;
   onUseConsumable?: (itemId: number) => void;
   onHazardHit?: (hazard: 'acid' | 'spikes') => void;
+  onUseDoor?: (tx: number, ty: number) => void;
 }
 
 const MAX_PARTICLES = 280;
@@ -481,6 +493,10 @@ export class BlockgroveEngine {
     this.selectedItemId = itemId;
   }
 
+  public setAdminBrushItem(brushItemId: number | null) {
+    this.adminBrushItemId = brushItemId;
+  }
+
   public setAdminWorldEdit(enabled: boolean, brushItemId: number | null = null) {
     this.adminWorldEdit = enabled;
     this.adminBrushItemId = brushItemId;
@@ -564,7 +580,8 @@ export class BlockgroveEngine {
       !!fgDef?.transparent ||
       fgId === ITEM_IDS.ENTRANCE_PORTAL ||
       fgId === ITEM_IDS.SMALL_LOCK ||
-      fgId === ITEM_IDS.LANDLORD_NPC;
+      fgId === ITEM_IDS.LANDLORD_NPC ||
+      fgId === ITEM_IDS.GREENS_VENDOR_NPC;
 
     const aboveFg = ty > 0 ? this.world.fg[(ty - 1) * w + tx] : ITEM_IDS.AIR;
     const belowFg = ty + 1 < h ? this.world.fg[(ty + 1) * w + tx] : ITEM_IDS.BEDROCK;
@@ -572,16 +589,28 @@ export class BlockgroveEngine {
     const belowSolid = belowFg !== ITEM_IDS.AIR && CATALOG[belowFg]?.collision === 'solid';
 
     if (bgId !== ITEM_IDS.BG_SKY && fgTransparent) {
-      this.worldLayerCtx.drawImage(getTileSprite(bgId), px, py, TILE_SIZE, TILE_SIZE);
-      // Recessed depth tint so background walls sit visually behind foreground blocks
-      this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.24)';
-      this.worldLayerCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      if (aboveSolid) {
-        this.worldLayerCtx.fillStyle = 'rgba(5, 9, 16, 0.36)';
-        this.worldLayerCtx.fillRect(px, py, TILE_SIZE, 8);
+      if (isDoorBlock(bgId)) {
+        // Draw recessed stone backing wall behind the background door so the archway stands out cleanly
+        this.worldLayerCtx.drawImage(getTileSprite(ITEM_IDS.GP_ROCK_BACKGROUND), px, py, TILE_SIZE, TILE_SIZE);
+        this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.24)';
+        this.worldLayerCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        this.worldLayerCtx.drawImage(getTileSprite(bgId), px, py, TILE_SIZE, TILE_SIZE);
+      } else {
+        this.worldLayerCtx.drawImage(getTileSprite(bgId), px, py, TILE_SIZE, TILE_SIZE);
+        // Recessed depth tint so background walls sit visually behind foreground blocks
+        this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.24)';
+        this.worldLayerCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        if (aboveSolid) {
+          this.worldLayerCtx.fillStyle = 'rgba(5, 9, 16, 0.36)';
+          this.worldLayerCtx.fillRect(px, py, TILE_SIZE, 8);
+        }
       }
     }
-    if (fgId !== ITEM_IDS.AIR) {
+    if (
+      fgId !== ITEM_IDS.AIR &&
+      fgId !== ITEM_IDS.LANDLORD_NPC &&
+      fgId !== ITEM_IDS.GREENS_VENDOR_NPC
+    ) {
       this.worldLayerCtx.drawImage(getTileSprite(fgId), px, py, TILE_SIZE, TILE_SIZE);
       if (fgDef?.collision === 'solid') {
         if (!aboveSolid) {
@@ -594,6 +623,43 @@ export class BlockgroveEngine {
         }
       }
     }
+  }
+
+  public updateWorldXp(worldXp: number, worldLevel: number, coreTokens?: number) {
+    const prevLevel = this.world.worldLevel ?? 1;
+    const prevTokens = this.world.coreTokens ?? 0;
+    this.world.worldXp = worldXp;
+    this.world.worldLevel = worldLevel;
+    if (typeof coreTokens === 'number') {
+      this.world.coreTokens = coreTokens;
+      if (coreTokens > prevTokens) {
+        const px = this.body.x + PLAYER_WIDTH * 0.5;
+        const py = this.body.y - 18;
+        this.spawnRing(px, py, 38, '#38bdf8', 0.45);
+        this.spawnSparks(px, py, 14, '#38bdf8');
+        this.spawnPopup(px, py - 14, '+1 CORE TOKEN!', '#38bdf8');
+      }
+    }
+    if (worldLevel > prevLevel) {
+      const px = this.body.x + PLAYER_WIDTH * 0.5;
+      const py = this.body.y - 12;
+      this.spawnRing(px, py, 44, '#fde047', 0.55);
+      this.spawnSparks(px, py, 16, '#fde047');
+      this.spawnPopup(px, py - 10, `WORLD LEVEL ${worldLevel}!`, '#fde047');
+    }
+  }
+
+  public teleportLocalPlayer(tx: number, ty: number) {
+    const nextBody = createPlayerBody(tx, ty);
+    this.body.x = nextBody.x;
+    this.body.y = nextBody.y;
+    this.body.vx = 0;
+    this.body.vy = 0;
+    const px = this.body.x + PLAYER_WIDTH * 0.5;
+    const py = this.body.y + PLAYER_HEIGHT * 0.5;
+    this.spawnRing(px, py, 36, '#38bdf8', 0.35);
+    this.spawnSparks(px, py, 12, '#7dd3fc');
+    this.snapCameraToPlayer();
   }
 
   private rebuildWorldLayer() {
@@ -677,6 +743,8 @@ export class BlockgroveEngine {
     this.world.matteragenEngines = this.world.matteragenEngines ?? {};
     this.world.atmMachines = this.world.atmMachines ?? {};
     this.world.vaultboxes = this.world.vaultboxes ?? {};
+    this.world.doorLinks = this.world.doorLinks ?? {};
+    this.world.coreTokens = this.world.coreTokens ?? 0;
     this.tileAnims.clear();
     this.popups = [];
     ensureFluidArrays(this.world);
@@ -815,7 +883,8 @@ export class BlockgroveEngine {
     seedPot?: SeedPotRecord | null,
     matteragenEngine?: MatteragenRecord | null,
     atmMachine?: AtmMachineRecord | null,
-    vaultbox?: VaultboxRecord | null
+    vaultbox?: VaultboxRecord | null,
+    doorLink?: DoorLinkRecord | null
   ) {
     const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
@@ -889,6 +958,11 @@ export class BlockgroveEngine {
     if (signText !== undefined) {
       if (signText) this.world.signs[key] = signText;
       else delete this.world.signs[key];
+    }
+    this.world.doorLinks = this.world.doorLinks ?? {};
+    if (doorLink !== undefined) {
+      if (doorLink) this.world.doorLinks[key] = doorLink;
+      else delete this.world.doorLinks[key];
     }
 
     this.paintLayerTile(tx, ty);
@@ -1074,12 +1148,14 @@ export class BlockgroveEngine {
         const idx = tileIndexIn(this.world, tx, ty);
         const fgId = this.world.fg[idx];
         const hasPlant = Boolean(this.world.plants[`${tx},${ty}`]);
-        if (fgId !== ITEM_IDS.AIR || hasPlant) {
+        if (fgId !== ITEM_IDS.AIR || hasPlant || getMarketStandAt(this.world, tx, ty)) {
           if (canBreakTile(this.world, playerCtx, tx, ty, reach).ok) {
             return { tx, ty };
           }
           if (
             CATALOG[fgId]?.collision === 'solid' ||
+            Boolean(CATALOG[fgId]?.key.includes('sign')) ||
+            Boolean(getMarketStandAt(this.world, tx, ty)) ||
             fgId === ITEM_IDS.VENDING_MACHINE ||
             fgId === ITEM_IDS.WORLD_LOCK ||
             fgId === ITEM_IDS.SMALL_LOCK ||
@@ -1087,6 +1163,7 @@ export class BlockgroveEngine {
             fgId === ITEM_IDS.BFG_COLLECTOR ||
             fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
             fgId === ITEM_IDS.LANDLORD_NPC ||
+            fgId === ITEM_IDS.GREENS_VENDOR_NPC ||
             fgId === ITEM_IDS.WORLD_CORE ||
             fgId === ITEM_IDS.SEED_POT ||
             fgId === ITEM_IDS.ATM_MACHINE ||
@@ -1112,7 +1189,16 @@ export class BlockgroveEngine {
     if (activeItemId === ITEM_IDS.WRENCH) {
       for (const { tx, ty } of inFrontTiles) {
         const idx = tileIndexIn(this.world, tx, ty);
-        if (this.world.fg[idx] !== ITEM_IDS.AIR) {
+        if (this.world.fg[idx] !== ITEM_IDS.AIR || getMarketStandAt(this.world, tx, ty)) {
+          return { tx, ty };
+        }
+      }
+      return firstFrontTile;
+    }
+
+    if (selectedDef?.toolKind === 'hoe') {
+      for (const { tx, ty } of rayTiles) {
+        if (canPlowTile(this.world, playerCtx, tx, ty, reach).ok) {
           return { tx, ty };
         }
       }
@@ -1155,21 +1241,6 @@ export class BlockgroveEngine {
   }
 
   private getEffectiveInteractItemId(): number {
-    if (
-      this.adminWorldEdit &&
-      this.adminBrushItemId &&
-      this.selectedItemId !== ITEM_IDS.FIST &&
-      this.selectedItemId !== ITEM_IDS.WRENCH
-    ) {
-      const selDef = getItemDef(this.selectedItemId);
-      if (
-        selDef?.toolKind !== 'pickaxe' &&
-        selDef?.toolKind !== 'rod' &&
-        selDef?.category !== 'consumable'
-      ) {
-        return this.adminBrushItemId;
-      }
-    }
     return this.selectedItemId;
   }
 
@@ -1187,7 +1258,9 @@ export class BlockgroveEngine {
     if (!inBoundsWorld(this.world, tx, ty)) return;
     const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
-    const fgId = this.world.fg[idx];
+    const rawFgId = this.world.fg[idx];
+    const stand = getMarketStandAt(this.world, tx, ty);
+    const fgId = stand ? stand.itemId : rawFgId;
     const fgDef = getItemDef(fgId);
     const bgDef = getItemDef(this.world.bg[idx]);
     const plant = this.world.plants[key];
@@ -1212,10 +1285,13 @@ export class BlockgroveEngine {
           ? `Owned by ${this.world.worldLock.ownerName}`
           : 'Unlocked Area';
 
+    const bgId = this.world.bg[idx];
+    const isDoor = isDoorBlock(bgId) || isDoorBlock(fgId);
+
     if (!quiet) soundEngine.uiClick();
     this.callbacks.onInspectTile?.({
-      tx,
-      ty,
+      tx: stand ? stand.anchorX : tx,
+      ty: stand ? stand.anchorY : ty,
       fgId,
       fgName: fgDef?.name ?? 'Air',
       bgName: bgDef?.name ?? 'Open Sky',
@@ -1224,7 +1300,8 @@ export class BlockgroveEngine {
       worldLock: fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
       areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : coveringAreaLock,
       shareLock: this.world.shareLocks?.[key] ?? null,
-      isLandlord: fgId === ITEM_IDS.LANDLORD_NPC,
+      isLandlord: stand?.kind === 'landlord' || fgId === ITEM_IDS.LANDLORD_NPC,
+      isGreensVendor: stand?.kind === 'greens_vendor' || fgId === ITEM_IDS.GREENS_VENDOR_NPC,
       isWorldCore: fgId === ITEM_IDS.WORLD_CORE,
       vendingMachine: fgId === ITEM_IDS.VENDING_MACHINE ? (this.world.vendingMachines?.[key] ?? null) : null,
       furnace: fgId === ITEM_IDS.STONE_FURNACE ? (this.world.furnaces?.[key] ?? null) : null,
@@ -1237,6 +1314,10 @@ export class BlockgroveEngine {
           : null,
       atmMachine: fgId === ITEM_IDS.ATM_MACHINE ? (this.world.atmMachines?.[key] ?? null) : null,
       vaultbox: fgId === ITEM_IDS.VAULTBOX ? (this.world.vaultboxes?.[key] ?? null) : null,
+      bgId,
+      isDoor,
+      isNexusDoor: isDoor && this.world.name === 'NEXUS',
+      doorLink: isDoor ? (this.world.doorLinks?.[key] ?? null) : null,
     });
   }
 
@@ -1261,10 +1342,54 @@ export class BlockgroveEngine {
       return;
     }
 
+    // Tapping WorldCore, a 3x2 Market Stand, or a Doorway opens its panel / gateway unless breaking with Fist/Pickaxe in SysEdit
+    const tileIdx = tileIndexIn(this.world, tx, ty);
+    const targetFgId = this.world.fg[tileIdx];
+    const targetBgId = this.world.bg[tileIdx];
+    const targetHasDoor = isDoorBlock(targetBgId) || isDoorBlock(targetFgId);
+    const isBreakTool = activeItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe';
+    if (!(this.adminWorldEdit && isBreakTool)) {
+      if (targetHasDoor && this.world.name === 'NEXUS') {
+        this.punchTimer = 0.25;
+        this.punchAnimTimer = PUNCH_ANIM_DURATION;
+        this.emitInspectAt(tx, ty);
+        return;
+      }
+      if (targetHasDoor && this.world.doorLinks?.[`${tx},${ty}`] && activeItemId === ITEM_IDS.FIST) {
+        this.punchTimer = 0.25;
+        this.punchAnimTimer = PUNCH_ANIM_DURATION;
+        soundEngine.uiClick();
+        this.callbacks.onUseDoor?.(tx, ty);
+        return;
+      }
+      if (targetFgId === ITEM_IDS.WORLD_CORE || Boolean(getMarketStandAt(this.world, tx, ty))) {
+        this.punchTimer = 0.25;
+        this.emitInspectAt(tx, ty);
+        return;
+      }
+    }
+
     if (selectedDef?.category === 'consumable') {
       this.punchTimer = 0.4;
       soundEngine.uiClick();
       this.callbacks.onUseConsumable?.(activeItemId);
+      return;
+    }
+
+    if (selectedDef?.toolKind === 'hoe') {
+      this.punchTimer = 0.22;
+      this.punchAnimTimer = PUNCH_ANIM_DURATION;
+      const check = canPlowTile(this.world, playerCtx, tx, ty, reach);
+      soundEngine.swingTool(activeItemId);
+      if (check.ok) {
+        const cx = tx * TILE_SIZE + TILE_SIZE * 0.5;
+        const cy = ty * TILE_SIZE + 8;
+        this.spawnDust(cx, cy, 8, '#8b5a2b');
+        this.spawnSparks(cx, cy, 5, '#fde047');
+        this.callbacks.onPlowTile?.(tx, ty, this.adminWorldEdit);
+      } else {
+        this.emitInspectAt(tx, ty);
+      }
       return;
     }
 
@@ -1308,9 +1433,11 @@ export class BlockgroveEngine {
           fgId === ITEM_IDS.BFG_COLLECTOR ||
           fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
           fgId === ITEM_IDS.LANDLORD_NPC ||
+          fgId === ITEM_IDS.GREENS_VENDOR_NPC ||
           fgId === ITEM_IDS.WORLD_CORE ||
           fgId === ITEM_IDS.ATM_MACHINE ||
           fgId === ITEM_IDS.VAULTBOX ||
+          targetHasDoor ||
           (fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC)
         ) {
           this.emitInspectAt(tx, ty);
@@ -1660,6 +1787,30 @@ export class BlockgroveEngine {
       this.body.vy = 0;
       this.shakeTrauma = 0.45;
       this.callbacks.onHazardHit?.(result.hazardHit);
+    }
+
+    // NEXUS Open-Sky Void Respawn Boundary
+    if (
+      this.world.name === 'NEXUS' &&
+      this.body.y > (worldHeight(this.world) - 4) * TILE_SIZE
+    ) {
+      this.body.x = this.world.spawnX * TILE_SIZE + (TILE_SIZE - PLAYER_WIDTH) * 0.5;
+      this.body.y = (this.world.spawnY + 1) * TILE_SIZE - PLAYER_HEIGHT;
+      this.body.vx = 0;
+      this.body.vy = 0;
+      this.spawnRing(
+        this.body.x + PLAYER_WIDTH * 0.5,
+        this.body.y + PLAYER_HEIGHT * 0.5,
+        36,
+        '#38bdf8',
+        0.35
+      );
+      this.spawnPopup(
+        this.body.x + PLAYER_WIDTH * 0.5,
+        this.body.y - 10,
+        'RETURNED TO NEXUS DECK',
+        '#7dd3fc'
+      );
     }
 
     const targetCamX = Math.max(0, Math.min(maxCamX, this.body.x + PLAYER_WIDTH * 0.5 - viewW * 0.5));
@@ -2143,87 +2294,102 @@ export class BlockgroveEngine {
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(gx + Math.floor(sz * 0.45), gy + 1, 2, 2);
         }
-      } else if (getItemDef(drop.itemId)?.category === 'seed') {
-        const dx = Math.floor(drop.x - cx - 9);
-        const dy = Math.floor(drop.y - cy - 9 + bob);
-        // Subtle ground shadow
-        ctx.fillStyle = 'rgba(6, 12, 20, 0.30)';
-        ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 8), 15, 3);
-
-        // Seeds display enlarged 16x16 seed sprite
-        ctx.drawImage(getTileSprite(drop.itemId), dx + 1, dy + 1, 16, 16);
-
-        if (drop.qty > 1) {
-          const label = drop.qty > 999 ? '999+' : String(drop.qty);
-          ctx.font = 'bold 8px monospace';
-          const badgeW = Math.max(12, Math.ceil(ctx.measureText(label).width) + 4);
-          const badgeX = dx + 18 - badgeW + 2;
-          const badgeY = dy + 11;
-          ctx.fillStyle = '#0d1520';
-          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 10);
-          ctx.fillStyle = '#e8f2fa';
-          ctx.fillRect(badgeX, badgeY, badgeW, 8);
-          ctx.fillStyle = '#142233';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 4);
-          ctx.textAlign = 'start';
-          ctx.textBaseline = 'alphabetic';
-        }
       } else {
-        // Enlarged 21x21 floating item frame (scaled up for high-visibility)
-        const dx = Math.floor(drop.x - cx - 10);
-        const dy = Math.floor(drop.y - cy - 10 + bob);
-        ctx.fillStyle = 'rgba(6, 12, 20, 0.35)';
-        ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 9), 17, 3);
+        const dropDef = getItemDef(drop.itemId);
+        const isSolidFullBlock =
+          (dropDef?.category === 'foreground' || dropDef?.category === 'background') &&
+          !dropDef?.transparent;
 
-        ctx.fillStyle = '#090d16';
-        ctx.fillRect(dx, dy, 21, 21);
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(dx + 1, dy + 1, 19, 19);
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(dx + 2, dy + 2, 17, 1);
-        ctx.fillRect(dx + 2, dy + 2, 1, 17);
-        ctx.drawImage(getTileSprite(drop.itemId), dx + 2.5, dy + 2.5, 16, 16);
+        if (!isSolidFullBlock) {
+          // Non-block / non-background / hollow-background items: slightly larger (24x24) with clear see-through background
+          const iconSize = 24;
+          const dx = Math.floor(drop.x - cx - iconSize * 0.5);
+          const dy = Math.floor(drop.y - cy - iconSize * 0.5 + bob);
+          // Subtle ground shadow only (no opaque dark box behind sprite)
+          ctx.fillStyle = 'rgba(6, 12, 20, 0.30)';
+          ctx.fillRect(dx + 3, Math.floor(drop.y - cy + 10), iconSize - 6, 3);
 
-        if (drop.qty > 1) {
-          const label = drop.qty > 999 ? '999+' : String(drop.qty);
-          ctx.font = 'bold 8px monospace';
-          const badgeW = Math.max(12, Math.ceil(ctx.measureText(label).width) + 4);
-          const badgeX = dx + 20 - badgeW + 2;
-          const badgeY = dy + 12;
-          ctx.fillStyle = '#0d1520';
-          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 10);
-          ctx.fillStyle = '#e8f2fa';
-          ctx.fillRect(badgeX, badgeY, badgeW, 8);
-          ctx.fillStyle = '#142233';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 4);
-          ctx.textAlign = 'start';
-          ctx.textBaseline = 'alphabetic';
+          ctx.drawImage(getTileSprite(drop.itemId), dx, dy, iconSize, iconSize);
+
+          if (drop.qty > 1) {
+            const label = drop.qty > 999 ? '999+' : String(drop.qty);
+            ctx.font = 'bold 8px monospace';
+            const badgeW = Math.max(12, Math.ceil(ctx.measureText(label).width) + 4);
+            const badgeX = dx + iconSize - badgeW + 2;
+            const badgeY = dy + iconSize - 8;
+            ctx.fillStyle = '#0d1520';
+            ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 10);
+            ctx.fillStyle = '#e8f2fa';
+            ctx.fillRect(badgeX, badgeY, badgeW, 8);
+            ctx.fillStyle = '#142233';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, badgeX + badgeW / 2, badgeY + 4);
+            ctx.textAlign = 'start';
+            ctx.textBaseline = 'alphabetic';
+          }
+        } else {
+          // Solid full-tile foreground/background blocks: crisp 20x20 block drop
+          const dx = Math.floor(drop.x - cx - 10);
+          const dy = Math.floor(drop.y - cy - 10 + bob);
+          ctx.fillStyle = 'rgba(6, 12, 20, 0.35)';
+          ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 9), 16, 3);
+
+          ctx.fillStyle = '#090d16';
+          ctx.fillRect(dx, dy, 20, 20);
+          ctx.drawImage(getTileSprite(drop.itemId), dx + 1, dy + 1, 18, 18);
+
+          if (drop.qty > 1) {
+            const label = drop.qty > 999 ? '999+' : String(drop.qty);
+            ctx.font = 'bold 8px monospace';
+            const badgeW = Math.max(12, Math.ceil(ctx.measureText(label).width) + 4);
+            const badgeX = dx + 20 - badgeW + 2;
+            const badgeY = dy + 12;
+            ctx.fillStyle = '#0d1520';
+            ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 10);
+            ctx.fillStyle = '#e8f2fa';
+            ctx.fillRect(badgeX, badgeY, badgeW, 8);
+            ctx.fillStyle = '#142233';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, badgeX + badgeW / 2, badgeY + 4);
+            ctx.textAlign = 'start';
+            ctx.textBaseline = 'alphabetic';
+          }
         }
       }
     }
 
     const queuedNameplates: Array<{ name: string; screenX: number; screenY: number }> = [];
 
-    // 5b. Landlord Steward & WorldCore in-world presence cues
-    if (this.world.name === 'NEXUS') {
-      const landlordX = Math.min(ww - 4, this.world.spawnX + 4);
-      const landlordY = this.world.spawnY;
-      if (this.world.fg[landlordY * ww + landlordX] === ITEM_IDS.LANDLORD_NPC) {
-        const lsx = landlordX * TILE_SIZE - cx;
-        const lsy = landlordY * TILE_SIZE - cy;
-        const glowPulse = 0.28 + Math.sin(nowMs * 0.004) * 0.12;
-        ctx.strokeStyle = `rgba(255, 225, 140, ${glowPulse})`;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(lsx - 2, lsy - 2, TILE_SIZE + 4, TILE_SIZE + 4);
-        queuedNameplates.push({
-          name: 'LANDLORD · REALM STEWARD',
-          screenX: (lsx + TILE_SIZE * 0.5) * viewScale,
-          screenY: (lsy - 4) * viewScale,
-        });
+    // 5b. 3×2 Market Stands (Landlord Steward & Fresh Greens Vendor) & WorldCore in-world presence cues
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = Math.max(0, tx0 - 1); tx <= Math.min(ww - 1, tx1 + 1); tx++) {
+        const fgId = this.world.fg[ty * ww + tx];
+        if (fgId === ITEM_IDS.LANDLORD_NPC || fgId === ITEM_IDS.GREENS_VENDOR_NPC) {
+          const isLandlord = fgId === ITEM_IDS.LANDLORD_NPC;
+          const standSprite = getMarketStandSprite(isLandlord ? 'landlord' : 'greens_vendor');
+          const standX = (tx - 1) * TILE_SIZE - cx;
+          const standY = (ty - 1) * TILE_SIZE - cy;
+          const standW = TILE_SIZE * 3;
+          const standH = TILE_SIZE * 2;
+          ctx.drawImage(standSprite, standX, standY, standW, standH);
+
+          const glowPulse = 0.26 + Math.sin(nowMs * 0.004 + tx) * 0.12;
+          ctx.strokeStyle = isLandlord
+            ? `rgba(255, 225, 140, ${glowPulse})`
+            : `rgba(110, 231, 183, ${glowPulse})`;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(standX - 1, standY - 1, standW + 2, standH + 2);
+
+          queuedNameplates.push({
+            name: isLandlord
+              ? 'LANDLORD · REALM STEWARD'
+              : 'FRESH GREENS VENDOR · CROPS & DIGIBITS',
+            screenX: (standX + standW * 0.5) * viewScale,
+            screenY: (standY - 4) * viewScale,
+          });
+        }
       }
     }
     if (this.world.worldLock && this.world.worldLock.lockItemId === ITEM_IDS.WORLD_CORE) {
@@ -2234,6 +2400,12 @@ export class BlockgroveEngine {
       const pulse = 0.35 + Math.sin(nowMs * 0.005) * 0.18;
       ctx.strokeStyle = `rgba(244, 196, 95, ${pulse})`;
       ctx.lineWidth = 2;
+      ctx.strokeRect(csx - 1, csy - 1, TILE_SIZE + 2, TILE_SIZE + 2);
+      queuedNameplates.push({
+        name: `WORLD CORE · LV.${this.world.worldLevel ?? 1} (TAP)`,
+        screenX: (csx + TILE_SIZE * 0.5) * viewScale,
+        screenY: (csy - 2) * viewScale,
+      });
     }
 
     // 5c. Matteragen Engine in-world status & readiness cues
@@ -2416,22 +2588,81 @@ export class BlockgroveEngine {
         screenY: localTopY * viewScale,
       });
 
-      // Nearby Signboard floating caption (queued for crisp screen-space pass)
+      // Signboard display:
+      // 1) Static pixel-art directional text labels on NEXUS navigational WOODEN_SIGN & Multi-Way Door blocks
+      // 2) Full signboard floating banner ONLY when standing directly on the sign block
       if (this.world.signs) {
         const ptx = (this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE;
         const pty = (this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE;
+        const playerTileX = Math.floor(ptx);
+        const playerTileY = Math.floor(pty);
         for (const key in this.world.signs) {
           const text = this.world.signs[key];
           if (!text) continue;
           const [sxStr, syStr] = key.split(',');
           const stx = Number(sxStr);
           const sty = Number(syStr);
-          if (Math.hypot(ptx - (stx + 0.5), pty - (sty + 0.5)) <= 2.6) {
+
+          // Static pixel-art text label rendered directly above NEXUS directional signs
+          if (
+            this.world.name === 'NEXUS' &&
+            (text === '← Fresh Greens' || text === 'Realm Steward →' || text === '↑ Exchange & Furnace')
+          ) {
+            const sx = stx * TILE_SIZE - cx;
+            const sy = sty * TILE_SIZE - cy;
+            if (sx + TILE_SIZE >= -60 && sx <= viewW + 60 && sy + TILE_SIZE >= -30 && sy <= viewH + 30) {
+              ctx.font = 'bold 8px monospace';
+              const tw = Math.ceil(ctx.measureText(text).width);
+              const pw = tw + 8;
+              const ph = 12;
+              const px = Math.round(sx + TILE_SIZE * 0.5 - pw * 0.5);
+              const py = Math.round(sy - (stx === 52 ? 22 : 10));
+              ctx.fillStyle = '#2d1c10';
+              ctx.fillRect(px - 1, py - 1, pw + 2, ph + 2);
+              ctx.fillStyle = '#6d4829';
+              ctx.fillRect(px, py, pw, ph);
+              ctx.fillStyle = '#e1b67a';
+              ctx.fillRect(px + 1, py + 1, pw - 2, 1);
+              ctx.fillStyle = '#fffbeb';
+              ctx.fillText(text, px + 4, py + 9);
+            }
+          }
+
+          // Sign banner display range: ONLY when standing on the sign block
+          if (playerTileX === stx && playerTileY === sty) {
             queuedSignBanners.push({
               text,
               screenX: (stx * TILE_SIZE - cx + TILE_SIZE * 0.5) * viewScale,
               screenY: (sty * TILE_SIZE - cy) * viewScale,
             });
+          }
+        }
+      }
+
+      // NEXUS Multi-Way Navigational Doorway pixel-art cue
+      if (this.world.name === 'NEXUS') {
+        const doorCoords: Array<[number, number]> = [
+          [53, 29],
+          [31, 27],
+          [69, 27],
+          [51, 17],
+        ];
+        for (const [dtx, dty] of doorCoords) {
+          const idx = dty * ww + dtx;
+          if (isDoorBlock(this.world.bg[idx]) || isDoorBlock(this.world.fg[idx])) {
+            const dsx = dtx * TILE_SIZE - cx;
+            const dsy = dty * TILE_SIZE - cy;
+            if (dsx + TILE_SIZE >= 0 && dsx <= viewW && dsy + TILE_SIZE >= 0 && dsy <= viewH) {
+              const pulse = 0.45 + 0.25 * Math.sin(nowMs * 0.005 + dtx);
+              ctx.strokeStyle = `rgba(56, 189, 248, ${pulse})`;
+              ctx.lineWidth = 2;
+              ctx.strokeRect(dsx + 2, dsy + 2, TILE_SIZE - 4, TILE_SIZE - 2);
+              queuedNameplates.push({
+                name: 'NEXUS TRANSIT DOOR (PUNCH)',
+                screenX: (dsx + TILE_SIZE * 0.5) * viewScale,
+                screenY: (dsy - 4) * viewScale,
+              });
+            }
           }
         }
       }
@@ -2517,19 +2748,27 @@ export class BlockgroveEngine {
         const activeItemId = this.getEffectiveInteractItemId();
         const sDef = getItemDef(activeItemId);
         const isBreakTool = activeItemId === ITEM_IDS.FIST || sDef?.toolKind === 'pickaxe';
+        const isHoeTool = sDef?.toolKind === 'hoe';
         const isNonPlaceTool = activeItemId === ITEM_IDS.WRENCH || sDef?.category === 'consumable' || sDef?.toolKind === 'rod';
-        const canAct = isBreakTool
-          ? canBreakTile(this.world, playerCtx, tx, ty, reach).ok
-          : isNonPlaceTool
-            ? true
-            : canPlaceTile(this.world, playerCtx, activeItemId, tx, ty, reach).ok;
+        const isSpecialInspectTarget =
+          this.world.fg[tileIndexIn(this.world, tx, ty)] === ITEM_IDS.WORLD_CORE ||
+          Boolean(getMarketStandAt(this.world, tx, ty));
+        const canAct = isSpecialInspectTarget
+          ? true
+          : isHoeTool
+            ? canPlowTile(this.world, playerCtx, tx, ty, reach).ok
+            : isBreakTool
+              ? canBreakTile(this.world, playerCtx, tx, ty, reach).ok
+              : isNonPlaceTool
+                ? true
+                : canPlaceTile(this.world, playerCtx, activeItemId, tx, ty, reach).ok;
 
         const rx = tx * TILE_SIZE - cx;
         const ry = ty * TILE_SIZE - cy;
         const pulse = Math.sin(nowMs * 0.009) * 1.5;
 
         // Faint placement ghost sprite when aiming a placeable block/machine/pot
-        if (canAct && !isBreakTool && !isNonPlaceTool && sDef?.placeable) {
+        if (canAct && !isBreakTool && !isHoeTool && !isNonPlaceTool && !isSpecialInspectTarget && sDef?.placeable) {
           ctx.save();
           ctx.globalAlpha = 0.34;
           ctx.drawImage(getTileSprite(activeItemId), rx, ry, TILE_SIZE, TILE_SIZE);
@@ -2684,6 +2923,62 @@ export class BlockgroveEngine {
     const scale = TILE_SIZE / 48;
     const sway = Math.round(Math.sin(nowMs * 0.0025 + plant.x * 0.7) * (stage === 'mature' ? 2 : 1));
     const growthScale = stage === 'planted' ? 0 : stage === 'sprout' ? 0.28 : stage === 'young' ? 0.48 : stage === 'developing' ? 0.76 : 1;
+
+    // Soil-sown Crop Seeds grow as lush low-profile vegetable/fruit crop beds rather than tall wooden trees
+    if (isCropSeed(plant.seedId)) {
+      const moundW = Math.round(36 * scale);
+      const moundX = sx + Math.round((TILE_SIZE - moundW) / 2);
+      ctx.fillStyle = '#151b26';
+      ctx.fillRect(moundX - 1, sy + TILE_SIZE - Math.round(9 * scale), moundW + 2, Math.round(9 * scale));
+      ctx.fillStyle = '#5c381c';
+      ctx.fillRect(moundX, sy + TILE_SIZE - Math.round(8 * scale), moundW, Math.round(7 * scale));
+
+      const bushW = Math.round((14 + growthScale * 24) * scale);
+      const bushH = Math.round((8 + growthScale * 22) * scale);
+      const bushX = sx + Math.round((TILE_SIZE - bushW) / 2) + sway;
+      const bushY = sy + TILE_SIZE - Math.round(6 * scale) - bushH;
+
+      ctx.fillStyle = '#151b26';
+      ctx.fillRect(bushX - 2, bushY - 2, bushW + 4, bushH + 4);
+      ctx.fillStyle = '#15803d';
+      ctx.fillRect(bushX, bushY, bushW, bushH);
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(bushX + 2, bushY + 2, Math.max(4, bushW - 4), Math.max(3, Math.floor(bushH * 0.6)));
+      ctx.fillStyle = '#86efac';
+      ctx.fillRect(bushX + 4, bushY + 2, Math.max(2, Math.floor(bushW * 0.5)), Math.max(2, Math.floor(bushH * 0.28)));
+
+      if (stage === 'developing' || stage === 'mature') {
+        const fruitSize = Math.round((stage === 'mature' ? 7 : 4) * scale);
+        for (const [fx, fy] of [
+          [bushX + Math.round(bushW * 0.2), bushY + Math.round(bushH * 0.45)],
+          [bushX + Math.round(bushW * 0.52), bushY + Math.round(bushH * 0.32)],
+          [bushX + Math.round(bushW * 0.72), bushY + Math.round(bushH * 0.55)],
+        ]) {
+          ctx.fillStyle = '#151b26';
+          ctx.fillRect(fx - 1, fy - 1, fruitSize + 2, fruitSize + 2);
+          ctx.fillStyle = leafColor;
+          ctx.fillRect(fx, fy, fruitSize, fruitSize);
+          ctx.fillStyle = highlight;
+          ctx.fillRect(fx, fy, Math.max(2, Math.floor(fruitSize * 0.5)), Math.max(2, Math.floor(fruitSize * 0.5)));
+        }
+      }
+      if (stage === 'mature') {
+        const bounce = Math.sin(nowMs * 0.008 + plant.x) * 2;
+        ctx.font = 'bold 8px monospace';
+        const tag = 'READY!';
+        const tw = ctx.measureText(tag).width;
+        const bx = Math.round(sx + TILE_SIZE / 2 - tw / 2 - 4);
+        const by = Math.round(bushY - 14 + bounce);
+        ctx.fillStyle = '#052e16';
+        ctx.fillRect(bx - 1, by - 1, tw + 8, 13);
+        ctx.fillStyle = '#16a34a';
+        ctx.fillRect(bx, by, tw + 6, 11);
+        ctx.fillStyle = '#fef08a';
+        ctx.fillText(tag, bx + 3, by + 8);
+      }
+      return;
+    }
+
     const canopyW = Math.round((14 + growthScale * 26) * scale);
     const canopyH = Math.round((8 + growthScale * 20) * scale);
     const canopyX = sx + Math.round((TILE_SIZE - canopyW) / 2) + sway;

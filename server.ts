@@ -210,6 +210,7 @@ async function startServer() {
     sendTo(ws, {
       type: 'profile_updated',
       gems: account.gems,
+      alterbits: account.alterbits ?? 0,
       xp: account.xp,
       level: account.level,
       role: account.role,
@@ -224,6 +225,7 @@ async function startServer() {
       recentWorlds: account.recentWorlds,
       activeBuffs: store.pruneAndGetBuffs(account),
       unclaimedWl: account.unclaimedWl ?? 0,
+      hasClaimedStarterLootbox: Boolean(account.hasClaimedStarterLootbox),
       notice,
     });
     if (isCloudSqlConfigured()) {
@@ -280,6 +282,7 @@ async function startServer() {
       atmMachine: live.state.atmMachines?.[key] ?? null,
       vaultbox: live.state.vaultboxes?.[key] ?? null,
       signText: live.state.signs?.[key] ?? null,
+      doorLink: live.state.doorLinks?.[key] ?? null,
       revision: live.state.revision,
     });
     if (isCloudSqlConfigured()) {
@@ -392,6 +395,7 @@ async function startServer() {
           email: account.email,
           role: account.role,
           gems: account.gems,
+          alterbits: account.alterbits ?? 0,
           xp: account.xp,
           level: account.level,
           inventory: account.inventory,
@@ -404,6 +408,7 @@ async function startServer() {
           recentWorlds: account.recentWorlds,
           activeBuffs: store.pruneAndGetBuffs(account),
           unclaimedWl: account.unclaimedWl ?? 0,
+          hasClaimedStarterLootbox: Boolean(account.hasClaimedStarterLootbox),
           gameConfig: store.getGameConfig(),
           exchange: store.getExchangeSnapshot(),
         });
@@ -527,6 +532,21 @@ async function startServer() {
         return;
       }
 
+      if (msg.type === 'vendor_action') {
+        const res = store.handleVendorAction(account, {
+          action: msg.action,
+          itemId: msg.itemId,
+          qty: msg.qty,
+          currency: msg.currency,
+        });
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
       if (msg.type === 'equip_wearable') {
         const res = store.handleEquipWearable(account, msg.itemId);
         if (!res.ok) {
@@ -598,6 +618,8 @@ async function startServer() {
           itemId: msg.itemId,
           qty: msg.qty,
           gems: msg.gems,
+          slotIndex: msg.slotIndex,
+          rodInstanceId: msg.rodInstanceId,
           tx: msg.tx,
           ty: msg.ty,
           tx2: msg.tx2,
@@ -625,15 +647,21 @@ async function startServer() {
             broadcastTileSnapshot(liveForAction, t.tx, t.ty);
           }
         }
-        if (res.fullWorldSync && liveForAction) {
-          broadcastWorld(liveForAction.state.name, {
-            type: 'world_joined',
-            world: liveForAction.state,
-            players: Array.from(liveForAction.players.values()),
-            drops: Array.from(liveForAction.drops.values()),
-            chatHistory: liveForAction.chatHistory,
-            resumed: true,
-          });
+        if (res.fullWorldSync) {
+          const targetLive =
+            msg.action === 'rebuild_nexus'
+              ? store.getOrCreateWorld('NEXUS')
+              : liveForAction;
+          if (targetLive) {
+            broadcastWorld(targetLive.state.name, {
+              type: 'world_joined',
+              world: targetLive.state,
+              players: Array.from(targetLive.players.values()),
+              drops: Array.from(targetLive.drops.values()),
+              chatHistory: targetLive.chatHistory,
+              resumed: false,
+            });
+          }
         }
         sendProfileUpdate(ws, account, res.notice);
         return;
@@ -647,10 +675,23 @@ async function startServer() {
       if (msg.type === 'move') {
         const maxPxX = (worldWidth(live.state) - 1) * TILE_SIZE;
         const maxPxY = (worldHeight(live.state) - 1) * TILE_SIZE;
-        remote.x = Math.max(0, Math.min(maxPxX, msg.x));
-        remote.y = Math.max(0, Math.min(maxPxY, msg.y));
-        remote.vx = msg.vx;
-        remote.vy = msg.vy;
+        let nextX = Math.max(0, Math.min(maxPxX, msg.x));
+        let nextY = Math.max(0, Math.min(maxPxY, msg.y));
+        let nextVx = msg.vx;
+        let nextVy = msg.vy;
+        if (
+          live.state.name === 'NEXUS' &&
+          nextY > (worldHeight(live.state) - 4) * TILE_SIZE
+        ) {
+          nextX = live.state.spawnX * TILE_SIZE + 9;
+          nextY = (live.state.spawnY + 1) * TILE_SIZE - 42;
+          nextVx = 0;
+          nextVy = 0;
+        }
+        remote.x = nextX;
+        remote.y = nextY;
+        remote.vx = nextVx;
+        remote.vy = nextVy;
         remote.facing = msg.facing;
         remote.grounded = msg.grounded;
         remote.punching = msg.punching;
@@ -689,8 +730,38 @@ async function startServer() {
           for (const d of res.drops) {
             broadcastWorld(live.state.name, { type: 'drop_spawned', drop: d });
           }
+          if (res.worldXpUpdate) {
+            broadcastWorld(live.state.name, {
+              type: 'world_xp_updated',
+              worldName: live.state.name,
+              worldXp: res.worldXpUpdate.worldXp,
+              worldLevel: res.worldXpUpdate.worldLevel,
+              coreTokens: res.worldXpUpdate.coreTokens,
+            });
+          }
           sendProfileUpdate(ws, account, res.notice);
         }
+        return;
+      }
+
+      if (msg.type === 'plow_tile') {
+        const adminEdit = account.role === 'admin' && Boolean(msg.adminEdit);
+        const res = store.handlePlowTile(live, account, msg.tx, msg.ty, adminEdit);
+        if (!res.ok) {
+          if (res.reason) sendTo(ws, { type: 'world_error', message: res.reason });
+          return;
+        }
+        broadcastTileSnapshot(live, msg.tx, msg.ty);
+        if (res.worldXpUpdate) {
+          broadcastWorld(live.state.name, {
+            type: 'world_xp_updated',
+            worldName: live.state.name,
+            worldXp: res.worldXpUpdate.worldXp,
+            worldLevel: res.worldXpUpdate.worldLevel,
+            coreTokens: res.worldXpUpdate.coreTokens,
+          });
+        }
+        sendProfileUpdate(ws, account, res.notice);
         return;
       }
 
@@ -780,6 +851,15 @@ async function startServer() {
           return;
         }
         broadcastTileSnapshot(live, msg.tx, msg.ty);
+        if (msg.action === 'collect') {
+          broadcastWorld(live.state.name, {
+            type: 'world_xp_updated',
+            worldName: live.state.name,
+            worldXp: live.state.worldXp ?? 0,
+            worldLevel: live.state.worldLevel ?? 1,
+            coreTokens: live.state.coreTokens ?? 0,
+          });
+        }
         sendProfileUpdate(ws, account, res.notice);
         return;
       }
@@ -804,7 +884,65 @@ async function startServer() {
           return;
         }
         broadcastTileSnapshot(live, msg.tx, msg.ty);
+        broadcastWorld(live.state.name, {
+          type: 'world_xp_updated',
+          worldName: live.state.name,
+          worldXp: live.state.worldXp ?? 0,
+          worldLevel: live.state.worldLevel ?? 1,
+          coreTokens: res.coreTokens,
+        });
         sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
+      if (msg.type === 'configure_door') {
+        const res = store.handleConfigureDoor(
+          live,
+          account,
+          msg.tx,
+          msg.ty,
+          msg.targetX,
+          msg.targetY,
+          msg.label
+        );
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        broadcastTileSnapshot(live, msg.tx, msg.ty);
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
+      if (msg.type === 'use_door') {
+        const res = store.handleUseDoor(live, account, msg.tx, msg.ty);
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        sendTo(ws, {
+          type: 'player_teleported',
+          tx: res.targetX,
+          ty: res.targetY,
+          notice: res.notice,
+        });
+        broadcastWorld(live.state.name, { type: 'player_moved', player: res.remote }, ws);
+        return;
+      }
+
+      if (msg.type === 'nexus_teleport') {
+        const res = store.handleNexusTeleport(live, account, msg.targetX, msg.targetY, msg.label);
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        sendTo(ws, {
+          type: 'player_teleported',
+          tx: res.targetX,
+          ty: res.targetY,
+          notice: res.notice,
+        });
+        broadcastWorld(live.state.name, { type: 'player_moved', player: res.remote }, ws);
         return;
       }
 

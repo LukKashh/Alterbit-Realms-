@@ -17,7 +17,7 @@ export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic';
 
 export type WearableSlot = 'head' | 'face' | 'back';
 
-export type ToolKind = 'fist' | 'wrench' | 'pickaxe' | 'rod';
+export type ToolKind = 'fist' | 'wrench' | 'pickaxe' | 'rod' | 'hoe';
 
 export type BiomeBranch = 'starter' | 'desert' | 'arctic' | 'cave' | 'tech';
 
@@ -88,6 +88,12 @@ export interface ItemDefinition {
   repairQty?: number;
   buffEffect?: BuffEffect;
   farmableTier?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  seedMedium?: 'pot' | 'plowed_soil';
+  worldXpValue?: number;
+  cropSellAlterbits?: number;
+  cropGemPrice?: number;
+  cropAlterbitPrice?: number;
+  undroppable?: boolean;
 }
 
 // Stable numeric item & tile IDs (Unified GrowPixel + Core Primitives + Locks + Vending + Wearables)
@@ -108,6 +114,8 @@ export const ITEM_IDS = {
   WORLD_CORE: 153,
   LANDLORD_NPC: 154,
   WORLD_BLAST: 155,
+  GREENS_VENDOR_NPC: 156,
+  STARTER_LOOTBOX: 157,
   VENDING_MACHINE: 103,
 
   // Fluids & Parkour (110..119)
@@ -121,10 +129,11 @@ export const ITEM_IDS = {
   EXCHANGE_TERMINAL: 122,
   MINING_SCROLL: 123,
 
-  // Pickaxes & Fishing Rods (130..139)
+  // Pickaxes, Hoe & Fishing Rods (130..140)
   STONE_PICKAXE: 130,
   IRON_PICKAXE: 131,
   CRYSTAL_PICKAXE: 132,
+  FARMING_HOE: 133,
   BAMBOO_ROD: 135,
   ANGLER_ROD: 136,
   FISHING_ROD_III: 137,
@@ -170,6 +179,7 @@ export const ITEM_IDS = {
   GP_GRASS: 507,
   GP_LAVA_ROCK: 508,
   GP_SIGN: 509,
+  WOODEN_SIGN: 509,
   GP_WOOD_BLOCK: 510,
   GP_BRICKS: 511,
   GP_CRAPPY_SIGN: 512,
@@ -339,6 +349,7 @@ export const ITEM_IDS = {
   MATTERAGEN_COSMIC: 555,
   ATM_MACHINE: 556,
   VAULTBOX: 557,
+  PLOWED_DIRT_SOIL: 558,
 
   // 40 Dedicated Farmable Blocks (900..939)
   FARM_SUGAR_CANE: 900,
@@ -423,6 +434,28 @@ export const ITEM_IDS = {
   SEED_FARM_GENESIS_SEEDLING: 987,
   SEED_FARM_INFINITY_LOTUS: 988,
   SEED_FARM_OMEGA_MONOLITH: 989,
+
+  // Fresh Greens Vendor Crop Seeds (1000..1005), Crop Blocks (1010..1015), and Harvested Crops (1020..1025)
+  CROP_SEED_RADISH: 1000,
+  CROP_SEED_CARROT: 1001,
+  CROP_SEED_CABBAGE: 1002,
+  CROP_SEED_TOMATO: 1003,
+  CROP_SEED_CORN: 1004,
+  CROP_SEED_MELON: 1005,
+
+  CROP_BLOCK_RADISH: 1010,
+  CROP_BLOCK_CARROT: 1011,
+  CROP_BLOCK_CABBAGE: 1012,
+  CROP_BLOCK_TOMATO: 1013,
+  CROP_BLOCK_CORN: 1014,
+  CROP_BLOCK_MELON: 1015,
+
+  CROP_RADISH: 1020,
+  CROP_CARROT: 1021,
+  CROP_CABBAGE: 1022,
+  CROP_TOMATO: 1023,
+  CROP_CORN: 1024,
+  CROP_MELON: 1025,
 } as const;
 
 export const CATALOG: Record<number, ItemDefinition> = {
@@ -1203,6 +1236,39 @@ export const CATALOG: Record<number, ItemDefinition> = {
     gemValue: 0, xpValue: 0,
     colorPrimary: '#d58aff', colorSecondary: '#623d88', colorAccent: '#f4d8ff',
   },
+  [ITEM_IDS.GREENS_VENDOR_NPC]: {
+    id: ITEM_IDS.GREENS_VENDOR_NPC, key: 'greens_vendor_npc', name: 'Fresh Greens Vendor',
+    description: 'Nexus Marketplace Vendor. Buy Crop Seeds or sell harvested Crops for Digibits.',
+    category: 'interactive', rarity: 'epic', stackLimit: 1, collision: 'none',
+    breakable: false, hardness: 0, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 0, transparent: true,
+    colorPrimary: '#4ade80', colorSecondary: '#166534', colorAccent: '#fef08a',
+  },
+  [ITEM_IDS.STARTER_LOOTBOX]: {
+    id: ITEM_IDS.STARTER_LOOTBOX, key: 'starter_lootbox', name: 'Starter Supply Lootbox',
+    description: 'One-time starter supply crate on your personal realm platform. Break to claim 1× Farming Hoe, 25× Dirt Soil, and 3× Crisp Radish Seeds!',
+    category: 'interactive', rarity: 'epic', stackLimit: 1, collision: 'none',
+    transparent: true, breakable: true, hardness: 3, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 5, worldXpValue: 10,
+    colorPrimary: '#f59e0b', colorSecondary: '#78350f', colorAccent: '#38bdf8',
+  },
+  [ITEM_IDS.FARMING_HOE]: {
+    id: ITEM_IDS.FARMING_HOE, key: 'farming_hoe', name: 'Farming Hoe',
+    description: 'Essential cultivation tool claimed from your Starter Supply Lootbox. Use on Dirt Soil to plow fertile furrows ready for sowing Crop Seeds.',
+    category: 'tool', toolKind: 'hoe', rarity: 'uncommon', stackLimit: 1, collision: 'none',
+    breakable: false, hardness: 0, placeable: false, tradeable: false, undroppable: true,
+    gemValue: 0, xpValue: 0,
+    colorPrimary: '#94a3b8', colorSecondary: '#78350f', colorAccent: '#e2e8f0',
+  },
+  [ITEM_IDS.PLOWED_DIRT_SOIL]: {
+    id: ITEM_IDS.PLOWED_DIRT_SOIL, key: 'plowed_dirt_soil', name: 'Plowed Dirt Soil',
+    description: 'Tilled Dirt Soil furrowed with a Farming Hoe. Sow Crop Seeds directly into the tile above it.',
+    category: 'foreground', rarity: 'common', stackLimit: 200, collision: 'solid',
+    breakable: true, hardness: 3, placeable: false, tradeable: false,
+    gemValue: 0, xpValue: 1, worldXpValue: 1,
+    drops: [{ itemId: ITEM_IDS.GP_DIRT, chance: 0.125, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#6b4226', colorSecondary: '#432818', colorAccent: '#9c6644',
+  },
   [ITEM_IDS.VENDING_MACHINE]: {
     id: ITEM_IDS.VENDING_MACHINE,
     key: 'vending_machine',
@@ -1362,9 +1428,9 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.GP_DOOR]: {
     id: ITEM_IDS.GP_DOOR, key: 'gp_door', name: "Door",
-    description: "Door — GrowPixel collection item. Splice Dirt Seed + Cave Background Seed.",
-    category: 'foreground', rarity: 'common',
-    stackLimit: 200, collision: 'solid', breakable: true, hardness: 5,
+    description: "Door — Pass-through background doorway with gateway linking capability. Wrench to link coordinates or punch to travel.",
+    category: 'background', rarity: 'common',
+    stackLimit: 200, collision: 'none', breakable: true, hardness: 5,
     placeable: true, tradeable: true, gemValue: 1, xpValue: 1,
     seedId: ITEM_IDS.GP_SEED_DOOR, drops: [{ itemId: ITEM_IDS.GP_DOOR, chance: 1, minQty: 1, maxQty: 1 }, { itemId: ITEM_IDS.GP_SEED_DOOR, chance: 0.2, minQty: 1, maxQty: 1 }],
     growPixelRarity: 2, hardnessVerified: true, seedDropChance: 0.2, seedDropChanceVerified: false, gemValueVerified: false, economyValue: null,
@@ -1408,9 +1474,9 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.GP_SIGN]: {
     id: ITEM_IDS.GP_SIGN, key: 'gp_sign', name: "Sign",
-    description: "Sign — GrowPixel collection item. Editable message signboard.",
+    description: "Sign — GrowPixel collection item. Walkthrough editable message signboard.",
     category: 'interactive', rarity: 'common',
-    stackLimit: 200, collision: 'solid', breakable: true, hardness: 3,
+    stackLimit: 200, collision: 'none', breakable: true, hardness: 3,
     placeable: true, tradeable: true, gemValue: 1, xpValue: 1,
     seedId: ITEM_IDS.GP_SEED_SIGN, drops: [{ itemId: ITEM_IDS.GP_SIGN, chance: 1, minQty: 1, maxQty: 1 }, { itemId: ITEM_IDS.GP_SEED_SIGN, chance: 0.2, minQty: 1, maxQty: 1 }],
     growPixelRarity: 2, hardnessVerified: false, seedDropChance: 0.2, seedDropChanceVerified: false, gemValueVerified: false, economyValue: null,
@@ -1442,9 +1508,9 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.GP_CRAPPY_SIGN]: {
     id: ITEM_IDS.GP_CRAPPY_SIGN, key: 'gp_crappy_sign', name: "Crappy Sign",
-    description: "Crappy Sign — GrowPixel collection item. Editable message signboard.",
+    description: "Crappy Sign — GrowPixel collection item. Walkthrough editable message signboard.",
     category: 'interactive', rarity: 'common',
-    stackLimit: 200, collision: 'solid', breakable: true, hardness: 4,
+    stackLimit: 200, collision: 'none', breakable: true, hardness: 4,
     placeable: true, tradeable: true, gemValue: 1, xpValue: 1,
     seedId: ITEM_IDS.GP_SEED_CRAPPY_SIGN, drops: [{ itemId: ITEM_IDS.GP_CRAPPY_SIGN, chance: 1, minQty: 1, maxQty: 1 }, { itemId: ITEM_IDS.GP_SEED_CRAPPY_SIGN, chance: 0.2, minQty: 1, maxQty: 1 }],
     growPixelRarity: 3, hardnessVerified: true, seedDropChance: 0.2, seedDropChanceVerified: false, gemValueVerified: false, economyValue: null,
@@ -1662,9 +1728,9 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.GP_DUNGEON_DOOR]: {
     id: ITEM_IDS.GP_DUNGEON_DOOR, key: 'gp_dungeon_door', name: "Dungeon Door",
-    description: "Dungeon Door — GrowPixel collection item. Splice Door Seed + Window Seed.",
-    category: 'foreground', rarity: 'rare',
-    stackLimit: 200, collision: 'solid', breakable: true, hardness: 7,
+    description: "Dungeon Door — Pass-through background iron archway with gateway linking capability. Wrench to link coordinates or punch to travel.",
+    category: 'background', rarity: 'rare',
+    stackLimit: 200, collision: 'none', breakable: true, hardness: 7,
     placeable: true, tradeable: true, gemValue: 1, xpValue: 2,
     seedId: ITEM_IDS.GP_SEED_DUNGEON_DOOR, drops: [{ itemId: ITEM_IDS.GP_DUNGEON_DOOR, chance: 1, minQty: 1, maxQty: 1 }, { itemId: ITEM_IDS.GP_SEED_DUNGEON_DOOR, chance: 0.2, minQty: 1, maxQty: 1 }],
     growPixelRarity: 8, hardnessVerified: false, seedDropChance: 0.2, seedDropChanceVerified: false, gemValueVerified: false, economyValue: null,
@@ -1752,9 +1818,9 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.GP_POINTY_SIGN]: {
     id: ITEM_IDS.GP_POINTY_SIGN, key: 'gp_pointy_sign', name: "Pointy Sign",
-    description: "Pointy Sign — GrowPixel collection item. Editable directional message sign.",
+    description: "Pointy Sign — GrowPixel collection item. Walkthrough directional message sign.",
     category: 'interactive', rarity: 'uncommon',
-    stackLimit: 200, collision: 'solid', breakable: true, hardness: 3,
+    stackLimit: 200, collision: 'none', breakable: true, hardness: 3,
     placeable: true, tradeable: true, gemValue: 1, xpValue: 1,
     seedId: ITEM_IDS.GP_SEED_POINTY_SIGN, drops: [{ itemId: ITEM_IDS.GP_POINTY_SIGN, chance: 1, minQty: 1, maxQty: 1 }, { itemId: ITEM_IDS.GP_SEED_POINTY_SIGN, chance: 0.2, minQty: 1, maxQty: 1 }],
     growPixelRarity: 4, hardnessVerified: false, seedDropChance: 0.2, seedDropChanceVerified: false, gemValueVerified: false, economyValue: null,
@@ -1764,9 +1830,9 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.GP_DANGER_SIGN]: {
     id: ITEM_IDS.GP_DANGER_SIGN, key: 'gp_danger_sign', name: "Danger Sign",
-    description: "Danger Sign — GrowPixel collection item. Editable warning message sign.",
+    description: "Danger Sign — GrowPixel collection item. Walkthrough warning message sign.",
     category: 'interactive', rarity: 'uncommon',
-    stackLimit: 200, collision: 'solid', breakable: true, hardness: 4,
+    stackLimit: 200, collision: 'none', breakable: true, hardness: 4,
     placeable: true, tradeable: true, gemValue: 1, xpValue: 2,
     seedId: ITEM_IDS.GP_SEED_DANGER_SIGN, drops: [{ itemId: ITEM_IDS.GP_DANGER_SIGN, chance: 1, minQty: 1, maxQty: 1 }, { itemId: ITEM_IDS.GP_SEED_DANGER_SIGN, chance: 0.2, minQty: 1, maxQty: 1 }],
     growPixelRarity: 5, hardnessVerified: false, seedDropChance: 0.2, seedDropChanceVerified: false, gemValueVerified: false, economyValue: null,
@@ -3611,21 +3677,268 @@ export function isFarmableSeed(seedId: number): boolean {
   return seedId >= 950 && seedId <= 989;
 }
 
-// Synchronize all 40 Farmables (blocks 900..939 & seeds 950..989) from FARMABLE_SPECS
-// and purge general block seed drops from non-farmable blocks.
+export interface CropSpec {
+  seedId: number;
+  blockId: number;
+  cropItemId: number;
+  keyBase: string;
+  name: string;
+  rarity: ItemRarity;
+  growthTimeSec: number;
+  seedAlterbitPrice: number;
+  seedGemPrice?: number;
+  minYield: number;
+  maxYield: number;
+  sellAlterbits: number;
+  xpValue: number;
+  worldXpValue: number;
+  colorPrimary: string;
+  colorSecondary: string;
+  colorAccent: string;
+}
+
+export const CROP_SPECS: CropSpec[] = [
+  {
+    seedId: ITEM_IDS.CROP_SEED_RADISH,
+    blockId: ITEM_IDS.CROP_BLOCK_RADISH,
+    cropItemId: ITEM_IDS.CROP_RADISH,
+    keyBase: 'radish',
+    name: 'Crisp Radish',
+    rarity: 'common',
+    growthTimeSec: 20,
+    seedAlterbitPrice: 10,
+    minYield: 2,
+    maxYield: 4,
+    sellAlterbits: 8,
+    xpValue: 3,
+    worldXpValue: 5,
+    colorPrimary: '#f43f5e',
+    colorSecondary: '#9f1239',
+    colorAccent: '#fecdd3',
+  },
+  {
+    seedId: ITEM_IDS.CROP_SEED_CARROT,
+    blockId: ITEM_IDS.CROP_BLOCK_CARROT,
+    cropItemId: ITEM_IDS.CROP_CARROT,
+    keyBase: 'carrot',
+    name: 'Sunroot Carrot',
+    rarity: 'common',
+    growthTimeSec: 35,
+    seedAlterbitPrice: 25,
+    minYield: 2,
+    maxYield: 5,
+    sellAlterbits: 14,
+    xpValue: 5,
+    worldXpValue: 8,
+    colorPrimary: '#f97316',
+    colorSecondary: '#9a3412',
+    colorAccent: '#fed7aa',
+  },
+  {
+    seedId: ITEM_IDS.CROP_SEED_CABBAGE,
+    blockId: ITEM_IDS.CROP_BLOCK_CABBAGE,
+    cropItemId: ITEM_IDS.CROP_CABBAGE,
+    keyBase: 'cabbage',
+    name: 'Verdant Cabbage',
+    rarity: 'uncommon',
+    growthTimeSec: 50,
+    seedAlterbitPrice: 60,
+    minYield: 3,
+    maxYield: 5,
+    sellAlterbits: 24,
+    xpValue: 8,
+    worldXpValue: 12,
+    colorPrimary: '#4ade80',
+    colorSecondary: '#166534',
+    colorAccent: '#bbf7d0',
+  },
+  {
+    seedId: ITEM_IDS.CROP_SEED_TOMATO,
+    blockId: ITEM_IDS.CROP_BLOCK_TOMATO,
+    cropItemId: ITEM_IDS.CROP_TOMATO,
+    keyBase: 'tomato',
+    name: 'Ruby Vine Tomato',
+    rarity: 'uncommon',
+    growthTimeSec: 70,
+    seedAlterbitPrice: 140,
+    minYield: 3,
+    maxYield: 6,
+    sellAlterbits: 45,
+    xpValue: 12,
+    worldXpValue: 18,
+    colorPrimary: '#ef4444',
+    colorSecondary: '#991b1b',
+    colorAccent: '#fca5a5',
+  },
+  {
+    seedId: ITEM_IDS.CROP_SEED_CORN,
+    blockId: ITEM_IDS.CROP_BLOCK_CORN,
+    cropItemId: ITEM_IDS.CROP_CORN,
+    keyBase: 'corn',
+    name: 'Golden Sweetcorn',
+    rarity: 'rare',
+    growthTimeSec: 95,
+    seedAlterbitPrice: 300,
+    minYield: 3,
+    maxYield: 6,
+    sellAlterbits: 85,
+    xpValue: 18,
+    worldXpValue: 26,
+    colorPrimary: '#facc15',
+    colorSecondary: '#a16207',
+    colorAccent: '#fef9c3',
+  },
+  {
+    seedId: ITEM_IDS.CROP_SEED_MELON,
+    blockId: ITEM_IDS.CROP_BLOCK_MELON,
+    cropItemId: ITEM_IDS.CROP_MELON,
+    keyBase: 'melon',
+    name: 'Starlight Dew Melon',
+    rarity: 'epic',
+    growthTimeSec: 120,
+    seedAlterbitPrice: 650,
+    minYield: 2,
+    maxYield: 4,
+    sellAlterbits: 210,
+    xpValue: 28,
+    worldXpValue: 40,
+    colorPrimary: '#22c55e',
+    colorSecondary: '#14532d',
+    colorAccent: '#fda4af',
+  },
+];
+
+export function isCropSeed(itemId: number): boolean {
+  return itemId >= ITEM_IDS.CROP_SEED_RADISH && itemId <= ITEM_IDS.CROP_SEED_MELON;
+}
+
+export function isCropBlock(itemId: number): boolean {
+  return itemId >= ITEM_IDS.CROP_BLOCK_RADISH && itemId <= ITEM_IDS.CROP_BLOCK_MELON;
+}
+
+export function isCropItem(itemId: number): boolean {
+  return itemId >= ITEM_IDS.CROP_RADISH && itemId <= ITEM_IDS.CROP_MELON;
+}
+
+export function getCropSpec(itemId: number): CropSpec | undefined {
+  return CROP_SPECS.find(
+    (c) => c.seedId === itemId || c.blockId === itemId || c.cropItemId === itemId
+  );
+}
+
+for (const c of CROP_SPECS) {
+  CATALOG[c.seedId] = {
+    id: c.seedId,
+    key: `crop_seed_${c.keyBase}`,
+    name: `${c.name} Seed`,
+    description: `Crop Seed from Fresh Greens Vendor. Sow above Plowed Dirt Soil (tilled with Farming Hoe). Harvests into a ${c.name} Crop Block.`,
+    category: 'seed',
+    rarity: c.rarity,
+    stackLimit: 200,
+    collision: 'none',
+    breakable: true,
+    hardness: 1,
+    placeable: true,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: c.xpValue,
+    worldXpValue: c.worldXpValue,
+    seedMedium: 'plowed_soil',
+    producesTileId: c.blockId,
+    growthTimeMs: c.growthTimeSec * 1000,
+    cropAlterbitPrice: c.seedAlterbitPrice,
+    cropGemPrice: c.seedGemPrice,
+    colorPrimary: c.colorPrimary,
+    colorSecondary: c.colorSecondary,
+    colorAccent: c.colorAccent,
+  };
+
+  CATALOG[c.blockId] = {
+    id: c.blockId,
+    key: `crop_block_${c.keyBase}`,
+    name: `${c.name} Crop Block`,
+    description: `Ripe ${c.name} Crop Block spawned on harvest. Mine it to gather ${c.minYield}–${c.maxYield}× ${c.name} produce!`,
+    category: 'foreground',
+    rarity: c.rarity,
+    stackLimit: 200,
+    collision: 'none',
+    transparent: true,
+    breakable: true,
+    hardness: 2,
+    placeable: false,
+    tradeable: false,
+    gemValue: 0,
+    xpValue: c.xpValue,
+    worldXpValue: c.worldXpValue,
+    drops: [{ itemId: c.cropItemId, chance: 1, minQty: c.minYield, maxQty: c.maxYield }],
+    colorPrimary: c.colorPrimary,
+    colorSecondary: c.colorSecondary,
+    colorAccent: c.colorAccent,
+  };
+
+  CATALOG[c.cropItemId] = {
+    id: c.cropItemId,
+    key: `crop_${c.keyBase}`,
+    name: c.name,
+    description: `Freshly harvested ${c.name}. Sell at the Fresh Greens Vendor in NEXUS for ${c.sellAlterbits} Digibits each.`,
+    category: 'material',
+    rarity: c.rarity,
+    stackLimit: 500,
+    collision: 'none',
+    breakable: false,
+    hardness: 0,
+    placeable: false,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: 0,
+    cropSellAlterbits: c.sellAlterbits,
+    colorPrimary: c.colorPrimary,
+    colorSecondary: c.colorSecondary,
+    colorAccent: c.colorAccent,
+  };
+}
+
+export function isStandardBaselineBlock(def: ItemDefinition): boolean {
+  if (!def || !def.breakable) return false;
+  if (def.category === 'farmable' || (def.id >= 900 && def.id <= 939)) return false;
+  if (isCropBlock(def.id) || isCropSeed(def.id) || isFarmableSeed(def.id)) return false;
+  if (def.id === ITEM_IDS.PLOWED_DIRT_SOIL) return false;
+  if (
+    def.id === ITEM_IDS.COAL_VEIN ||
+    def.id === ITEM_IDS.COPPER_VEIN ||
+    def.id === ITEM_IDS.IRON_VEIN ||
+    def.id === ITEM_IDS.OBSIDIAN_VEIN
+  ) {
+    return false;
+  }
+  return (
+    def.category === 'foreground' ||
+    def.category === 'background' ||
+    def.id === ITEM_IDS.GP_SIGN ||
+    def.id === ITEM_IDS.GP_CRAPPY_SIGN ||
+    def.id === ITEM_IDS.GP_POINTY_SIGN ||
+    def.id === ITEM_IDS.GP_DANGER_SIGN
+  );
+}
+
+// Prune all non-Farmable, non-Crop seeds from CATALOG and enforce the uniform
+// 12.5% single-block return, 0 Gem, 1 XP baseline on all standard placeable blocks.
 for (const def of Object.values(CATALOG)) {
-  if (def.category === 'seed' && !isFarmableSeed(def.id)) {
-    def.placeable = false;
-  } else if (def.category !== 'farmable') {
-    if (def.seedId && !isFarmableSeed(def.seedId)) {
+  delete def.spliceIngredients;
+  if (def.category === 'seed' && !isFarmableSeed(def.id) && !isCropSeed(def.id)) {
+    delete CATALOG[def.id];
+    continue;
+  }
+  if (def.category !== 'farmable') {
+    if (def.seedId && !isFarmableSeed(def.seedId) && !isCropSeed(def.seedId)) {
       delete def.seedId;
     }
-    if (Array.isArray(def.drops)) {
-      def.drops = def.drops.filter((d) => {
-        const dropDef = CATALOG[d.itemId];
-        return !(dropDef?.category === 'seed' && !isFarmableSeed(d.itemId));
-      });
-    }
+  }
+  if (isStandardBaselineBlock(def)) {
+    delete def.seedId;
+    def.gemValue = 0;
+    def.xpValue = 1;
+    def.drops = [{ itemId: def.id, chance: 0.125, minQty: 1, maxQty: 1 }];
   }
 }
 
@@ -3649,6 +3962,8 @@ for (const spec of FARMABLE_SPECS) {
   }
   const seedDef = CATALOG[spec.seedId];
   if (seedDef) {
+    delete seedDef.spliceIngredients;
+    seedDef.description = `Tier ${spec.tier} Farmable Seed (${spec.branch}). Plant inside a Seed Pot to grow ${spec.name}.`;
     seedDef.farmableTier = spec.tier;
     seedDef.growthTimeMs = spec.growthTimeSec * 1000;
     seedDef.gemValue = Math.max(1, Math.round(spec.gemValue * 0.5));
@@ -3713,12 +4028,63 @@ export function rollMatteragenYield(typeId: number, level = 1): { itemId: number
   return drops;
 }
 
+// World-relative Core Token upgrade costs for Matteragen Engines (Levels 1->5)
 export const MATTERAGEN_UPGRADE_COSTS: Record<number, number> = {
-  1: 250,  // 1 -> 2
-  2: 500,  // 2 -> 3
-  3: 1000, // 3 -> 4
-  4: 2000, // 4 -> 5
+  1: 3,  // Lv.1 -> Lv.2 (3 Core Tokens)
+  2: 6,  // Lv.2 -> Lv.3 (6 Core Tokens)
+  3: 10, // Lv.3 -> Lv.4 (10 Core Tokens)
+  4: 15, // Lv.4 -> Lv.5 (15 Core Tokens)
 };
+
+export type CoreTokenSource =
+  | { kind: 'block_break' }
+  | { kind: 'plow_soil' }
+  | { kind: 'soil_crop'; tier: 1 | 2 | 3 | 4 | 5 | 6 }
+  | { kind: 'farmable_harvest'; tier: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 }
+  | { kind: 'matteragen_harvest'; branchTier: 1 | 2 | 3 | 4 | 5; level: number }
+  | { kind: 'atm_harvest' }
+  | { kind: 'furnace_smelt' };
+
+export const CORE_TOKEN_MIN_CHANCE = 0.0085; // 0.85% floor
+export const CORE_TOKEN_MAX_CHANCE = 0.10;   // 10.0% ceiling
+
+/**
+ * Returns the exact Core Token spawn probability in [0.0085, 0.10] for a world-owner action.
+ * Whenever triggered, exactly 1 Core Token is awarded to the World's WorldCore storage.
+ */
+export function getCoreTokenSpawnChance(source: CoreTokenSource): number {
+  let raw = CORE_TOKEN_MIN_CHANCE;
+  switch (source.kind) {
+    case 'block_break':
+    case 'plow_soil':
+      raw = 0.0085; // 0.85%
+      break;
+    case 'soil_crop': {
+      // Tier 1 (Radish): 1.25% -> Tier 6 (Melon): 3.75% (+0.50% per tier)
+      const t = Math.max(1, Math.min(6, source.tier));
+      raw = 0.0125 + (t - 1) * 0.005;
+      break;
+    }
+    case 'farmable_harvest': {
+      // Tier 1: 1.40% -> Tier 8: 8.00%
+      const t = Math.max(1, Math.min(8, source.tier));
+      raw = 0.014 + ((t - 1) / 7) * 0.066;
+      break;
+    }
+    case 'matteragen_harvest': {
+      // Branch Tier 1 Lv.1: 4.00% -> Branch Tier 5 Lv.5: 10.00%
+      const bt = Math.max(1, Math.min(5, source.branchTier));
+      const lv = Math.max(1, Math.min(5, source.level));
+      raw = 0.04 + (bt - 1) * 0.01 + (lv - 1) * 0.005;
+      break;
+    }
+    case 'atm_harvest':
+    case 'furnace_smelt':
+      raw = 0.025; // 2.50%
+      break;
+  }
+  return Number(Math.max(CORE_TOKEN_MIN_CHANCE, Math.min(CORE_TOKEN_MAX_CHANCE, raw)).toFixed(4));
+}
 
 export const ATM_MIN_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 export const ATM_MAX_INTERVAL_MS = 90 * 60 * 1000; // 1.5 hours
@@ -3738,7 +4104,7 @@ export function rollAtmGems(rng: () => number = Math.random): number {
 
 export const GROWPIXEL_COLLECTION_IDS = {
   blocks: [ITEM_IDS.GP_DIRT, ITEM_IDS.GP_ROCK, ITEM_IDS.GP_LAVA, ITEM_IDS.GP_CAVE_BACKGROUND, ITEM_IDS.GP_SAND, ITEM_IDS.GP_DOOR, ITEM_IDS.GP_GLASS_PANE, ITEM_IDS.GP_GRASS, ITEM_IDS.GP_LAVA_ROCK, ITEM_IDS.GP_SIGN, ITEM_IDS.GP_WOOD_BLOCK, ITEM_IDS.GP_BRICKS, ITEM_IDS.GP_CRAPPY_SIGN, ITEM_IDS.GP_DAISY, ITEM_IDS.GP_MUSHROOM, ITEM_IDS.GP_ROSE, ITEM_IDS.GP_WHEAT, ITEM_IDS.GP_WOODEN_PLATFORM, ITEM_IDS.GP_BLACK_BLOCK, ITEM_IDS.GP_BROWN_BLOCK, ITEM_IDS.GP_GREY_BLOCK, ITEM_IDS.GP_RED_BLOCK, ITEM_IDS.GP_AQUA_BLOCK, ITEM_IDS.GP_GREEN_BLOCK, ITEM_IDS.GP_WHITE_BLOCK, ITEM_IDS.GP_WINDOW, ITEM_IDS.GP_YELLOW_BLOCK, ITEM_IDS.GP_GLASS_BLOCK, ITEM_IDS.GP_TOILET, ITEM_IDS.GP_RED_BRICKS, ITEM_IDS.GP_DEATH_SPIKES, ITEM_IDS.GP_DUNGEON_DOOR, ITEM_IDS.GP_BUSH, ITEM_IDS.GP_HEDGE, ITEM_IDS.GP_ORANGE_BLOCK, ITEM_IDS.GP_BLUE_BLOCK, ITEM_IDS.GP_POPPY, ITEM_IDS.GP_WOODEN_BACKGROUND, ITEM_IDS.GP_ROCK_BACKGROUND, ITEM_IDS.GP_POINTY_SIGN, ITEM_IDS.GP_DANGER_SIGN, ITEM_IDS.GP_BLUEBERRY],
-  seeds: [ITEM_IDS.GP_SEED_DIRT, ITEM_IDS.GP_SEED_ROCK, ITEM_IDS.GP_SEED_LAVA, ITEM_IDS.GP_SEED_CAVE_BACKGROUND, ITEM_IDS.GP_SEED_SAND, ITEM_IDS.GP_SEED_DOOR, ITEM_IDS.GP_SEED_GLASS_PANE, ITEM_IDS.GP_SEED_GRASS, ITEM_IDS.GP_SEED_LAVA_ROCK, ITEM_IDS.GP_SEED_SIGN, ITEM_IDS.GP_SEED_WOOD_BLOCK, ITEM_IDS.GP_SEED_BRICKS, ITEM_IDS.GP_SEED_CRAPPY_SIGN, ITEM_IDS.GP_SEED_DAISY, ITEM_IDS.GP_SEED_MUSHROOM, ITEM_IDS.GP_SEED_ROSE, ITEM_IDS.GP_SEED_WHEAT, ITEM_IDS.GP_SEED_WOODEN_PLATFORM, ITEM_IDS.GP_SEED_BLACK_BLOCK, ITEM_IDS.GP_SEED_BROWN_BLOCK, ITEM_IDS.GP_SEED_GREY_BLOCK, ITEM_IDS.GP_SEED_RED_BLOCK, ITEM_IDS.GP_SEED_AQUA_BLOCK, ITEM_IDS.GP_SEED_GREEN_BLOCK, ITEM_IDS.GP_SEED_WHITE_BLOCK, ITEM_IDS.GP_SEED_WINDOW, ITEM_IDS.GP_SEED_YELLOW_BLOCK, ITEM_IDS.GP_SEED_GLASS_BLOCK, ITEM_IDS.GP_SEED_TOILET, ITEM_IDS.GP_SEED_RED_BRICKS, ITEM_IDS.GP_SEED_DEATH_SPIKES, ITEM_IDS.GP_SEED_DUNGEON_DOOR, ITEM_IDS.GP_SEED_BUSH, ITEM_IDS.GP_SEED_HEDGE, ITEM_IDS.GP_SEED_ORANGE_BLOCK, ITEM_IDS.GP_SEED_BLUE_BLOCK, ITEM_IDS.GP_SEED_POPPY, ITEM_IDS.GP_SEED_WOODEN_BACKGROUND, ITEM_IDS.GP_SEED_ROCK_BACKGROUND, ITEM_IDS.GP_SEED_POINTY_SIGN, ITEM_IDS.GP_SEED_DANGER_SIGN, ITEM_IDS.GP_SEED_BLUEBERRY],
+  seeds: [] as readonly number[],
 } as const;
 
 export interface SpliceRecipe {
@@ -3748,102 +4114,8 @@ export interface SpliceRecipe {
   branch?: BiomeBranch;
 }
 
-export const SPLICE_RECIPES: SpliceRecipe[] = [
-  { seedA: 600, seedB: 603, resultSeedId: 605, branch: 'starter' },
-  { seedA: 601, seedB: 602, resultSeedId: 606, branch: 'starter' },
-  { seedA: 600, seedB: 601, resultSeedId: 607, branch: 'starter' },
-  { seedA: 602, seedB: 603, resultSeedId: 608, branch: 'starter' },
-  { seedA: 601, seedB: 603, resultSeedId: 609, branch: 'starter' },
-  { seedA: 600, seedB: 602, resultSeedId: 610, branch: 'starter' },
-  { seedA: 601, seedB: 607, resultSeedId: 611, branch: 'starter' },
-  { seedA: 605, seedB: 600, resultSeedId: 612, branch: 'starter' },
-  { seedA: 607, seedB: 600, resultSeedId: 613, branch: 'starter' },
-  { seedA: 603, seedB: 607, resultSeedId: 614, branch: 'starter' },
-  { seedA: 607, seedB: 602, resultSeedId: 615, branch: 'starter' },
-  { seedA: 607, seedB: 604, resultSeedId: 616, branch: 'starter' },
-  { seedA: 610, seedB: 607, resultSeedId: 617, branch: 'starter' },
-  { seedA: 611, seedB: 603, resultSeedId: 618, branch: 'starter' },
-  { seedA: 611, seedB: 600, resultSeedId: 619, branch: 'starter' },
-  { seedA: 611, seedB: 601, resultSeedId: 620, branch: 'starter' },
-  { seedA: 611, seedB: 602, resultSeedId: 621, branch: 'starter' },
-  { seedA: 611, seedB: 606, resultSeedId: 622, branch: 'starter' },
-  { seedA: 611, seedB: 607, resultSeedId: 623, branch: 'starter' },
-  { seedA: 611, seedB: 614, resultSeedId: 624, branch: 'starter' },
-  { seedA: 606, seedB: 637, resultSeedId: 625, branch: 'starter' },
-  { seedA: 611, seedB: 613, resultSeedId: 626, branch: 'starter' },
-  { seedA: 622, seedB: 606, resultSeedId: 627, branch: 'starter' },
-  { seedA: 612, seedB: 619, resultSeedId: 628, branch: 'starter' },
-  { seedA: 621, seedB: 611, resultSeedId: 629, branch: 'starter' },
-  { seedA: 640, seedB: 638, resultSeedId: 630, branch: 'starter' },
-  { seedA: 605, seedB: 625, resultSeedId: 631, branch: 'starter' },
-  { seedA: 636, seedB: 615, resultSeedId: 632, branch: 'starter' },
-  { seedA: 611, seedB: 636, resultSeedId: 634, branch: 'starter' },
-  { seedA: 611, seedB: 641, resultSeedId: 635, branch: 'starter' },
-  { seedA: 615, seedB: 613, resultSeedId: 636, branch: 'starter' },
-  { seedA: 607, seedB: 605, resultSeedId: 637, branch: 'starter' },
-  { seedA: 601, seedB: 605, resultSeedId: 638, branch: 'starter' },
-  { seedA: 605, seedB: 609, resultSeedId: 639, branch: 'starter' },
-  { seedA: 602, seedB: 639, resultSeedId: 640, branch: 'starter' },
-  { seedA: 632, seedB: 614, resultSeedId: 641, branch: 'starter' },
-
-  // Desert Biome Tech Tree
-  { seedA: ITEM_IDS.GP_SEED_SAND, seedB: ITEM_IDS.GP_SEED_DIRT, resultSeedId: ITEM_IDS.SEED_DESERT_SAND, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_DESERT_SAND, seedB: ITEM_IDS.GP_SEED_ROCK, resultSeedId: ITEM_IDS.SEED_RED_SANDSTONE, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_DESERT_SAND, seedB: ITEM_IDS.GP_SEED_CAVE_BACKGROUND, resultSeedId: ITEM_IDS.SEED_DESERT_HARDPAN, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_DESERT_HARDPAN, seedB: ITEM_IDS.GP_SEED_WHITE_BLOCK, resultSeedId: ITEM_IDS.SEED_SALT_CRUST, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_DESERT_SAND, seedB: ITEM_IDS.GP_SEED_GRASS, resultSeedId: ITEM_IDS.SEED_DUNE_GRASS, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_DUNE_GRASS, seedB: ITEM_IDS.GP_SEED_GREEN_BLOCK, resultSeedId: ITEM_IDS.SEED_CACTUS, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_DESERT_SAND, seedB: ITEM_IDS.GP_SEED_WOOD_BLOCK, resultSeedId: ITEM_IDS.SEED_DRY_ROOT, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_RED_SANDSTONE, seedB: ITEM_IDS.GP_SEED_SAND, resultSeedId: ITEM_IDS.SEED_DESERT_GRAVEL, branch: 'desert' },
-
-  // Arctic Biome Tech Tree
-  { seedA: ITEM_IDS.GP_SEED_GLASS_PANE, seedB: ITEM_IDS.GP_SEED_SAND, resultSeedId: ITEM_IDS.SEED_FROST_SNOW, branch: 'arctic' },
-  { seedA: ITEM_IDS.SEED_FROST_SNOW, seedB: ITEM_IDS.GP_SEED_DIRT, resultSeedId: ITEM_IDS.SEED_PACKED_SNOW, branch: 'arctic' },
-  { seedA: ITEM_IDS.SEED_PACKED_SNOW, seedB: ITEM_IDS.GP_SEED_GLASS_BLOCK, resultSeedId: ITEM_IDS.SEED_GLACIER_ICE, branch: 'arctic' },
-  { seedA: ITEM_IDS.SEED_FROST_SNOW, seedB: ITEM_IDS.GP_SEED_ROCK, resultSeedId: ITEM_IDS.SEED_PERMAFROST, branch: 'arctic' },
-  { seedA: ITEM_IDS.SEED_PERMAFROST, seedB: ITEM_IDS.GP_SEED_DIRT, resultSeedId: ITEM_IDS.SEED_FROZEN_DIRT, branch: 'arctic' },
-  { seedA: ITEM_IDS.SEED_GLACIER_ICE, seedB: ITEM_IDS.GP_SEED_AQUA_BLOCK, resultSeedId: ITEM_IDS.SEED_BLUE_ICE, branch: 'arctic' },
-  { seedA: ITEM_IDS.SEED_GLACIER_ICE, seedB: ITEM_IDS.GP_SEED_ROCK, resultSeedId: ITEM_IDS.SEED_FROST_ROCK, branch: 'arctic' },
-  { seedA: ITEM_IDS.SEED_GLACIER_ICE, seedB: ITEM_IDS.GP_SEED_WINDOW, resultSeedId: ITEM_IDS.SEED_ICICLE, branch: 'arctic' },
-
-  // Cave Biome Tech Tree
-  { seedA: ITEM_IDS.GP_SEED_CAVE_BACKGROUND, seedB: ITEM_IDS.GP_SEED_ROCK, resultSeedId: ITEM_IDS.SEED_CAVE_LIMESTONE, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_CAVE_LIMESTONE, seedB: ITEM_IDS.GP_SEED_ROCK_BACKGROUND, resultSeedId: ITEM_IDS.SEED_CAVE_SHALE, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_CAVE_LIMESTONE, seedB: ITEM_IDS.GP_SEED_SAND, resultSeedId: ITEM_IDS.SEED_CAVE_GRAVEL, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_CAVE_SHALE, seedB: ITEM_IDS.GP_SEED_LAVA_ROCK, resultSeedId: ITEM_IDS.SEED_GRANITE, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_CAVE_LIMESTONE, seedB: ITEM_IDS.GP_SEED_POINTY_SIGN, resultSeedId: ITEM_IDS.SEED_STALACTITE, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_CAVE_SHALE, seedB: ITEM_IDS.GP_SEED_POINTY_SIGN, resultSeedId: ITEM_IDS.SEED_STALAGMITE, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_GRANITE, seedB: ITEM_IDS.GP_SEED_AQUA_BLOCK, resultSeedId: ITEM_IDS.SEED_CRYSTAL_ORE, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_CAVE_GRAVEL, seedB: ITEM_IDS.GP_SEED_DIRT, resultSeedId: ITEM_IDS.SEED_UNDERGROUND_CLAY, branch: 'cave' },
-  { seedA: ITEM_IDS.GP_SEED_CAVE_BACKGROUND, seedB: ITEM_IDS.GP_SEED_WOOD_BLOCK, resultSeedId: ITEM_IDS.SEED_CAVE_BACKGROUND_WALL, branch: 'cave' },
-
-  // Fluid & Parkour Tech Tree
-  { seedA: ITEM_IDS.SEED_GLACIER_ICE, seedB: ITEM_IDS.GP_SEED_GLASS_PANE, resultSeedId: ITEM_IDS.SEED_WATER_SOURCE, branch: 'tech' },
-  { seedA: ITEM_IDS.SEED_WATER_SOURCE, seedB: ITEM_IDS.GP_SEED_DANGER_SIGN, resultSeedId: ITEM_IDS.SEED_ACID_SOURCE, branch: 'tech' },
-  { seedA: ITEM_IDS.GP_SEED_WOODEN_PLATFORM, seedB: ITEM_IDS.GP_SEED_MUSHROOM, resultSeedId: ITEM_IDS.SEED_BOUNCE_PAD, branch: 'tech' },
-
-  // Dedicated Farmables Progression Tree (Tier 1 -> Tier 5 by planting one seed on another)
-  { seedA: ITEM_IDS.GP_SEED_GRASS, seedB: ITEM_IDS.GP_SEED_SAND, resultSeedId: ITEM_IDS.SEED_FARM_SUGAR_CANE, branch: 'starter' },
-  { seedA: ITEM_IDS.GP_SEED_GRASS, seedB: ITEM_IDS.GP_SEED_LAVA, resultSeedId: ITEM_IDS.SEED_FARM_PEPPER_BUSH, branch: 'starter' },
-  { seedA: ITEM_IDS.GP_SEED_DIRT, seedB: ITEM_IDS.GP_SEED_WHEAT, resultSeedId: ITEM_IDS.SEED_FARM_BOUNTY_WHEAT, branch: 'starter' },
-  { seedA: ITEM_IDS.GP_SEED_CAVE_BACKGROUND, seedB: ITEM_IDS.GP_SEED_MUSHROOM, resultSeedId: ITEM_IDS.SEED_FARM_GLOW_SHROOM, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_FARM_SUGAR_CANE, seedB: ITEM_IDS.GP_SEED_WOOD_BLOCK, resultSeedId: ITEM_IDS.SEED_FARM_BAMBOO_SHOOT, branch: 'starter' },
-  { seedA: ITEM_IDS.SEED_FARM_BOUNTY_WHEAT, seedB: ITEM_IDS.GP_SEED_DAISY, resultSeedId: ITEM_IDS.SEED_FARM_HONEY_COMB, branch: 'starter' },
-  { seedA: ITEM_IDS.SEED_FARM_PEPPER_BUSH, seedB: ITEM_IDS.GP_SEED_GLASS_PANE, resultSeedId: ITEM_IDS.SEED_FARM_PINBALL_BUMPER, branch: 'tech' },
-  { seedA: ITEM_IDS.SEED_FARM_PEPPER_BUSH, seedB: ITEM_IDS.SEED_FARM_GLOW_SHROOM, resultSeedId: ITEM_IDS.SEED_FARM_VENUS_TRAP, branch: 'starter' },
-  { seedA: ITEM_IDS.SEED_FARM_PINBALL_BUMPER, seedB: ITEM_IDS.GP_SEED_LAVA_ROCK, resultSeedId: ITEM_IDS.SEED_FARM_BLACKROCK_GEM, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_FARM_HONEY_COMB, seedB: ITEM_IDS.GP_SEED_YELLOW_BLOCK, resultSeedId: ITEM_IDS.SEED_FARM_GOLD_TREASURE, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_FARM_HONEY_COMB, seedB: ITEM_IDS.GP_SEED_GLASS_BLOCK, resultSeedId: ITEM_IDS.SEED_FARM_CHANDELIER, branch: 'tech' },
-  { seedA: ITEM_IDS.SEED_FARM_PINBALL_BUMPER, seedB: ITEM_IDS.GP_SEED_RED_BLOCK, resultSeedId: ITEM_IDS.SEED_FARM_LASER_GRID, branch: 'tech' },
-  { seedA: ITEM_IDS.SEED_FARM_CHANDELIER, seedB: ITEM_IDS.SEED_FARM_BLACKROCK_GEM, resultSeedId: ITEM_IDS.SEED_FARM_SORCERER_ORB, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_FARM_BAMBOO_SHOOT, seedB: ITEM_IDS.SEED_FARM_BLACKROCK_GEM, resultSeedId: ITEM_IDS.SEED_FARM_EMERALD_GEODE, branch: 'cave' },
-  { seedA: ITEM_IDS.SEED_FARM_GOLD_TREASURE, seedB: ITEM_IDS.SEED_FARM_CHANDELIER, resultSeedId: ITEM_IDS.SEED_FARM_SUNSTONE_PILLAR, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_FARM_LASER_GRID, seedB: ITEM_IDS.SEED_FARM_CHANDELIER, resultSeedId: ITEM_IDS.SEED_FARM_FROST_LOTUS, branch: 'arctic' },
-  { seedA: ITEM_IDS.SEED_FARM_SORCERER_ORB, seedB: ITEM_IDS.SEED_FARM_FROST_LOTUS, resultSeedId: ITEM_IDS.SEED_FARM_STARLIGHT_PRISM, branch: 'tech' },
-  { seedA: ITEM_IDS.SEED_FARM_SUNSTONE_PILLAR, seedB: ITEM_IDS.SEED_FARM_EMERALD_GEODE, resultSeedId: ITEM_IDS.SEED_FARM_DRAGON_HOARD, branch: 'desert' },
-  { seedA: ITEM_IDS.SEED_FARM_STARLIGHT_PRISM, seedB: ITEM_IDS.SEED_FARM_LASER_GRID, resultSeedId: ITEM_IDS.SEED_FARM_AETHER_REACTOR, branch: 'tech' },
-  { seedA: ITEM_IDS.SEED_FARM_STARLIGHT_PRISM, seedB: ITEM_IDS.SEED_FARM_DRAGON_HOARD, resultSeedId: ITEM_IDS.SEED_FARM_CELESTIAL_MONOLITH, branch: 'tech' },
-];
+// Splicing system removed: only Crop Seeds and Farmable Seeds exist, with no splice recipes.
+export const SPLICE_RECIPES: SpliceRecipe[] = [];
 
 export type FurnaceCategory = 'smelting' | 'gear' | 'culinary';
 
@@ -4303,30 +4575,6 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     ],
   },
   {
-    id: 'store_basic_farmapack',
-    section: 'seeds',
-    name: 'Basic Farmapack Supply',
-    description: '8 high-yield farmables: 4 Royal Chandeliers and 4 Photon Laser Emitters.',
-    iconItemId: ITEM_IDS.FARM_CHANDELIER,
-    gemPrice: 80,
-    grants: [
-      { itemId: ITEM_IDS.FARM_CHANDELIER, qty: 4 },
-      { itemId: ITEM_IDS.FARM_LASER_GRID, qty: 4 },
-    ],
-  },
-  {
-    id: 'store_advanced_farmapack',
-    section: 'seeds',
-    name: 'Advanced Farmapack Supply',
-    description: '6 elite apex farmables: 3 Sorcerer Mana Spheres and 3 Starlight Refracting Prisms.',
-    iconItemId: ITEM_IDS.FARM_STARLIGHT_PRISM,
-    gemPrice: 150,
-    grants: [
-      { itemId: ITEM_IDS.FARM_SORCERER_ORB, qty: 3 },
-      { itemId: ITEM_IDS.FARM_STARLIGHT_PRISM, qty: 3 },
-    ],
-  },
-  {
     id: 'store_explorer_set',
     section: 'wearables',
     name: 'Explorer Ranger Hat & Visor',
@@ -4523,3 +4771,77 @@ export function isForegroundPlatform(id: number): boolean {
   const def = CATALOG[id];
   return def ? def.collision === 'platform' : false;
 }
+
+export function validateCatalogReferences(): { valid: boolean; warnings: string[] } {
+  const warnings: string[] = [];
+
+  // 1. Validate Block Drops & seedId references
+  for (const def of Object.values(CATALOG)) {
+    if (def.seedId !== undefined && !CATALOG[def.seedId]) {
+      warnings.push(`Item ${def.name} (#${def.id}) had dangling seedId #${def.seedId}; removed.`);
+      delete def.seedId;
+    }
+    if (def.producesTileId !== undefined && !CATALOG[def.producesTileId]) {
+      warnings.push(`Seed ${def.name} (#${def.id}) had dangling producesTileId #${def.producesTileId}; removed.`);
+      delete def.producesTileId;
+    }
+    if (Array.isArray(def.drops)) {
+      const validDrops = def.drops.filter((d) => {
+        if (!CATALOG[d.itemId]) {
+          warnings.push(`Item ${def.name} (#${def.id}) had dangling drop itemId #${d.itemId}; stripped.`);
+          return false;
+        }
+        return true;
+      });
+      if (validDrops.length !== def.drops.length) {
+        def.drops =
+          validDrops.length > 0
+            ? validDrops
+            : isStandardBaselineBlock(def)
+              ? [{ itemId: def.id, chance: 0.125, minQty: 1, maxQty: 1 }]
+              : [];
+      }
+    }
+  }
+
+  // 2. Validate Furnace Recipes (remove entire recipe if any input or output is missing)
+  for (let i = FURNACE_RECIPES.length - 1; i >= 0; i--) {
+    const rec = FURNACE_RECIPES[i];
+    const hasMissingInput = rec.inputs.some((inp) => !CATALOG[inp.itemId]);
+    const hasMissingOutput = !CATALOG[rec.outputItemId];
+    if (hasMissingInput || hasMissingOutput) {
+      warnings.push(`Furnace recipe "${rec.id}" referenced missing itemId; disabled recipe.`);
+      FURNACE_RECIPES.splice(i, 1);
+    }
+  }
+
+  // 3. Validate Gem Store Listings (remove entire listing if icon or any grant is missing)
+  for (let i = GEM_STORE_LISTINGS.length - 1; i >= 0; i--) {
+    const listing = GEM_STORE_LISTINGS[i];
+    const hasMissingGrant = listing.grants.some((g) => !CATALOG[g.itemId]);
+    const hasMissingIcon = !CATALOG[listing.iconItemId];
+    if (hasMissingGrant || hasMissingIcon) {
+      warnings.push(`Gem Store listing "${listing.id}" referenced missing itemId; disabled listing.`);
+      GEM_STORE_LISTINGS.splice(i, 1);
+    }
+  }
+
+  // 4. Validate Crop & Farmable Specs
+  for (const crop of CROP_SPECS) {
+    if (!CATALOG[crop.seedId] || !CATALOG[crop.blockId] || !CATALOG[crop.cropItemId]) {
+      warnings.push(`CropSpec "${crop.keyBase}" has missing catalog entry.`);
+    }
+  }
+  for (const farm of FARMABLE_SPECS) {
+    if (!CATALOG[farm.id] || !CATALOG[farm.seedId]) {
+      warnings.push(`FarmableSpec "${farm.key}" has missing catalog entry.`);
+    }
+  }
+
+  for (const w of warnings) {
+    console.warn(`[CatalogValidator] ${w}`);
+  }
+
+  return { valid: warnings.length === 0, warnings };
+}
+

@@ -8,7 +8,7 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from './constants.ts';
-import { getItemDef, isFarmableSeed, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
+import { getItemDef, isCropSeed, isFarmableSeed, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
 import type { AreaLockRecord, PlantedTree, WorldState, ShareLockRecord } from './worldGen.ts';
 import { getShareLockSpec, rectanglesOverlap, type ShareLockPermissionKey } from './shareLocks.ts';
 import { isSystemWorld } from './expansion.ts';
@@ -150,6 +150,85 @@ export function canEnterWorld(world: WorldState, playerId: string): { ok: boolea
   return { ok: false, reason: `World ${world.name} is private. Ask its owner for Share Lock access.` };
 }
 
+export function getMarketStandAt(
+  world: WorldState,
+  tx: number,
+  ty: number
+): { kind: 'landlord' | 'greens_vendor'; anchorX: number; anchorY: number; itemId: number } | null {
+  if (!inBoundsWorld(world, tx, ty)) return null;
+  // Each 3x2 market stand is anchored at (anchorX, anchorY) on the bottom-center tile,
+  // spanning [anchorX - 1 .. anchorX + 1] horizontally and [anchorY - 1 .. anchorY] vertically.
+  for (let dy = 0; dy <= 1; dy++) {
+    const ay = ty + dy;
+    for (let dx = -1; dx <= 1; dx++) {
+      const ax = tx - dx;
+      if (!inBoundsWorld(world, ax, ay)) continue;
+      const fgId = world.fg[tileIndexIn(world, ax, ay)];
+      if (fgId === ITEM_IDS.LANDLORD_NPC) {
+        return { kind: 'landlord', anchorX: ax, anchorY: ay, itemId: ITEM_IDS.LANDLORD_NPC };
+      }
+      if (fgId === ITEM_IDS.GREENS_VENDOR_NPC) {
+        return { kind: 'greens_vendor', anchorX: ax, anchorY: ay, itemId: ITEM_IDS.GREENS_VENDOR_NPC };
+      }
+    }
+  }
+  return null;
+}
+
+export function isIndestructiblePregenTile(world: WorldState, tx: number, ty: number): boolean {
+  if (!world.isPersonalRealm) return false;
+  const sx = world.spawnX;
+  const sy = world.spawnY; // 19 (groundY = 20)
+  // Lower 5-wide Starting Platform at groundY (sy + 1)
+  if (ty === sy + 1 && Math.abs(tx - sx) <= 2) return true;
+  // Entrance Portal tile (sx, sy) and 1-tile headroom directly above it (sx, sy - 1)
+  if (tx === sx && (ty === sy || ty === sy - 1)) return true;
+  // Upper 5-wide WorldCore Platform at groundY - 4 (sy - 3)
+  if (ty === sy - 3 && Math.abs(tx - sx) <= 2) return true;
+  return false;
+}
+
+export function isDoorBlock(itemId: number): boolean {
+  return itemId === ITEM_IDS.GP_DOOR || itemId === ITEM_IDS.GP_DUNGEON_DOOR;
+}
+
+export function canPlowTile(
+  world: WorldState,
+  player: PlayerContext,
+  tx: number,
+  ty: number,
+  reachTiles = MAX_REACH_TILES
+): { ok: boolean; reason?: string } {
+  const adminEdit = Boolean(player.adminWorldEdit);
+  if (isSystemWorld(world.name) && !adminEdit) {
+    return { ok: false, reason: 'System worlds cannot be plowed.' };
+  }
+  if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of world bounds.' };
+  if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Cannot plow bedrock.' };
+  if (!adminEdit && isIndestructiblePregenTile(world, tx, ty)) {
+    return { ok: false, reason: 'Pregenerated foundation is indestructible.' };
+  }
+  if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
+  if (!adminEdit && !hasEditPermission(world, player.id, tx, ty, 'build')) {
+    return { ok: false, reason: 'Protected by Lock.' };
+  }
+  const idx = tileIndexIn(world, tx, ty);
+  const fgId = world.fg[idx];
+  if (fgId === ITEM_IDS.PLOWED_DIRT_SOIL) {
+    return { ok: false, reason: 'This Dirt Soil is already plowed and ready for Crop Seeds.' };
+  }
+  if (fgId !== ITEM_IDS.GP_DIRT) {
+    return { ok: false, reason: 'Farming Hoe can only plow Dirt Soil blocks.' };
+  }
+  if (ty > 0) {
+    const aboveIdx = tileIndexIn(world, tx, ty - 1);
+    if (world.fg[aboveIdx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty - 1}`]) {
+      return { ok: false, reason: 'Clear the tile above Dirt Soil before plowing.' };
+    }
+  }
+  return { ok: true };
+}
+
 export function canBreakTile(
   world: WorldState,
   player: PlayerContext,
@@ -163,9 +242,15 @@ export function canBreakTile(
   if (adminEdit ? ty >= worldHeight(world) - 1 : isBedrockRowWorld(world, ty)) {
     return { ok: false, reason: 'Bedrock is indestructible.' };
   }
+  if (!adminEdit && isIndestructiblePregenTile(world, tx, ty)) {
+    return { ok: false, reason: 'Pregenerated foundation is indestructible.' };
+  }
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
   if (!adminEdit && !hasEditPermission(world, player.id, tx, ty, 'break')) {
     return { ok: false, reason: 'Protected by Lock.' };
+  }
+  if (!adminEdit && getMarketStandAt(world, tx, ty)) {
+    return { ok: false, reason: 'This market stand cannot be broken.' };
   }
 
   const key = `${tx},${ty}`;
@@ -177,8 +262,17 @@ export function canBreakTile(
   const fgId = world.fg[idx];
   if (fgId !== ITEM_IDS.AIR) {
     if (!adminEdit) {
-      if (fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.LANDLORD_NPC) {
+      if (
+        fgId === ITEM_IDS.WORLD_CORE ||
+        fgId === ITEM_IDS.LANDLORD_NPC ||
+        fgId === ITEM_IDS.GREENS_VENDOR_NPC
+      ) {
         return { ok: false, reason: 'This special world object cannot be broken.' };
+      }
+      if (fgId === ITEM_IDS.STARTER_LOOTBOX) {
+        if (!world.worldLock || world.worldLock.ownerId !== player.id) {
+          return { ok: false, reason: 'Only the World Owner can open the Starter Supply Lootbox.' };
+        }
       }
       if (fgId === ITEM_IDS.WORLD_LOCK || fgId === ITEM_IDS.SMALL_LOCK) {
         return { ok: false, reason: 'Legacy lock items have been retired.' };
@@ -277,12 +371,23 @@ export function canPlaceTile(
   if (adminEdit ? ty >= worldHeight(world) - 1 : isBedrockRowWorld(world, ty)) {
     return { ok: false, reason: 'Cannot build on bedrock.' };
   }
+  if (!adminEdit && isIndestructiblePregenTile(world, tx, ty)) {
+    return { ok: false, reason: 'Pregenerated foundation space is protected.' };
+  }
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
   if (!adminEdit && !hasEditPermission(world, player.id, tx, ty, 'build')) {
     return { ok: false, reason: 'Protected by Lock.' };
   }
 
-  if (!adminEdit && (itemId === ITEM_IDS.WORLD_CORE || itemId === ITEM_IDS.LANDLORD_NPC)) {
+  if (!adminEdit && getMarketStandAt(world, tx, ty)) {
+    return { ok: false, reason: 'Market stand space is reserved.' };
+  }
+  if (
+    !adminEdit &&
+    (itemId === ITEM_IDS.WORLD_CORE ||
+      itemId === ITEM_IDS.LANDLORD_NPC ||
+      itemId === ITEM_IDS.GREENS_VENDOR_NPC)
+  ) {
     return { ok: false, reason: 'This special world object cannot be placed.' };
   }
   const def = getItemDef(itemId);
@@ -317,28 +422,45 @@ export function canPlaceTile(
 
   if (def.category === 'seed') {
     if (isMine) {
-      return { ok: false, reason: 'Trees cannot be planted inside Mining Shafts.' };
-    }
-    if (!adminEdit && !isFarmableSeed(itemId)) {
-      return { ok: false, reason: 'Only Farmable Seeds can be planted.' };
+      return { ok: false, reason: 'Seeds cannot be planted inside Mining Shafts.' };
     }
     const potKey = `${tx},${ty}`;
-    const hasPot = world.fg[idx] === ITEM_IDS.SEED_POT || Boolean(world.seedPots?.[potKey]);
-    if (!adminEdit && !hasPot) {
-      return { ok: false, reason: 'Place a Seed Pot first before planting.' };
-    }
-    if (world.fg[idx] !== ITEM_IDS.AIR && world.fg[idx] !== ITEM_IDS.SEED_POT && !adminEdit) {
-      return { ok: false, reason: 'Tile is occupied.' };
-    }
     const existingPlant = world.plants[potKey];
     if (existingPlant) {
       return {
         ok: false,
         reason:
           Date.now() >= existingPlant.maturityAt
-            ? 'Tree is already mature! Harvest it before planting.'
-            : 'This Seed Pot already has a seed planted (only one seed per Pot at a time).',
+            ? 'Plant is already mature! Harvest it before planting.'
+            : 'A seed is already growing on this tile.',
       };
+    }
+
+    if (isCropSeed(itemId)) {
+      if (world.fg[idx] !== ITEM_IDS.AIR) {
+        return { ok: false, reason: 'Crop Seeds must be sown into an empty tile directly above Plowed Dirt Soil.' };
+      }
+      const hasPlowedGround =
+        ty + 1 < worldHeight(world) &&
+        world.fg[tileIndexIn(world, tx, ty + 1)] === ITEM_IDS.PLOWED_DIRT_SOIL;
+      if (!adminEdit && !hasPlowedGround) {
+        return {
+          ok: false,
+          reason: 'Crop Seeds require Dirt Soil beneath that has been plowed with a Farming Hoe.',
+        };
+      }
+      return { ok: true, layer: 'seed' };
+    }
+
+    if (!adminEdit && !isFarmableSeed(itemId)) {
+      return { ok: false, reason: 'Only Farmable Seeds or Crop Seeds can be planted.' };
+    }
+    const hasPot = world.fg[idx] === ITEM_IDS.SEED_POT || Boolean(world.seedPots?.[potKey]);
+    if (!adminEdit && !hasPot) {
+      return { ok: false, reason: 'Place a Seed Pot first before planting.' };
+    }
+    if (world.fg[idx] !== ITEM_IDS.AIR && world.fg[idx] !== ITEM_IDS.SEED_POT) {
+      return { ok: false, reason: 'Tile is occupied.' };
     }
     return { ok: true, layer: 'seed' };
   }
@@ -351,11 +473,8 @@ export function canPlaceTile(
   }
 
   // Foreground / Lock / Interactive
-  if (!adminEdit && (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`])) {
+  if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
     return { ok: false, reason: 'Foreground tile already occupied.' };
-  }
-  if (adminEdit && world.fg[idx] === itemId) {
-    return { ok: false, reason: 'Tile already contains this block.' };
   }
 
   if (!adminEdit && def.collision === 'solid' && playerOverlapsTile(player, tx, ty)) {
@@ -414,10 +533,13 @@ export function getPlantGrowthState(
   plant: PlantedTree,
   nowMs: number
 ): { stage: GrowthStage; progress: number; remainingMs: number } {
+  if (nowMs >= plant.maturityAt) {
+    return { stage: 'mature', progress: 1, remainingMs: 0 };
+  }
   const total = Math.max(1000, plant.maturityAt - plant.plantedAt || PLANT_DEFAULT_GROWTH_MS);
   const elapsed = Math.max(0, nowMs - plant.plantedAt);
   const progress = Math.min(1, elapsed / total);
-  const remainingMs = Math.max(0, total - elapsed);
+  const remainingMs = Math.max(0, plant.maturityAt - nowMs);
   if (progress >= 1) return { stage: 'mature', progress: 1, remainingMs: 0 };
   if (progress >= 0.6) return { stage: 'developing', progress, remainingMs };
   if (progress >= 0.3) return { stage: 'young', progress, remainingMs };
@@ -477,3 +599,24 @@ export function addXp(
   }
   return { level: curLevel, xp: curXp, leveledUp };
 }
+
+export function worldXpForNextLevel(level: number): number {
+  return 100 + (Math.max(1, level) - 1) * 75;
+}
+
+export function addWorldXp(
+  level: number,
+  xp: number,
+  gained: number
+): { level: number; xp: number; leveledUp: boolean } {
+  let curLevel = Math.max(1, level);
+  let curXp = Math.max(0, xp) + Math.max(0, gained);
+  let leveledUp = false;
+  while (curXp >= worldXpForNextLevel(curLevel)) {
+    curXp -= worldXpForNextLevel(curLevel);
+    curLevel += 1;
+    leveledUp = true;
+  }
+  return { level: curLevel, xp: curXp, leveledUp };
+}
+

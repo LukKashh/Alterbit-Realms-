@@ -369,6 +369,7 @@ export const AtmPanel: React.FC<AtmPanelProps> = ({ atm, nowMs }) => {
 interface VaultboxPanelProps {
   vaultbox: VaultboxRecord;
   playerId: string;
+  isAdminBypass?: boolean;
   inventory: InventorySlot[];
   onDeposit: (itemId: number, qty: number, slotIndex?: number, invIndex?: number) => void;
   onWithdraw: (slotIndex: number, qty?: number) => void;
@@ -377,11 +378,12 @@ interface VaultboxPanelProps {
 export const VaultboxPanel: React.FC<VaultboxPanelProps> = ({
   vaultbox,
   playerId,
+  isAdminBypass = false,
   inventory,
   onDeposit,
   onWithdraw,
 }) => {
-  const isOwner = vaultbox.ownerId === playerId;
+  const isOwner = vaultbox.ownerId === playerId || isAdminBypass;
   const slots = Array.from({ length: VAULTBOX_SLOT_COUNT }, (_, idx) => vaultbox.slots?.[idx] ?? null);
   const usedCount = slots.filter(Boolean).length;
   const depositable = inventory

@@ -22,11 +22,14 @@ import {
 } from 'lucide-react';
 import {
   ACHIEVEMENTS,
+  CROP_SPECS,
   FARMABLE_SPECS,
   GEM_STORE_LISTINGS,
   getItemDef,
   getMatteragenBranch,
   getMatteragenIntervalMs,
+  isCropItem,
+  isCropSeed,
   ITEM_IDS,
   MATTERAGEN_UPGRADE_COSTS,
   type FarmableBranch,
@@ -34,7 +37,7 @@ import {
   type StoreSection,
 } from '../game/catalog.ts';
 import { getItemIconUrl, type EquippedWearables } from '../game/pixelArt.ts';
-import { xpForNextLevel } from '../game/rules.ts';
+import { worldXpForNextLevel, xpForNextLevel } from '../game/rules.ts';
 import type {
   ActiveBuff,
   ChatMessage,
@@ -47,6 +50,7 @@ import type {
 } from '../game/network.ts';
 import type { GameConfig } from '../game/config.ts';
 import type { TileInspectInfo } from '../game/engine.ts';
+import { NEXUS_DOOR_DESTINATIONS } from '../game/worldGen.ts';
 import { AdminPanel, type AdminActionPayload } from './AdminPanel.tsx';
 import { ExchangeModal } from './ExchangeModal.tsx';
 import { AtmPanel, BfgPanel, FurnacePanel, VaultboxPanel } from './MachinePanels.tsx';
@@ -64,9 +68,13 @@ interface GameHudProps {
   onToggleAdminWorldEdit?: (enabled: boolean, brushItemId?: number | null) => void;
   worldName: string;
   worldOwner: string | null;
+  worldXp?: number;
+  worldLevel?: number;
+  worldCoreTokens?: number;
   playerCount: number;
   coords: { tx: number; ty: number };
   gems: number;
+  alterbits?: number;
   xp: number;
   level: number;
   inventory: InventorySlot[];
@@ -100,7 +108,7 @@ interface GameHudProps {
   onToggleFavoriteWorld: (worldName: string) => void;
   chatMessages: ChatMessage[];
   onSendChat: (text: string) => void;
-  onSpliceSeeds: (seedA: number, seedB: number) => void;
+  onSpliceSeeds?: (seedA: number, seedB: number) => void;
   onBuyGemStore: (listingId: string) => void;
   onEquipWearable: (itemId: number) => void;
   onClaimAchievement: (achievementId: string) => void;
@@ -176,6 +184,16 @@ interface GameHudProps {
       invIndex?: number;
     }
   ) => void;
+  hasClaimedStarterLootbox?: boolean;
+  onVendorAction?: (opts: {
+    action: 'reclaim_hoe' | 'buy_hoe' | 'buy_seed' | 'sell_crop' | 'sell_all_crops';
+    itemId?: number;
+    qty?: number;
+    currency?: 'gems' | 'alterbits' | 'digibits';
+  }) => void;
+  onConfigureDoor?: (tx: number, ty: number, targetX: number, targetY: number, label?: string) => void;
+  onUseDoor?: (tx: number, ty: number) => void;
+  onNexusTeleport?: (targetX: number, targetY: number, label?: string) => void;
 }
 
 type ActivePanel =
@@ -298,13 +316,15 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
             ? 'Punch'
             : selectedItemId === ITEM_IDS.WRENCH
               ? 'Use'
-              : getItemDef(selectedItemId)?.toolKind === 'rod'
-                ? 'Fish'
-                : getItemDef(selectedItemId)?.toolKind === 'pickaxe'
-                  ? 'Mine'
-                  : getItemDef(selectedItemId)?.category === 'consumable'
-                    ? 'Use'
-                    : 'Place'}
+              : getItemDef(selectedItemId)?.toolKind === 'hoe'
+                ? 'Plow'
+                : getItemDef(selectedItemId)?.toolKind === 'rod'
+                  ? 'Fish'
+                  : getItemDef(selectedItemId)?.toolKind === 'pickaxe'
+                    ? 'Mine'
+                    : getItemDef(selectedItemId)?.category === 'consumable'
+                      ? 'Use'
+                      : 'Place'}
         </span>
       </div>
     </div>
@@ -324,9 +344,13 @@ export const GameHud: React.FC<GameHudProps> = ({
   onToggleAdminWorldEdit,
   worldName,
   worldOwner,
+  worldXp = 0,
+  worldLevel = 1,
+  worldCoreTokens = 0,
   playerCount,
   coords,
   gems,
+  alterbits = 0,
   xp,
   level,
   inventory,
@@ -393,6 +417,11 @@ export const GameHud: React.FC<GameHudProps> = ({
   onExchangeAction,
   onUpgradeMatteragen,
   onConfigureVaultbox,
+  hasClaimedStarterLootbox = false,
+  onVendorAction,
+  onConfigureDoor,
+  onUseDoor,
+  onNexusTeleport,
 }) => {
   const [activePanel, setActivePanel] = useState<ActivePanel>('none');
   const [worldInput, setWorldInput] = useState('');
@@ -442,6 +471,9 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [vmStockQty, setVmStockQty] = useState<number>(5);
   const [vmPriceItemId, setVmPriceItemId] = useState<number>(ITEM_IDS.GP_RED_BRICKS);
   const [vmPriceQty, setVmPriceQty] = useState<number>(1);
+  const [doorTargetX, setDoorTargetX] = useState<number>(25);
+  const [doorTargetY, setDoorTargetY] = useState<number>(27);
+  const [doorLabel, setDoorLabel] = useState<string>('');
 
   useEffect(() => {
     if (
@@ -466,7 +498,16 @@ export const GameHud: React.FC<GameHudProps> = ({
       if (vm.priceItemId > 0) setVmPriceItemId(vm.priceItemId);
       if (vm.priceQty > 0) setVmPriceQty(vm.priceQty);
     }
-  }, [inspectInfo]);
+    if (inspectInfo?.doorLink) {
+      setDoorTargetX(inspectInfo.doorLink.targetX);
+      setDoorTargetY(inspectInfo.doorLink.targetY);
+      setDoorLabel(inspectInfo.doorLink.label ?? '');
+    } else if (inspectInfo?.isDoor) {
+      setDoorTargetX(coords.tx);
+      setDoorTargetY(coords.ty);
+      setDoorLabel('');
+    }
+  }, [inspectInfo, coords.tx, coords.ty]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -535,7 +576,8 @@ export const GameHud: React.FC<GameHudProps> = ({
   const isCurrentWorldFav = favoriteWorlds.includes(worldName);
 
   const activeLock = inspectInfo?.shareLock ?? null;
-  const isLockOwner = activeLock?.ownerId === playerId;
+  const isAdminBypass = role === 'admin' && adminWorldEdit;
+  const isLockOwner = activeLock?.ownerId === playerId || isAdminBypass;
   const myRealms = worlds.filter((world) => world.ownerId === playerId);
 
   return (
@@ -614,6 +656,23 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             <div className="h-6 w-0.5 bg-[#090e17] shrink-0" />
 
+            {/* Digibits Central Currency Readout */}
+            <div
+              data-testid="hud-alterbits-counter"
+              title="Digibits (DB) · Earned by selling harvested crops to the Fresh Greens Vendor in NEXUS"
+              className="flex items-center gap-1 px-1.5 py-1 shrink-0"
+            >
+              <span className="w-3.5 h-3.5 bg-[#16a34a] border border-[#fde047] flex items-center justify-center text-[8px] font-pixel text-[#fef08a] leading-none shrink-0">
+                D
+              </span>
+              <span className="text-[11px] sm:text-xs font-mono-num font-bold text-[#86efac] ui-text-shadow">
+                {Math.round(alterbits)}
+              </span>
+              <span className="hidden sm:inline text-[9px] font-bold text-[#4ade80] uppercase">DB</span>
+            </div>
+
+            <div className="h-6 w-0.5 bg-[#090e17] shrink-0" />
+
             {/* Active World Status */}
             <div className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1.5 py-0.5 text-[11px] sm:text-xs font-bold text-[#ffe18c] ui-text-shadow whitespace-nowrap truncate">
               {worldOwner ? <Lock className="w-3 h-3 text-[#f2b738] shrink-0" /> : <Globe className="w-3 h-3 text-[#78c8f5] shrink-0" />}
@@ -656,10 +715,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   data-testid="hud-sysedit-button"
                   onClick={(e) => {
                     e.currentTarget.blur();
-                    onToggleAdminWorldEdit?.(
-                      !adminWorldEdit,
-                      !adminWorldEdit ? (adminBrushItemId ?? ITEM_IDS.GP_DIRT) : null
-                    );
+                    onToggleAdminWorldEdit?.(!adminWorldEdit);
                   }}
                   className={`pixel-btn !h-7 sm:!h-8 !px-2 gap-1 !text-[10px] ${
                     adminWorldEdit
@@ -737,8 +793,16 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       </div>
 
-      {/* Active Timed Culinary Buffs + Fishing Reel CTA + Toast + Inspector */}
+      {/* Active Timed Culinary Buffs + First-Login NEXUS Nudge + Fishing Reel CTA + Toast + Inspector */}
       <div className="flex flex-col items-center gap-2 pointer-events-none">
+        {worldName === 'NEXUS' && myRealms.length === 0 && (
+          <div
+            data-testid="nexus-first-login-nudge"
+            className="pixel-box px-3 py-1.5 text-[11px] font-bold text-[#fde047] border-[#38e8d8] text-center max-w-[92vw]"
+          >
+            Welcome to NEXUS! Head East (→) to the Realm Steward Deck to conjure your 50×40 personal world and open your Starter Supply Lootbox!
+          </div>
+        )}
         {liveBuffs.length > 0 && (
           <div className="pixel-box flex flex-wrap items-center justify-center gap-1.5 px-2.5 py-1 text-[10px] font-mono-num text-[#8cf7ee]">
             {liveBuffs.map((b) => {
@@ -796,6 +860,140 @@ export const GameHud: React.FC<GameHudProps> = ({
               {inspectInfo.lockInfo && <span className="text-[#ffe18c] font-semibold">{inspectInfo.lockInfo}</span>}
             </div>
 
+            {/* NEXUS Single Multi-Way Navigational Door Window */}
+            {inspectInfo.isNexusDoor && (
+              <div
+                data-testid="nexus-multiway-door-window"
+                className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-pixel text-[11px] text-[#38e8d8]">
+                    NEXUS MULTI-WAY GATEWAY
+                  </h3>
+                  <span className="px-1.5 py-0.5 bg-[#0f172a] border border-[#38bdf8] text-[9px] font-mono-num font-bold text-[#7dd3fc]">
+                    SELECT DECK
+                  </span>
+                </div>
+                <p className="text-[10px] text-[#9cb5cc]">
+                  Choose a NEXUS floating deck destination to transit immediately:
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {NEXUS_DOOR_DESTINATIONS.map((dest) => (
+                    <button
+                      key={dest.id}
+                      type="button"
+                      data-testid={`nexus-door-dest-${dest.id}`}
+                      onClick={() => {
+                        onNexusTeleport?.(dest.tx, dest.ty, dest.label);
+                        onDismissInspect();
+                      }}
+                      className="pixel-slot p-2 text-left flex flex-col gap-0.5 cursor-pointer hover:border-[#38e8d8] hover:bg-[#10263a] transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-pixel text-[10px] text-[#fde047]">
+                          {dest.label}
+                        </span>
+                        <span className="text-[9px] font-mono-num text-[#8cf7ee]">
+                          ({dest.tx}, {dest.ty})
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-[#c7d9eb]">
+                        {dest.subtitle}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Player-World Background Door with Gateway Linking Capability */}
+            {inspectInfo.isDoor && !inspectInfo.isNexusDoor && (
+              <div
+                data-testid="gateway-door-panel"
+                className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-pixel text-[10px] text-[#8cf7ee]">
+                    BACKGROUND GATEWAY DOOR
+                  </span>
+                  <span className="text-[10px] font-mono-num text-[#fde047]">
+                    {inspectInfo.doorLink
+                      ? `Linked → (${inspectInfo.doorLink.targetX}, ${inspectInfo.doorLink.targetY})`
+                      : 'Unlinked'}
+                  </span>
+                </div>
+                {inspectInfo.doorLink && (
+                  <button
+                    type="button"
+                    data-testid="enter-gateway-door-btn"
+                    onClick={() => {
+                      onUseDoor?.(inspectInfo.tx, inspectInfo.ty);
+                      onDismissInspect();
+                    }}
+                    className="pixel-btn pixel-btn-emerald w-full !py-1.5 !text-[10px]"
+                  >
+                    Enter Doorway → {inspectInfo.doorLink.label || `(${inspectInfo.doorLink.targetX}, ${inspectInfo.doorLink.targetY})`}
+                  </button>
+                )}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    onConfigureDoor?.(
+                      inspectInfo.tx,
+                      inspectInfo.ty,
+                      doorTargetX,
+                      doorTargetY,
+                      doorLabel.trim() || undefined
+                    );
+                  }}
+                  className="bg-[#090e17] border border-[#1c2b3d] p-2 flex flex-col gap-1.5"
+                >
+                  <span className="text-[10px] font-bold text-[#ffe18c]">
+                    Configure Gateway Link Coordinates
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc]">
+                      <span>Target X</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={99}
+                        value={doorTargetX}
+                        onChange={(e) => setDoorTargetX(Number(e.target.value))}
+                        className="px-2 py-1 bg-[#05080f] border border-[#1c2b3d] text-xs font-mono-num text-white"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc]">
+                      <span>Target Y</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={59}
+                        value={doorTargetY}
+                        onChange={(e) => setDoorTargetY(Number(e.target.value))}
+                        className="px-2 py-1 bg-[#05080f] border border-[#1c2b3d] text-xs font-mono-num text-white"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={32}
+                    value={doorLabel}
+                    onChange={(e) => setDoorLabel(e.target.value)}
+                    placeholder="Optional Destination Label..."
+                    className="px-2 py-1 bg-[#05080f] border border-[#1c2b3d] text-xs text-white"
+                  />
+                  <button
+                    type="submit"
+                    data-testid="save-gateway-door-btn"
+                    className="pixel-btn pixel-btn-primary w-full !py-1 !text-[10px]"
+                  >
+                    Save Gateway Link
+                  </button>
+                </form>
+              </div>
+            )}
+
             {/* Share Lock Permissions Panel */}
             {activeLock && (
               <div className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2">
@@ -841,14 +1039,16 @@ export const GameHud: React.FC<GameHudProps> = ({
               <div className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2">
                 <div>
                   <h3 className="font-pixel text-[11px] text-[#ffe18c]">LANDLORD · REALM STEWARD</h3>
-                  <p className="text-[11px] text-[#9cb5cc]">Each player can conjure one personal 30×50 sanctuary realm locked to their account.</p>
+                  <p className="text-[11px] text-[#9cb5cc]">
+                    Each player can conjure one personal 50×40 sanctuary realm locked to their account, complete with an indestructible starting foundation and a one-time Starter Supply Lootbox.
+                  </p>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-[#8cf7ee]">My Realm ({myRealms.length}/1)</span>
                   <button type="button" onClick={onRefreshWorlds} className="text-[10px] text-[#89d6ff] font-bold cursor-pointer">Refresh</button>
                 </div>
                 {myRealms.length === 0 ? (
-                  <span className="text-[11px] text-[#6d8ba8]">You have not created your personal realm yet.</span>
+                  <span className="text-[11px] text-[#6d8ba8]">You have not created your personal 50×40 realm yet.</span>
                 ) : myRealms.map((realm) => (
                   <button key={realm.name} type="button" onClick={() => onJoinWorld(realm.name)}
                     className="pixel-slot flex items-center justify-between p-2 text-left cursor-pointer hover:border-[#38e8d8]">
@@ -859,7 +1059,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 {myRealms.length === 0 && (
                   <form onSubmit={(e) => { e.preventDefault(); if (newWorldName.trim()) { onCreateWorld(newWorldName.trim(), useTerraBlast); setNewWorldName(''); setUseTerraBlast(false); } }}
                     className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-1.5">
-                    <label className="text-[11px] font-bold text-[#ffe18c]">Conjure Personal Realm (30×50)</label>
+                    <label className="text-[11px] font-bold text-[#ffe18c]">Conjure Personal Realm (50×40)</label>
                     <input value={newWorldName} onChange={(e) => setNewWorldName(e.target.value.toUpperCase())}
                       maxLength={20} placeholder="Choose a unique realm name"
                       className="w-full px-2 py-1.5 bg-[#05080f] border-2 border-[#1c2b3d] text-xs text-white uppercase focus:outline-none focus:border-[#38e8d8]" />
@@ -878,25 +1078,315 @@ export const GameHud: React.FC<GameHudProps> = ({
               </div>
             )}
 
-            {/* WorldCore: owner-only realm manager */}
-            {inspectInfo.isWorldCore && inspectInfo.worldLock && (
-              <div className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2">
-                {inspectInfo.worldLock.ownerId === playerId ? (
-                  <>
-                    <h3 className="font-pixel text-[11px] text-[#ffe18c]">WORLD MANAGER PANEL</h3>
-                    <p className="text-[11px] text-[#9cb5cc]">You own {worldName}. WorldCore hard-locks this entire realm to your account.</p>
-                    <div className="pixel-slot p-2 text-[11px] text-[#d5e4f2]">
-                      <div>Owner: {inspectInfo.worldLock.ownerName}</div>
-                      <div>Players: {playerCount}/10</div>
-                      <div>Access: Hard-Locked · Share Locks grant area access</div>
+            {/* WorldCore: World View Panel & World Leveling */}
+            {inspectInfo.isWorldCore && inspectInfo.worldLock && (() => {
+              const nextWorldXp = worldXpForNextLevel(worldLevel);
+              const worldXpPct = Math.min(100, Math.round((worldXp / Math.max(1, nextWorldXp)) * 100));
+              const isOwner = inspectInfo.worldLock.ownerId === playerId;
+              return (
+                <div
+                  data-testid="world-view-panel"
+                  className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-pixel text-[11px] text-[#ffe18c]">WORLD VIEW PANEL</h3>
+                    <span
+                      data-testid="world-level-badge"
+                      className="px-1.5 py-0.5 bg-[#1e293b] border border-[#facc15] text-[10px] font-mono-num font-bold text-[#fde047]"
+                    >
+                      WORLD LVL {worldLevel}
+                    </span>
+                  </div>
+
+                  {/* World XP & Leveling Progress */}
+                  <div className="bg-[#090e17] border-2 border-[#1c2b3d] p-2 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-[#8cf7ee]">Realm Mastery XP</span>
+                      <span
+                        data-testid="world-xp-readout"
+                        className="font-mono-num font-bold text-[#fde047]"
+                      >
+                        {worldXp} / {nextWorldXp} XP ({worldXpPct}%)
+                      </span>
                     </div>
-                    <span className="text-[10px] text-[#6d8ba8]">Share Lock permissions are managed by inspecting each Share Lock.</span>
-                  </>
-                ) : (
-                  <span className="text-[11px] text-[#ffcf8b]">Only this realm's owner can access its Manager Panel.</span>
-                )}
-              </div>
-            )}
+                    <div className="h-2.5 bg-[#03060a] border border-[#1c2b3d] overflow-hidden">
+                      <div
+                        className="h-full bg-[#f59e0b] transition-[width] duration-200"
+                        style={{ width: `${worldXpPct}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-[#9cb5cc]">
+                      World gains separate World XP whenever the owner breaks blocks, plows soil, harvests trees/crops, or collects generators inside this world.
+                    </span>
+                  </div>
+
+                  {/* WorldCore Core Tokens Storage (World-Relative Facility Upgrade Currency) */}
+                  <div
+                    data-testid="world-core-tokens-card"
+                    className="bg-[#091826] border-2 border-[#38bdf8] p-2 flex flex-col gap-1"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-pixel text-[10px] text-[#7dd3fc]">
+                        CORE TOKENS STORAGE
+                      </span>
+                      <span
+                        data-testid="world-core-tokens"
+                        className="px-2 py-0.5 bg-[#04101c] border border-[#38e8d8] font-mono-num text-xs font-bold text-[#fde047]"
+                      >
+                        {worldCoreTokens} Tokens
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-[#bae6fd]">
+                      Earned exclusively by the World Owner via Harvesting Crops, Farmables, and Matteragen Engines (0.85%–10% odds by source tier, always +1). Automatically stored here with no capacity limit for upgrading in-world facility blocks!
+                    </span>
+                  </div>
+
+                  <div className="pixel-slot p-2 text-[11px] text-[#d5e4f2] flex flex-col gap-0.5">
+                    <div>
+                      World: <span className="font-bold text-[#ffe18c]">{worldName}</span>
+                    </div>
+                    <div>
+                      Owner: <span className="font-bold text-white">{inspectInfo.worldLock.ownerName}</span>
+                    </div>
+                    <div>
+                      Players Active: <span className="font-mono-num font-bold text-[#8cf7ee]">{playerCount}/10</span>
+                    </div>
+                    <div>Access: Hard-Locked · Share Locks grant area access</div>
+                  </div>
+                  {isOwner ? (
+                    <span className="text-[10px] text-[#86efac]">
+                      You are the sovereign owner of {worldName}. Your XP-yielding actions here actively level up this WorldCore and earn Core Tokens!
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-[#ffcf8b]">
+                      Only {inspectInfo.worldLock.ownerName}'s actions inside {worldName} grant World XP and Core Tokens.
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Nexus Fresh Greens Vendor: Crop Seeds & Digibits Marketplace */}
+            {inspectInfo.isGreensVendor && (() => {
+              const harvestedCropsInBag = inventory.filter(
+                (s) => isCropItem(s.itemId) && s.qty > 0
+              );
+              const totalSellableDb = harvestedCropsInBag.reduce((acc, s) => {
+                const def = getItemDef(s.itemId);
+                return acc + s.qty * (def?.cropSellAlterbits ?? 2);
+              }, 0);
+              const hasHoe = getQty(ITEM_IDS.FARMING_HOE) > 0;
+              return (
+                <div
+                  data-testid="greens-vendor-panel"
+                  className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="font-pixel text-[11px] text-[#86efac]">
+                        FRESH GREENS VENDOR
+                      </h3>
+                      <p className="text-[10px] text-[#9cb5cc]">
+                        Trade Crop Seeds &amp; Harvested Crops exclusively for Digibits (DB)!
+                      </p>
+                    </div>
+                    <div className="px-2 py-1 bg-[#052e16] border border-[#22c55e] text-right shrink-0">
+                      <div className="text-[9px] text-[#86efac] uppercase font-bold">Digibits</div>
+                      <div className="text-xs font-mono-num font-bold text-[#fef08a]">
+                        {Math.round(alterbits)} DB
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Starter Farming Hoe Status & Emergency 0-DB Reclaim */}
+                  <div className="pixel-slot p-2 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={getItemIconUrl(ITEM_IDS.FARMING_HOE)}
+                          alt="Farming Hoe"
+                          className="w-6 h-6 pixelated"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div>
+                          <div className="font-bold text-[#f7f4eb] text-[11px]">
+                            Farming Hoe {hasHoe ? `(Owned ×${getQty(ITEM_IDS.FARMING_HOE)})` : '(In Starter Supply Lootbox)'}
+                          </div>
+                          <div className="text-[10px] text-[#9cb5cc]">
+                            Obtained from the One-Time Starter Supply Lootbox on your personal world's starting platform.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    {hasClaimedStarterLootbox && !hasHoe && (
+                      <button
+                        type="button"
+                        data-testid="vendor-reclaim-hoe-btn"
+                        onClick={() => onVendorAction?.({ action: 'reclaim_hoe' })}
+                        className="pixel-btn pixel-btn-emerald w-full !py-1 !text-[10px]"
+                      >
+                        Reclaim Lost Farming Hoe (0 DB)
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Sell Harvested Crops for Digibits */}
+                  <div className="bg-[#090e17] border-2 border-[#14532d] p-2 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#86efac] text-[11px]">
+                        Sell Harvested Crops
+                      </span>
+                      {harvestedCropsInBag.length > 0 && (
+                        <button
+                          type="button"
+                          data-testid="vendor-sell-all-crops"
+                          onClick={() => onVendorAction?.({ action: 'sell_all_crops' })}
+                          className="pixel-btn pixel-btn-gold !px-2 !py-0.5 !text-[9px]"
+                        >
+                          Sell All (+{totalSellableDb} DB)
+                        </button>
+                      )}
+                    </div>
+                    {harvestedCropsInBag.length === 0 ? (
+                      <span className="text-[10px] text-[#6d8ba8]">
+                        No harvested crops in bag. Open your Starter Supply Lootbox for a Farming Hoe, Dirt, and Radish Seeds, plow Dirt Soil, harvest mature crops, and sell them here for Digibits!
+                      </span>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        {harvestedCropsInBag.map((slot) => {
+                          const def = getItemDef(slot.itemId);
+                          const unitDb = def?.cropSellAlterbits ?? 2;
+                          return (
+                            <div
+                              key={slot.itemId}
+                              className="pixel-slot px-2 py-1 flex items-center justify-between gap-2"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <img
+                                  src={getItemIconUrl(slot.itemId)}
+                                  alt={def?.name ?? 'Crop'}
+                                  className="w-5 h-5 pixelated shrink-0"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="truncate">
+                                  <span className="font-bold text-[#f7f4eb]">{def?.name}</span>{' '}
+                                  <span className="text-[10px] font-mono-num text-[#fde047]">
+                                    ×{slot.qty}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onVendorAction?.({
+                                      action: 'sell_crop',
+                                      itemId: slot.itemId,
+                                      qty: 1,
+                                    })
+                                  }
+                                  className="pixel-btn !px-1.5 !py-0.5 !text-[9px]"
+                                >
+                                  1 (+{unitDb} DB)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onVendorAction?.({
+                                      action: 'sell_crop',
+                                      itemId: slot.itemId,
+                                      qty: slot.qty,
+                                    })
+                                  }
+                                  className="pixel-btn pixel-btn-emerald !px-1.5 !py-0.5 !text-[9px]"
+                                >
+                                  All (+{slot.qty * unitDb} DB)
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Buy Unique Crop Seeds (Digibits Only) */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="font-bold text-[#ffe18c] text-[11px]">
+                      Crop Seeds Catalog (Digibits Market)
+                    </span>
+                    <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-0.5">
+                      {CROP_SPECS.map((crop) => {
+                        const seedDef = getItemDef(crop.seedId);
+                        const ownedSeeds = getQty(crop.seedId);
+                        const growthSec = crop.growthTimeSec;
+                        return (
+                          <div
+                            key={crop.seedId}
+                            data-testid={`vendor-seed-${crop.keyBase}`}
+                            className="pixel-slot p-2 flex flex-col gap-1"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <img
+                                  src={getItemIconUrl(crop.seedId)}
+                                  alt={seedDef?.name ?? crop.name}
+                                  className="w-6 h-6 pixelated shrink-0"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="min-w-0">
+                                  <div className="font-bold text-[#f7f4eb] text-[11px] truncate">
+                                    {seedDef?.name ?? `${crop.name} Seed`}{' '}
+                                    {ownedSeeds > 0 && (
+                                      <span className="text-[10px] font-mono-num text-[#8cf7ee]">
+                                        (×{ownedSeeds})
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-[#9cb5cc]">
+                                    Grow {growthSec}s · Drops {crop.minYield}–{crop.maxYield}× {crop.name} ({crop.sellAlterbits} DB ea)
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onVendorAction?.({
+                                    action: 'buy_seed',
+                                    itemId: crop.seedId,
+                                    qty: 1,
+                                    currency: 'digibits',
+                                  })
+                                }
+                                className="pixel-btn pixel-btn-emerald flex-1 !py-0.5 !text-[9px]"
+                              >
+                                Buy 1 ({crop.seedAlterbitPrice} DB)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onVendorAction?.({
+                                    action: 'buy_seed',
+                                    itemId: crop.seedId,
+                                    qty: 5,
+                                    currency: 'digibits',
+                                  })
+                                }
+                                className="pixel-btn flex-1 !py-0.5 !text-[9px]"
+                              >
+                                Buy 5 ({crop.seedAlterbitPrice * 5} DB)
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Personal Vending Machine Panel */}
             {inspectInfo.vendingMachine && (
@@ -942,7 +1432,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   </div>
                 )}
 
-                {inspectInfo.vendingMachine.ownerId === playerId && (
+                {(inspectInfo.vendingMachine.ownerId === playerId || isAdminBypass) && (
                   <div className="flex flex-col gap-1.5 border-t-2 border-[#1c2b3d] pt-2">
                     <span className="text-[11px] font-bold text-[#ffe18c]">Owner Management</span>
                     <div className="grid grid-cols-2 gap-1.5">
@@ -1072,7 +1562,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                 bfg={inspectInfo.bfgCollector}
                 canManage={
                   inspectInfo.bfgCollector.ownerId === playerId ||
-                  inspectInfo.worldLock?.ownerId === playerId
+                  inspectInfo.worldLock?.ownerId === playerId ||
+                  isAdminBypass
                 }
                 onToggle={() =>
                   onConfigureBfg(inspectInfo.tx, inspectInfo.ty, { action: 'toggle' })
@@ -1137,14 +1628,19 @@ export const GameHud: React.FC<GameHudProps> = ({
                       </div>
                     </div>
                   )}
+                  <div className="flex items-center justify-between text-[10px] bg-[#091826] border border-[#1e3a5f] px-2 py-1">
+                    <span className="text-[#7dd3fc] font-semibold">WorldCore Token Storage:</span>
+                    <span className="font-mono-num font-bold text-[#fde047]">{worldCoreTokens} Core Tokens</span>
+                  </div>
                   {eng.level < 5 && nextCost && (
                     <button
                       type="button"
-                      disabled={gems < nextCost}
+                      data-testid="upgrade-matteragen-btn"
+                      disabled={worldCoreTokens < nextCost}
                       onClick={() => onUpgradeMatteragen?.(inspectInfo.tx, inspectInfo.ty)}
                       className="pixel-btn pixel-btn-gold w-full disabled:opacity-45 !text-[10px]"
                     >
-                      Upgrade to LV. {eng.level + 1} ({nextCost} Gems)
+                      Upgrade to LV. {eng.level + 1} ({nextCost} Core Tokens)
                     </button>
                   )}
                   {eng.level >= 5 && (
@@ -1166,6 +1662,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               <VaultboxPanel
                 vaultbox={inspectInfo.vaultbox}
                 playerId={playerId}
+                isAdminBypass={isAdminBypass}
                 inventory={inventory}
                 onDeposit={(itemId, qty, slotIndex, invIndex) =>
                   onConfigureVaultbox?.(inspectInfo.tx, inspectInfo.ty, {
@@ -1219,7 +1716,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               {role === 'admin' && adminWorldEdit && (
                 <span className="text-[#8cf7ee] font-bold">
                   {' '}
-                  · SysEdit ({adminBrushItemId ? (getItemDef(adminBrushItemId)?.name ?? 'Brush') : 'Erase'})
+                  · SysEdit Active
                 </span>
               )}
             </div>
@@ -1496,6 +1993,17 @@ export const GameHud: React.FC<GameHudProps> = ({
                   {tab.label}
                 </button>
               ))}
+              {role === 'admin' && (
+                <button
+                  type="button"
+                  data-testid="backpack-admin-clear-btn"
+                  onClick={() => onAdminAction({ action: 'clear_inventory' })}
+                  title="Admin: Clear all non-default inventory slots"
+                  className="px-2 py-0.5 text-[10px] font-bold cursor-pointer border-2 bg-[#450a0a] border-[#ef4444] text-[#fecaca] hover:bg-[#7f1d1d]"
+                >
+                  Clear Inv
+                </button>
+              )}
             </div>
             <button
               type="button"
@@ -1614,6 +2122,25 @@ export const GameHud: React.FC<GameHudProps> = ({
                           style={{ width: `${Math.round(durRatio * 100)}%` }}
                         />
                       </div>
+                    )}
+                    {role === 'admin' && slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH && (
+                      <span
+                        role="button"
+                        tabIndex={-1}
+                        data-testid={`backpack-delete-slot-${slot.itemId}`}
+                        title={`Admin: Delete ${def.name} slot`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAdminAction({
+                            action: 'delete_inventory_slot',
+                            itemId: slot.itemId,
+                            rodInstanceId: slot.rodInstanceId,
+                          });
+                        }}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-[#7f1d1d] hover:bg-[#dc2626] border border-[#fca5a5] text-[9px] font-bold text-white flex items-center justify-center leading-none z-10"
+                      >
+                        ×
+                      </span>
                     )}
                   </button>
                 );

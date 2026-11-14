@@ -1,6 +1,7 @@
 import type {
   AreaLockRecord,
   AtmMachineRecord,
+  DoorLinkRecord,
   ShareLockRecord,
   BfgCollectorRecord,
   FurnaceRecord,
@@ -148,6 +149,7 @@ export interface AuthUserProfile {
   email: string;
   role: UserRole;
   gems: number;
+  alterbits: number;
   xp: number;
   level: number;
   inventory: InventorySlot[];
@@ -160,6 +162,7 @@ export interface AuthUserProfile {
   recentWorlds: string[];
   activeBuffs: ActiveBuff[];
   unclaimedWl: number;
+  hasClaimedStarterLootbox?: boolean;
 }
 
 export interface ResumePosition {
@@ -238,8 +241,11 @@ export type ClientMessage =
       action:
         | 'grant_item'
         | 'grant_gems'
+        | 'clear_inventory'
+        | 'delete_inventory_slot'
         | 'grow_all_trees'
         | 'reset_config'
+        | 'rebuild_nexus'
         | 'sys_paint_tile'
         | 'sys_clear_tile'
         | 'sys_fill_rect'
@@ -248,6 +254,8 @@ export type ClientMessage =
       itemId?: number;
       qty?: number;
       gems?: number;
+      slotIndex?: number;
+      rodInstanceId?: string;
       tx?: number;
       ty?: number;
       tx2?: number;
@@ -294,7 +302,25 @@ export type ClientMessage =
       priceWl?: number;
       listingId?: string;
       txId?: string;
-    };
+    }
+  | { type: 'plow_tile'; tx: number; ty: number; adminEdit?: boolean }
+  | {
+      type: 'vendor_action';
+      action: 'reclaim_hoe' | 'buy_hoe' | 'buy_seed' | 'sell_crop' | 'sell_all_crops';
+      itemId?: number;
+      qty?: number;
+      currency?: 'gems' | 'alterbits' | 'digibits';
+    }
+  | {
+      type: 'configure_door';
+      tx: number;
+      ty: number;
+      targetX: number;
+      targetY: number;
+      label?: string;
+    }
+  | { type: 'use_door'; tx: number; ty: number }
+  | { type: 'nexus_teleport'; targetX: number; targetY: number; label?: string };
 
 export type ServerMessage =
   | {
@@ -304,6 +330,7 @@ export type ServerMessage =
       email: string;
       role: UserRole;
       gems: number;
+      alterbits: number;
       xp: number;
       level: number;
       inventory: InventorySlot[];
@@ -316,6 +343,7 @@ export type ServerMessage =
       recentWorlds: string[];
       activeBuffs: ActiveBuff[];
       unclaimedWl: number;
+      hasClaimedStarterLootbox?: boolean;
       gameConfig: GameConfig;
       exchange: ExchangeSnapshot;
     }
@@ -376,6 +404,7 @@ export type ServerMessage =
       atmMachine?: AtmMachineRecord | null;
       vaultbox?: VaultboxRecord | null;
       signText?: string | null;
+      doorLink?: DoorLinkRecord | null;
       revision: number;
     }
   | { type: 'fluid_delta'; deltas: FluidDelta[] }
@@ -384,6 +413,7 @@ export type ServerMessage =
   | {
       type: 'profile_updated';
       gems: number;
+      alterbits: number;
       xp: number;
       level: number;
       role: UserRole;
@@ -398,8 +428,11 @@ export type ServerMessage =
       recentWorlds: string[];
       activeBuffs: ActiveBuff[];
       unclaimedWl: number;
+      hasClaimedStarterLootbox?: boolean;
       notice?: string;
     }
+  | { type: 'world_xp_updated'; worldName: string; worldXp: number; worldLevel: number; coreTokens?: number }
+  | { type: 'player_teleported'; tx: number; ty: number; notice?: string }
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'worlds_list'; worlds: WorldSummary[] }
   | { type: 'fishing_started'; cast: FishingCastState }

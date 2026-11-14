@@ -601,6 +601,95 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       break;
     }
 
+    case ITEM_IDS.PLOWED_DIRT_SOIL: {
+      drawDirtBody16(ctx, 3);
+      // Deep tilled soil furrows along the top surface
+      p3(ctx, 0, 0, '#2a180d', 16, 4);
+      for (let fx = 0; fx < 16; fx += 4) {
+        p3(ctx, fx, 0, '#784828', 2, 2);
+        p3(ctx, fx, 0, '#a2673d', 2, 1);
+        p3(ctx, fx + 2, 1, '#3b2112', 2, 2);
+      }
+      p3(ctx, 2, 6, '#4a2c18', 3, 1);
+      p3(ctx, 9, 9, '#4a2c18', 4, 1);
+      break;
+    }
+
+    case ITEM_IDS.FARMING_HOE: {
+      for (let i = 0; i < 9; i++) {
+        p3(ctx, 2 + i, 13 - i, THEME.ink.outline, 3, 3);
+      }
+      for (let i = 0; i < 9; i++) {
+        p3(ctx, 3 + i, 13 - i, '#8c5830', 2, 2);
+        p2(ctx, Math.round((3 + i) * 1.5), Math.round((13 - i) * 1.5), '#c2834f', 1, 1);
+      }
+      // Curved steel hoe blade
+      p3(ctx, 8, 2, THEME.ink.outline, 6, 4);
+      p3(ctx, 11, 5, THEME.ink.outline, 3, 4);
+      p3(ctx, 9, 3, THEME.metal.steelLit, 4, 2);
+      p3(ctx, 12, 5, THEME.metal.steelMid, 1, 3);
+      p3(ctx, 12, 7, '#ffffff', 1, 1);
+      break;
+    }
+
+    case ITEM_IDS.GREENS_VENDOR_NPC: {
+      p3(ctx, 1, 1, THEME.ink.outline, 14, 4);
+      for (let sx = 2; sx < 14; sx += 2) {
+        p3(ctx, sx, 2, (sx / 2) % 2 === 0 ? '#16a34a' : '#fef3c7', 2, 2);
+      }
+      p3(ctx, 3, 4, '#eab308', 10, 2);
+      p3(ctx, 5, 6, THEME.character.skinMid, 6, 4);
+      p3(ctx, 6, 7, '#151b26', 1, 1);
+      p3(ctx, 9, 7, '#151b26', 1, 1);
+      p3(ctx, 4, 10, '#15803d', 8, 5);
+      p3(ctx, 5, 11, '#86efac', 6, 3);
+      break;
+    }
+
+    case ITEM_IDS.CROP_BLOCK_RADISH:
+    case ITEM_IDS.CROP_BLOCK_CARROT:
+    case ITEM_IDS.CROP_BLOCK_CABBAGE:
+    case ITEM_IDS.CROP_BLOCK_TOMATO:
+    case ITEM_IDS.CROP_BLOCK_CORN:
+    case ITEM_IDS.CROP_BLOCK_MELON: {
+      // Lush harvestable crop crate/patch block
+      p3(ctx, 1, 9, THEME.ink.outline, 14, 6);
+      p3(ctx, 2, 10, '#5c381c', 12, 4);
+      p3(ctx, 2, 10, '#7d4e29', 12, 1);
+      // Leafy greens crown
+      p3(ctx, 2, 2, THEME.ink.outline, 12, 8);
+      p3(ctx, 3, 3, '#16a34a', 10, 6);
+      p3(ctx, 4, 3, '#4ade80', 8, 3);
+      // Vibrant crop produce clusters
+      for (const [cx, cy] of [
+        [4, 6],
+        [8, 5],
+        [11, 7],
+      ]) {
+        p3(ctx, cx, cy, def.colorPrimary, 3, 3);
+        p3(ctx, cx, cy, def.colorAccent, 2, 1);
+      }
+      break;
+    }
+
+    case ITEM_IDS.CROP_RADISH:
+    case ITEM_IDS.CROP_CARROT:
+    case ITEM_IDS.CROP_CABBAGE:
+    case ITEM_IDS.CROP_TOMATO:
+    case ITEM_IDS.CROP_CORN:
+    case ITEM_IDS.CROP_MELON: {
+      // Fresh harvested produce icon with leafy top
+      p3(ctx, 6, 2, THEME.ink.outline, 5, 4);
+      p3(ctx, 7, 3, '#22c55e', 3, 2);
+      p3(ctx, 7, 2, '#86efac', 2, 1);
+      p3(ctx, 4, 5, THEME.ink.outline, 8, 9);
+      p3(ctx, 5, 6, def.colorSecondary, 6, 7);
+      p3(ctx, 5, 6, def.colorPrimary, 5, 5);
+      p3(ctx, 6, 7, def.colorAccent, 2, 2);
+      p3(ctx, 6, 7, '#ffffff', 1, 1);
+      break;
+    }
+
     case ITEM_IDS.GP_GRASS: {
       drawDirtBody16(ctx, 4);
       p3(ctx, 0, 0, THEME.earth.grassRim, 16, 1);
@@ -1380,6 +1469,24 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       break;
     }
 
+    case ITEM_IDS.STARTER_LOOTBOX: {
+      // Ornate starter supply crate with golden trim, wood slats & glowing cyan emblem
+      p3(ctx, 1, 2, THEME.ink.outline, 14, 14);
+      p3(ctx, 2, 3, '#78350f', 12, 12);
+      p3(ctx, 3, 4, '#b45309', 10, 10);
+      // Gold corner braces & horizontal band
+      p3(ctx, 2, 3, '#f59e0b', 12, 2);
+      p3(ctx, 2, 3, '#fef08a', 8, 1);
+      p3(ctx, 2, 8, '#d97706', 12, 2);
+      p3(ctx, 2, 13, '#b45309', 12, 2);
+      // Center glowing cyan supply seal
+      p3(ctx, 5, 5, THEME.ink.outline, 6, 6);
+      p3(ctx, 6, 6, '#0284c7', 4, 4);
+      p3(ctx, 7, 7, '#7dd3fc', 2, 2);
+      p3(ctx, 7, 7, '#ffffff', 1, 1);
+      break;
+    }
+
     case ITEM_IDS.FARM_CRYSTAL_BLOSSOM:
     case ITEM_IDS.FARM_MAGMA_ROSE:
     case ITEM_IDS.FARM_VOID_LILY:
@@ -1594,3 +1701,170 @@ export function getPlayerSprite(
   playerFrames.set(key, sprite);
   return sprite;
 }
+
+const marketStandCache = new Map<'landlord' | 'greens_vendor', HTMLCanvasElement>();
+
+/**
+ * Renders a 3×2 tile (144×96 px) pixel-art market stand for the Nexus plaza.
+ */
+export function getMarketStandSprite(kind: 'landlord' | 'greens_vendor'): HTMLCanvasElement {
+  const cached = marketStandCache.get(kind);
+  if (cached) return cached;
+
+  const width = TILE_PX * 3; // 144
+  const height = TILE_PX * 2; // 96
+  const [c, ctx] = makeCanvas(width, height);
+
+  // Helper on 48x32 logical 3px grid (48 * 3 = 144, 32 * 3 = 96)
+  const b = (gx: number, gy: number, color: string, gw = 1, gh = 1) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(gx * 3, gy * 3, gw * 3, gh * 3);
+  };
+
+  const isLandlord = kind === 'landlord';
+  const outline = THEME.ink.outline;
+
+  // 1. Timber Support Pillars (left and right)
+  b(2, 8, outline, 4, 24);
+  b(42, 8, outline, 4, 24);
+  b(3, 9, '#5c381c', 2, 22);
+  b(43, 9, '#5c381c', 2, 22);
+  b(3, 9, '#8b572a', 1, 22);
+  b(43, 9, '#8b572a', 1, 22);
+
+  // 2. Backboard Shadow Wall behind counter
+  b(6, 10, 'rgba(12, 18, 28, 0.72)', 36, 12);
+
+  // 3. NPC Proprietor standing behind the counter (centered around gx = 21..27, gy = 9..21)
+  if (isLandlord) {
+    // Royal top hat with gold band
+    b(20, 8, outline, 8, 5);
+    b(19, 12, outline, 10, 2);
+    b(21, 9, '#1e293b', 6, 3);
+    b(21, 11, '#facc15', 6, 1);
+    // Face + golden monocle
+    b(20, 13, outline, 8, 5);
+    b(21, 14, THEME.character.skinMid, 6, 3);
+    b(22, 15, '#151b26', 1, 1);
+    b(25, 14, '#fde047', 2, 2);
+    b(25, 15, '#38bdf8', 1, 1);
+    // Coat & cravat
+    b(19, 18, outline, 10, 4);
+    b(20, 19, '#1d4ed8', 8, 3);
+    b(23, 19, '#fef08a', 2, 3);
+  } else {
+    // Sunhat with green ribbon
+    b(19, 9, outline, 10, 3);
+    b(17, 11, outline, 14, 2);
+    b(20, 10, '#eab308', 8, 1);
+    b(18, 11, '#fde047', 12, 1);
+    b(20, 11, '#16a34a', 8, 1);
+    // Cheerful face
+    b(20, 12, outline, 8, 5);
+    b(21, 13, THEME.character.skinMid, 6, 4);
+    b(22, 14, '#151b26', 1, 1);
+    b(25, 14, '#151b26', 1, 1);
+    b(23, 16, '#b45309', 2, 1);
+    // Garden apron & tunic
+    b(19, 17, outline, 10, 5);
+    b(20, 18, '#15803d', 8, 4);
+    b(22, 18, '#dcfce7', 4, 4);
+  }
+
+  // 4. Striped Market Awning Canopy (top 3 tiles wide: gx = 0..48, gy = 1..10)
+  b(0, 1, outline, 48, 9);
+  b(1, 1, isLandlord ? '#facc15' : '#4ade80', 46, 1);
+  for (let gx = 1; gx < 47; gx += 4) {
+    const idx = Math.floor((gx - 1) / 4);
+    const w = Math.min(4, 47 - gx);
+    if (isLandlord) {
+      const topCol = idx % 2 === 0 ? '#1d4ed8' : '#fef08a';
+      const botCol = idx % 2 === 0 ? '#1e3a8a' : '#eab308';
+      b(gx, 2, topCol, w, 5);
+      b(gx, 7, botCol, w, 2);
+    } else {
+      const topCol = idx % 2 === 0 ? '#16a34a' : '#fef9c3';
+      const botCol = idx % 2 === 0 ? '#15803d' : '#fde047';
+      b(gx, 2, topCol, w, 5);
+      b(gx, 7, botCol, w, 2);
+    }
+    // Scalloped valance fringe along awning bottom
+    if (idx % 2 === 0) {
+      b(gx, 10, outline, w, 2);
+      b(gx + 1, 10, isLandlord ? '#facc15' : '#22c55e', Math.max(1, w - 2), 1);
+    }
+  }
+
+  // 5. Overhead Sign Plaque centered on canopy
+  b(13, 3, outline, 22, 5);
+  b(14, 4, isLandlord ? '#1e293b' : '#14532d', 20, 3);
+  b(15, 5, isLandlord ? '#fde047' : '#bbf7d0', 18, 1);
+
+  // 6. Hanging Lantern (left) & Scale/Emblem (right)
+  b(9, 10, outline, 3, 5);
+  b(10, 11, '#fde047', 1, 3);
+  b(36, 10, outline, 4, 5);
+  b(37, 11, isLandlord ? '#38bdf8' : '#f97316', 2, 3);
+
+  // 7. Full-width Market Counter Desk (gx = 1..47, gy = 20..32)
+  b(1, 20, outline, 46, 12);
+  // Counter tabletop
+  b(2, 21, isLandlord ? '#eab308' : '#a16207', 44, 2);
+  b(2, 21, isLandlord ? '#fef08a' : '#ca8a04', 44, 1);
+  // Counter wood body planks
+  b(2, 23, '#5c381c', 44, 8);
+  for (let px = 6; px < 44; px += 8) {
+    b(px, 23, '#3b2112', 1, 8);
+    b(px + 1, 23, '#7c4d28', 2, 8);
+  }
+  b(2, 30, '#2a180d', 44, 1);
+
+  // 8. Countertop Props & Merchandise Displays
+  if (isLandlord) {
+    // Left: Stacked Realm Deeds & Wax-Sealed Scrolls
+    b(6, 16, outline, 9, 5);
+    b(7, 17, '#fef3c7', 7, 3);
+    b(9, 18, '#ef4444', 2, 2);
+    // Center-left: Golden WorldCore Globe
+    b(16, 16, outline, 5, 5);
+    b(17, 17, '#f59e0b', 3, 3);
+    b(18, 17, '#fef08a', 1, 1);
+    // Right: Royal Ledger Book & Ink Quill
+    b(30, 17, outline, 10, 4);
+    b(31, 18, '#7c2d12', 8, 2);
+    b(32, 18, '#fef9c3', 6, 1);
+    b(38, 14, '#f8fafc', 2, 4);
+  } else {
+    // Overflowing Fresh Produce Crates along the counter!
+    // Crate 1: Crisp Radishes & Sunroot Carrots (left)
+    b(4, 16, outline, 11, 5);
+    b(5, 17, '#784828', 9, 3);
+    b(5, 16, '#e11d48', 3, 2);
+    b(6, 15, '#4ade80', 2, 1);
+    b(9, 16, '#f97316', 4, 2);
+    b(10, 15, '#22c55e', 2, 1);
+    // Crate 2: Verdant Cabbages & Ruby Tomatoes (center-left & center-right)
+    b(16, 17, outline, 6, 4);
+    b(17, 18, '#16a34a', 4, 2);
+    b(18, 17, '#86efac', 2, 2);
+    b(26, 17, outline, 6, 4);
+    b(27, 18, '#dc2626', 4, 2);
+    b(28, 17, '#fca5a5', 2, 1);
+    // Crate 3: Golden Sweetcorn & Starlight Melons (right)
+    b(33, 16, outline, 11, 5);
+    b(34, 17, '#784828', 9, 3);
+    b(34, 16, '#eab308', 4, 2);
+    b(35, 15, '#fef08a', 2, 1);
+    b(39, 15, '#0d9488', 4, 3);
+    b(40, 16, '#5eead4', 2, 1);
+
+    // Front counter emblem banner ("ALTERBITS MARKET")
+    b(15, 24, outline, 18, 5);
+    b(16, 25, '#065f46', 16, 3);
+    b(18, 26, '#fde047', 12, 1);
+  }
+
+  marketStandCache.set(kind, c);
+  return c;
+}
+

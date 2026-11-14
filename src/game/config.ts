@@ -13,6 +13,7 @@ import {
   type DropEntry,
   type GemStoreListing,
   type ItemDefinition,
+  type ItemRarity,
 } from './catalog.ts';
 
 export interface GameMechanicsConfig {
@@ -29,6 +30,7 @@ export interface GameMechanicsConfig {
 
 export interface ItemConfigOverride {
   hardness?: number;
+  rarity?: ItemRarity;
   gemValue?: number;
   xpValue?: number;
   growthTimeMs?: number;
@@ -158,6 +160,14 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
       if (!CATALOG[id] || !ov || typeof ov !== 'object') continue;
       const cleanOv: ItemConfigOverride = {};
       if (ov.hardness !== undefined) cleanOv.hardness = Math.round(clamp(ov.hardness, 3, 1, 20));
+      if (
+        ov.rarity === 'common' ||
+        ov.rarity === 'uncommon' ||
+        ov.rarity === 'rare' ||
+        ov.rarity === 'epic'
+      ) {
+        cleanOv.rarity = ov.rarity;
+      }
       if (ov.gemValue !== undefined) cleanOv.gemValue = Math.round(clamp(ov.gemValue, 0, 0, 100));
       if (ov.xpValue !== undefined) cleanOv.xpValue = Math.round(clamp(ov.xpValue, 1, 0, 200));
       if (ov.growthTimeMs !== undefined) {
@@ -194,7 +204,13 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
 
   let storeListings: GemStoreListing[] | undefined = undefined;
   if (Array.isArray(raw?.storeListings)) {
-    const RETIRED_LISTING_IDS = new Set(['store_locks_world_blocks']);
+    const RETIRED_LISTING_IDS = new Set([
+      'store_locks_world_blocks',
+      'store_farming_hoe',
+      'store_basic_farmapack',
+      'store_advanced_farmapack',
+    ]);
+    const ALLOWED_SEED_SECTION_IDS = new Set(['store_seed_pot', 'store_seed_pot_bundle']);
     storeListings = raw.storeListings
       .filter(
         (l) =>
@@ -202,7 +218,12 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
           typeof l === 'object' &&
           typeof l.id === 'string' &&
           l.id.trim().length > 0 &&
-          !RETIRED_LISTING_IDS.has(l.id.trim())
+          !RETIRED_LISTING_IDS.has(l.id.trim()) &&
+          (l.section !== 'seeds' || ALLOWED_SEED_SECTION_IDS.has(l.id.trim())) &&
+          Boolean(CATALOG[Number(l.iconItemId)]) &&
+          Array.isArray(l.grants) &&
+          l.grants.length > 0 &&
+          l.grants.every((g) => Boolean(CATALOG[Number(g.itemId)]))
       )
       .map((l, idx) => ({
         id: String(l.id).trim().slice(0, 48) || `store_${idx}`,
@@ -211,16 +232,12 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
           : 'blocks') as GemStoreListing['section'],
         name: String(l.name ?? 'Store Item').slice(0, 48),
         description: String(l.description ?? '').slice(0, 160),
-        iconItemId: CATALOG[Number(l.iconItemId)] ? Number(l.iconItemId) : 101,
+        iconItemId: Number(l.iconItemId),
         gemPrice: Math.max(1, Math.min(100000, Math.round(Number(l.gemPrice) || 10))),
-        grants: Array.isArray(l.grants)
-          ? l.grants
-              .filter((g) => g && CATALOG[Number(g.itemId)])
-              .map((g) => ({
-                itemId: Number(g.itemId),
-                qty: Math.max(1, Math.min(250, Math.round(Number(g.qty) || 1))),
-              }))
-          : [{ itemId: 101, qty: 1 }],
+        grants: l.grants.map((g) => ({
+          itemId: Number(g.itemId),
+          qty: Math.max(1, Math.min(250, Math.round(Number(g.qty) || 1))),
+        })),
       }));
     if (storeListings.length === 0) {
       storeListings = [...GEM_STORE_LISTINGS];
@@ -254,6 +271,7 @@ export function getEffectiveItemDef(
   return {
     ...base,
     hardness: ov?.hardness ?? base.hardness,
+    rarity: ov?.rarity ?? base.rarity,
     gemValue: ov?.gemValue ?? base.gemValue,
     xpValue: ov?.xpValue ?? base.xpValue,
     growthTimeMs:

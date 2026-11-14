@@ -89,15 +89,20 @@ export default function App() {
   const [playerName, setPlayerName] = useState<string>('Explorer');
   const [email, setEmail] = useState<string>('');
   const [role, setRole] = useState<UserRole>('player');
-  const [worldName, setWorldName] = useState<string>('START');
+  const [worldName, setWorldName] = useState<string>('NEXUS');
   const [worldOwner, setWorldOwner] = useState<string | null>(null);
   const [worldKind, setWorldKind] = useState<'standard' | 'mine_shaft'>('standard');
   const [mineExpiresAt, setMineExpiresAt] = useState<number | null>(null);
   const [playerCount, setPlayerCount] = useState<number>(1);
-  const [coords, setCoords] = useState<{ tx: number; ty: number }>({ tx: 50, ty: 23 });
+  const [coords, setCoords] = useState<{ tx: number; ty: number }>({ tx: 50, ty: 29 });
   const [gems, setGems] = useState<number>(0);
+  const [alterbits, setAlterbits] = useState<number>(0);
+  const [hasClaimedStarterLootbox, setHasClaimedStarterLootbox] = useState<boolean>(false);
   const [xp, setXp] = useState<number>(0);
   const [level, setLevel] = useState<number>(1);
+  const [worldXp, setWorldXp] = useState<number>(0);
+  const [worldLevel, setWorldLevel] = useState<number>(1);
+  const [worldCoreTokens, setWorldCoreTokens] = useState<number>(0);
   const [inventory, setInventory] = useState<InventorySlot[]>([
     { itemId: ITEM_IDS.FIST, qty: 1 },
     { itemId: ITEM_IDS.WRENCH, qty: 1 },
@@ -107,8 +112,8 @@ export default function App() {
   const [claimedAchievements, setClaimedAchievements] = useState<string[]>([]);
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestEntry[]>([]);
-  const [favoriteWorlds, setFavoriteWorlds] = useState<string[]>(['START']);
-  const [recentWorlds, setRecentWorlds] = useState<string[]>(['START']);
+  const [favoriteWorlds, setFavoriteWorlds] = useState<string[]>(['NEXUS']);
+  const [recentWorlds, setRecentWorlds] = useState<string[]>(['NEXUS']);
   const [activeBuffs, setActiveBuffs] = useState<ActiveBuff[]>([]);
   const [unclaimedWl, setUnclaimedWl] = useState<number>(0);
   const [exchangeSnapshot, setExchangeSnapshot] = useState<ExchangeSnapshot>(DEFAULT_EXCHANGE);
@@ -151,10 +156,13 @@ export default function App() {
       next[0] = ITEM_IDS.FIST;
       next[1] = ITEM_IDS.WRENCH;
 
-      // Clear hotbar slots 3..6 if quantity dropped to 0
+      // Clear hotbar slots 3..6 if quantity dropped to 0 or item ID was pruned from CATALOG
       for (let i = 2; i < next.length; i++) {
         const id = next[i];
-        if (id !== ITEM_IDS.AIR && !inv.some((s) => s.itemId === id && s.qty > 0)) {
+        if (
+          id !== ITEM_IDS.AIR &&
+          (!getItemDef(id) || !inv.some((s) => s.itemId === id && s.qty > 0))
+        ) {
           next[i] = ITEM_IDS.AIR;
         }
       }
@@ -169,6 +177,7 @@ export default function App() {
           (!def.placeable &&
             def.toolKind !== 'pickaxe' &&
             def.toolKind !== 'rod' &&
+            def.toolKind !== 'hoe' &&
             def.category !== 'consumable')
         ) {
           continue;
@@ -191,17 +200,20 @@ export default function App() {
       setEmail(user.email);
       setRole(user.role);
       setGems(user.gems);
+      setAlterbits(user.alterbits ?? 0);
+      setHasClaimedStarterLootbox(Boolean(user.hasClaimedStarterLootbox));
       setXp(user.xp);
       setLevel(user.level);
-      setInventory(user.inventory);
-      syncHotbarWithInventory(user.inventory);
+      const cleanInv = (user.inventory ?? []).filter((s) => Boolean(getItemDef(s.itemId)));
+      setInventory(cleanInv);
+      syncHotbarWithInventory(cleanInv);
       setEquipped(user.equipped);
       setStats({ ...DEFAULT_STATS, ...user.stats });
       setClaimedAchievements(user.claimedAchievements);
       setFriends(user.friends);
       setIncomingRequests(user.incomingRequests);
-      setFavoriteWorlds(user.favoriteWorlds);
-      setRecentWorlds(user.recentWorlds);
+      setFavoriteWorlds(user.favoriteWorlds?.length ? user.favoriteWorlds : ['NEXUS']);
+      setRecentWorlds(user.recentWorlds?.length ? user.recentWorlds : ['NEXUS']);
       const buffs = user.activeBuffs ?? [];
       setActiveBuffs(buffs);
       setUnclaimedWl(user.unclaimedWl ?? 0);
@@ -264,6 +276,18 @@ export default function App() {
     const mount = canvasMountRef.current;
     if (!mount) return;
 
+    // Sanitize legacy client localStorage state on schema v2 upgrade
+    try {
+      const schemaVersion = localStorage.getItem('blockgrove_client_schema_v');
+      if (schemaVersion !== '2') {
+        localStorage.removeItem('blockgrove_hotbar');
+        localStorage.removeItem('blockgrove_last_world');
+        localStorage.setItem('blockgrove_client_schema_v', '2');
+      }
+    } catch {
+      // ignore storage errors
+    }
+
     void testFirestoreConnection();
 
     const socket = new GameSocketClient();
@@ -275,6 +299,8 @@ export default function App() {
         socket.send({ type: 'punch_tile', tx, ty, toolItemId, ...(adminEdit ? { adminEdit: true } : {}) }),
       onPlaceTile: (tx, ty, itemId, adminEdit) =>
         socket.send({ type: 'place_tile', tx, ty, itemId, ...(adminEdit ? { adminEdit: true } : {}) }),
+      onPlowTile: (tx, ty, adminEdit) =>
+        socket.send({ type: 'plow_tile', tx, ty, ...(adminEdit ? { adminEdit: true } : {}) }),
       onPickupDrop: (dropId) => socket.send({ type: 'pickup_drop', dropId }),
       onInspectTile: (info) => setInspectInfo(info),
       onCoordsChange: (tx, ty) => setCoords({ tx, ty }),
@@ -282,6 +308,7 @@ export default function App() {
         socket.send({ type: 'cast_fishing', tx, ty, rodItemId }),
       onReelFishing: () => socket.send({ type: 'reel_fishing' }),
       onUseConsumable: (itemId) => socket.send({ type: 'use_consumable', itemId }),
+      onUseDoor: (tx, ty) => socket.send({ type: 'use_door', tx, ty }),
       onHazardHit: (hazard) =>
         showToast(
           hazard === 'acid'
@@ -311,6 +338,7 @@ export default function App() {
             email: msg.email,
             role: msg.role,
             gems: msg.gems,
+            alterbits: msg.alterbits ?? 0,
             xp: msg.xp,
             level: msg.level,
             inventory: msg.inventory,
@@ -323,6 +351,7 @@ export default function App() {
             recentWorlds: msg.recentWorlds,
             activeBuffs: msg.activeBuffs,
             unclaimedWl: msg.unclaimedWl,
+            hasClaimedStarterLootbox: msg.hasClaimedStarterLootbox,
           });
           setGameConfig(msg.gameConfig);
           engine.applyGameConfig(msg.gameConfig);
@@ -366,7 +395,10 @@ export default function App() {
             setInspectInfo(null);
           }
           setWorldName(msg.world.name);
-          if (msg.world.name === 'STATION')           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
+          setWorldOwner(msg.world.worldLock?.ownerName ?? null);
+          setWorldXp(msg.world.worldXp ?? 0);
+          setWorldLevel(msg.world.worldLevel ?? 1);
+          setWorldCoreTokens(msg.world.coreTokens ?? 0);
           setWorldKind(msg.world.worldKind ?? 'standard');
           setMineExpiresAt(msg.world.expiresAt ?? null);
           setFishingCast(null);
@@ -434,7 +466,8 @@ export default function App() {
             msg.seedPot,
             msg.matteragenEngine,
             msg.atmMachine,
-            msg.vaultbox
+            msg.vaultbox,
+            msg.doorLink
           );
           if (msg.worldLock !== undefined) {
             setWorldOwner(msg.worldLock?.ownerName ?? null);
@@ -455,25 +488,46 @@ export default function App() {
         case 'drop_removed':
           engine.removeDrop(msg.dropId);
           break;
-        case 'profile_updated':
+        case 'profile_updated': {
           setGems(msg.gems);
+          setAlterbits(msg.alterbits ?? 0);
+          if (msg.hasClaimedStarterLootbox !== undefined) {
+            setHasClaimedStarterLootbox(Boolean(msg.hasClaimedStarterLootbox));
+          }
           setXp(msg.xp);
           setLevel(msg.level);
           setRole(msg.role);
           setEmail(msg.email);
-          setInventory(msg.inventory);
-          syncHotbarWithInventory(msg.inventory);
+          const cleanInv = (msg.inventory ?? []).filter((s) => Boolean(getItemDef(s.itemId)));
+          setInventory(cleanInv);
+          syncHotbarWithInventory(cleanInv);
           setEquipped(msg.equipped);
           setStats({ ...DEFAULT_STATS, ...msg.stats });
           setClaimedAchievements(msg.claimedAchievements);
           setFriends(msg.friends);
           setIncomingRequests(msg.incomingRequests);
-          setFavoriteWorlds(msg.favoriteWorlds);
-          setRecentWorlds(msg.recentWorlds);
+          setFavoriteWorlds(msg.favoriteWorlds?.length ? msg.favoriteWorlds : ['NEXUS']);
+          setRecentWorlds(msg.recentWorlds?.length ? msg.recentWorlds : ['NEXUS']);
           setActiveBuffs(msg.activeBuffs ?? []);
           setUnclaimedWl(msg.unclaimedWl ?? 0);
-                    engine.setLocalEquipped(msg.equipped);
+          engine.setLocalEquipped(msg.equipped);
           engine.setActiveBuffs(msg.activeBuffs ?? []);
+          if (msg.notice) showToast(msg.notice);
+          break;
+        }
+        case 'world_xp_updated':
+          if (engine.getWorldState().name === msg.worldName) {
+            engine.updateWorldXp(msg.worldXp, msg.worldLevel, msg.coreTokens);
+            setWorldXp(msg.worldXp);
+            setWorldLevel(msg.worldLevel);
+            if (typeof msg.coreTokens === 'number') {
+              setWorldCoreTokens(msg.coreTokens);
+            }
+          }
+          break;
+        case 'player_teleported':
+          engine.teleportLocalPlayer(msg.tx, msg.ty);
+          socket.updateLocalPose(engine.getLocalPose());
           if (msg.notice) showToast(msg.notice);
           break;
         case 'chat_message':
@@ -559,8 +613,8 @@ export default function App() {
           await Promise.all([fetchWorldsList(), fetchExchangeSnapshot()]);
           const params = new URLSearchParams(window.location.search);
           if (params.get('autostart') === '1') {
-            setLoadingText({ title: 'Entering START...', subtitle: 'Syncing 100×60 persistent world' });
-            socket.joinWorld('START');
+            setLoadingText({ title: 'Entering NEXUS...', subtitle: 'Syncing 100×60 Sci-Fi Hub' });
+            socket.joinWorld('NEXUS');
           } else {
             setAppState('hub');
           }
@@ -661,11 +715,11 @@ export default function App() {
 
   const handleEnterWorld = useCallback(
     (targetWorldName: string) => {
-      const cleanWorld = (targetWorldName || 'START').trim().toUpperCase();
+      const cleanWorld = (targetWorldName || 'NEXUS').trim().toUpperCase();
       soundEngine.uiClick();
       setLoadingText({
         title: `Entering ${cleanWorld}...`,
-        subtitle: 'Loading 100×60 tiles, trees, locks & active players',
+        subtitle: 'Loading world tiles, platforms, locks & active players',
       });
       setAppState('loading');
       socketRef.current?.joinWorld(cleanWorld);
@@ -709,11 +763,14 @@ export default function App() {
     (enabled: boolean, brushItemId: number | null = null) => {
       if (role !== 'admin') return;
       setAdminWorldEdit(enabled);
-      setAdminBrushItemId(brushItemId);
-      engineRef.current?.setAdminWorldEdit(enabled, brushItemId);
-      if (enabled && brushItemId && brushItemId !== ITEM_IDS.AIR) {
+      if (brushItemId && brushItemId !== ITEM_IDS.AIR) {
+        setAdminBrushItemId(brushItemId);
         setSelectedItemId(brushItemId);
+        engineRef.current?.setAdminWorldEdit(enabled, brushItemId);
         engineRef.current?.setSelectedItem(brushItemId);
+      } else {
+        setAdminBrushItemId(null);
+        engineRef.current?.setAdminWorldEdit(enabled, null);
       }
       soundEngine.uiClick();
     },
@@ -721,7 +778,9 @@ export default function App() {
   );
 
   const handleSelectItem = useCallback((itemId: number) => {
+    setAdminBrushItemId(null);
     setSelectedItemId(itemId);
+    engineRef.current?.setAdminBrushItem(null);
     engineRef.current?.setSelectedItem(itemId);
     soundEngine.uiClick();
   }, []);
@@ -838,9 +897,13 @@ export default function App() {
           onToggleAdminWorldEdit={handleToggleAdminWorldEdit}
           worldName={worldName}
           worldOwner={worldOwner}
+          worldXp={worldXp}
+          worldLevel={worldLevel}
+          worldCoreTokens={worldCoreTokens}
           playerCount={playerCount}
           coords={coords}
           gems={gems}
+          alterbits={alterbits}
           xp={xp}
           level={level}
           inventory={inventory}
@@ -951,6 +1014,19 @@ export default function App() {
           }
           onConfigureVaultbox={(tx, ty, opts) =>
             socketRef.current?.send({ type: 'configure_vaultbox', tx, ty, ...opts })
+          }
+          hasClaimedStarterLootbox={hasClaimedStarterLootbox}
+          onVendorAction={(opts) =>
+            socketRef.current?.send({ type: 'vendor_action', ...opts })
+          }
+          onConfigureDoor={(tx, ty, targetX, targetY, label) =>
+            socketRef.current?.send({ type: 'configure_door', tx, ty, targetX, targetY, label })
+          }
+          onUseDoor={(tx, ty) =>
+            socketRef.current?.send({ type: 'use_door', tx, ty })
+          }
+          onNexusTeleport={(targetX, targetY, label) =>
+            socketRef.current?.send({ type: 'nexus_teleport', targetX, targetY, label })
           }
         />
       )}

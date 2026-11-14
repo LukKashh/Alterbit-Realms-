@@ -152,8 +152,62 @@ export interface WorldState {
   furnaces?: Record<string, FurnaceRecord>; // key: `${x},${y}`
   bfgCollectors?: Record<string, BfgCollectorRecord>; // key: `${x},${y}`
   signs?: Record<string, string>; // key: `${x},${y}`
+  doorLinks?: Record<string, DoorLinkRecord>; // key: `${x},${y}`
+  worldXp?: number;
+  worldLevel?: number;
+  coreTokens?: number;
+  nexusLayoutVersion?: number;
   revision: number;
 }
+
+export interface DoorLinkRecord {
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  label?: string;
+}
+
+export interface NexusDoorDestination {
+  id: 'west_greens' | 'east_steward' | 'upper_exchange' | 'center_plaza';
+  label: string;
+  subtitle: string;
+  tx: number;
+  ty: number;
+}
+
+export const NEXUS_DOOR_DESTINATIONS: NexusDoorDestination[] = [
+  {
+    id: 'west_greens',
+    label: '← Fresh Greens',
+    subtitle: 'West Deck — Sell Harvested Crops for Digibits & Buy Crop Seeds',
+    tx: 28,
+    ty: 27,
+  },
+  {
+    id: 'east_steward',
+    label: 'Realm Steward →',
+    subtitle: 'East Deck — Conjure Your 50×40 Personal World & Starter Lootbox',
+    tx: 72,
+    ty: 27,
+  },
+  {
+    id: 'upper_exchange',
+    label: '↑ Exchange & Furnace',
+    subtitle: 'Upper Deck — Global Exchange Terminal & Stone Smelting Furnace',
+    tx: 50,
+    ty: 17,
+  },
+  {
+    id: 'center_plaza',
+    label: '⦿ Center Entry Plaza',
+    subtitle: 'Center Deck — Main NEXUS Spawn Portal & Multi-Way Hub Door',
+    tx: 50,
+    ty: 29,
+  },
+];
+
+export const NEXUS_LAYOUT_VERSION = 4;
 
 export function hashWorldSeed(name: string): number {
   let h = 2166136261 >>> 0;
@@ -170,7 +224,7 @@ export function createRng(seed: number): () => number {
     s = (s + 0x6d2b79f5) >>> 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    return ((t ^ (t ^ (t >>> 14)) >>> 0) >>> 0) / 4294967296;
   };
 }
 
@@ -187,63 +241,66 @@ export function classifyWorldFamily(worldName: string): WorldFamily {
 export function generateWorld(
   worldName: string,
   terraBlast = false,
-  options?: { isPersonalWorld?: boolean }
+  options?: { isPersonalWorld?: boolean; includeStarterLootbox?: boolean }
 ): WorldState {
   const normalized = worldName.trim().toUpperCase() || 'START';
   const seed = hashWorldSeed(normalized);
   const rand = createRng(seed);
 
-  // Personal World Generation: 30x50 compact plot with 20% underground block chance
+  // Personal World Generation: 50x40 Default Plain World with Indestructible Pregen Foundation
   if (options?.isPersonalWorld) {
-    const pWidth = 30;
-    const pHeight = 50;
+    const pWidth = 50;
+    const pHeight = 40;
     const pTileCount = pWidth * pHeight;
     const pFg = new Array<number>(pTileCount).fill(ITEM_IDS.AIR);
     const pBg = new Array<number>(pTileCount).fill(ITEM_IDS.BG_SKY);
     const pFluidType = new Array<number>(pTileCount).fill(0);
     const pFluidLevel = new Array<number>(pTileCount).fill(0);
 
-    const pSpawnX = 15;
+    const pSpawnX = 25;
     const pSurfaceY = 20;
-    const pPlayableRows = pHeight - BEDROCK_ROWS; // 44 (bottom 6 rows are bedrock)
+    const pSpawnY = pSurfaceY - 1; // 19
+    const pPlayableRows = pHeight - BEDROCK_ROWS; // 34 (bottom 6 rows y=34..39 are bedrock)
 
     for (let x = 0; x < pWidth; x++) {
       for (let y = 0; y < pHeight; y++) {
         const idx = y * pWidth + x;
         if (y >= pPlayableRows) {
-          // Bottom 6 rows unbreakable bedrock
           pFg[idx] = ITEM_IDS.BEDROCK;
           pBg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
-        } else if (y === pSurfaceY) {
-          // Flat surface walking platform
-          pFg[idx] = ITEM_IDS.DESERT_SAND;
+        } else if (y >= pSurfaceY) {
+          // Plain Dirt underground & surface
+          pFg[idx] = ITEM_IDS.GP_DIRT;
           pBg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
-        } else if (y > pSurfaceY) {
-          // Underground: 20% basic block chance, 80% air
-          pBg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
-          if (rand() < 0.20) {
-            const blockRoll = rand();
-            if (blockRoll < 0.35) pFg[idx] = ITEM_IDS.GP_DIRT;
-            else if (blockRoll < 0.60) pFg[idx] = ITEM_IDS.GP_ROCK;
-            else if (blockRoll < 0.80) pFg[idx] = ITEM_IDS.CAVE_LIMESTONE;
-            else pFg[idx] = ITEM_IDS.GRANITE;
-          } else {
-            pFg[idx] = ITEM_IDS.AIR;
-          }
         } else {
-          // Sky above surface
           pFg[idx] = ITEM_IDS.AIR;
           pBg[idx] = ITEM_IDS.BG_SKY;
         }
       }
     }
 
-    const pSpawnY = pSurfaceY - 1;
+    // Lower 5-wide Indestructible Starting Platform (x = 23..27, y = 20)
+    for (let x = pSpawnX - 2; x <= pSpawnX + 2; x++) {
+      const idx = pSurfaceY * pWidth + x;
+      pFg[idx] = ITEM_IDS.GP_ROCK;
+      pBg[idx] = ITEM_IDS.GP_ROCK_BACKGROUND;
+    }
+
+    // Entrance Portal in the middle of the Starting Platform (25, 19)
     pFg[pSpawnY * pWidth + pSpawnX] = ITEM_IDS.ENTRANCE_PORTAL;
 
-    const signX = pSpawnX - 2;
-    const signY = pSurfaceY - 1;
-    pFg[signY * pWidth + signX] = ITEM_IDS.GP_SIGN;
+    // One-Time Starter Supply Lootbox on the starting platform next to the Entrance Portal (26, 19)
+    if (options.includeStarterLootbox !== false) {
+      pFg[pSpawnY * pWidth + (pSpawnX + 1)] = ITEM_IDS.STARTER_LOOTBOX;
+    }
+
+    // Upper 5-wide Indestructible WorldCore Platform (x = 23..27, y = 16 -> 3 empty blocks y=19,18,17 in-between)
+    const upperPlatformY = pSurfaceY - 4; // 16
+    for (let x = pSpawnX - 2; x <= pSpawnX + 2; x++) {
+      const idx = upperPlatformY * pWidth + x;
+      pBg[idx] = ITEM_IDS.GP_ROCK_BACKGROUND;
+      pFg[idx] = x === pSpawnX ? ITEM_IDS.WORLD_CORE : ITEM_IDS.GP_WOODEN_PLATFORM;
+    }
 
     return {
       name: normalized,
@@ -271,9 +328,178 @@ export function generateWorld(
       vendingMachines: {},
       furnaces: {},
       bfgCollectors: {},
-      signs: {
-        [`${signX},${signY}`]: `Personal Sanctuary of ${normalized}. Build your farm, place Seed Pots (500 Gems in Store), and install Matteragen Engines (max 20)!`,
+      signs: {},
+      doorLinks: {},
+      worldXp: 0,
+      worldLevel: 1,
+      coreTokens: 0,
+      revision: 1,
+    };
+  }
+
+  // Main System World: NEXUS — Custom Sci-Fi Floating Platform Hub
+  if (normalized === 'NEXUS') {
+    const nWidth = WORLD_WIDTH; // 100
+    const nHeight = WORLD_HEIGHT; // 60
+    const nTileCount = nWidth * nHeight;
+    const nFg = new Array<number>(nTileCount).fill(ITEM_IDS.AIR);
+    const nBg = new Array<number>(nTileCount).fill(ITEM_IDS.BG_SKY);
+    const nFluidType = new Array<number>(nTileCount).fill(0);
+    const nFluidLevel = new Array<number>(nTileCount).fill(0);
+
+    // Bottom safety floor row (y = 59)
+    for (let x = 0; x < nWidth; x++) {
+      nFg[(nHeight - 1) * nWidth + x] = ITEM_IDS.BEDROCK;
+    }
+
+    const spawnX = 50;
+    const centerDeckY = 30;
+    const spawnY = centerDeckY - 1; // 29
+
+    // 1. Center Entry Deck (x = 40..60, y = 30)
+    for (let x = 40; x <= 60; x++) {
+      nFg[centerDeckY * nWidth + x] = x === 45 || x === 55 ? ITEM_IDS.BOUNCE_PAD : ITEM_IDS.GP_GREY_BLOCK;
+      nBg[centerDeckY * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+      nBg[(centerDeckY - 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+      nBg[(centerDeckY - 2) * nWidth + x] = ITEM_IDS.GP_GLASS_PANE;
+    }
+    for (let x = 42; x <= 58; x++) {
+      nFg[(centerDeckY + 1) * nWidth + x] =
+        x === 44 || x === 50 || x === 56 ? ITEM_IDS.GP_GLASS_BLOCK : ITEM_IDS.GP_ROCK;
+      nBg[(centerDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+    }
+    for (let x = 46; x <= 54; x++) {
+      nFg[(centerDeckY + 2) * nWidth + x] = x === 50 ? ITEM_IDS.GP_AQUA_BLOCK : ITEM_IDS.GP_GREY_BLOCK;
+      nBg[(centerDeckY + 2) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+    }
+
+    // Center Spawn Entrance Portal + Single Multi-Way Background Door & Adjacent Pass-Through WOODEN_SIGN Blocks
+    nFg[spawnY * nWidth + spawnX] = ITEM_IDS.ENTRANCE_PORTAL;
+    nBg[spawnY * nWidth + 53] = ITEM_IDS.GP_DOOR; // Multi-Way Navigational Door (Background Block)
+    nFg[spawnY * nWidth + 47] = ITEM_IDS.WOODEN_SIGN;
+    nFg[spawnY * nWidth + 52] = ITEM_IDS.WOODEN_SIGN;
+    nFg[spawnY * nWidth + 55] = ITEM_IDS.WOODEN_SIGN;
+
+    // Sci-Fi Floating Step Bridges connecting Center Deck to West & East Decks
+    for (const bx of [36, 37, 38, 62, 63, 64]) {
+      nFg[29 * nWidth + bx] = ITEM_IDS.GP_WOODEN_PLATFORM;
+      nBg[29 * nWidth + bx] = ITEM_IDS.GP_GLASS_PANE;
+    }
+
+    // 2. West Marketplace Deck — Fresh Greens Market (x = 16..34, y = 28)
+    const westDeckY = 28;
+    for (let x = 16; x <= 34; x++) {
+      nFg[westDeckY * nWidth + x] =
+        x >= 22 && x <= 28 ? ITEM_IDS.GP_WOOD_BLOCK : ITEM_IDS.GP_GREY_BLOCK;
+      nBg[westDeckY * nWidth + x] = ITEM_IDS.GP_WOODEN_BACKGROUND;
+      nBg[(westDeckY - 1) * nWidth + x] = ITEM_IDS.GP_WOODEN_BACKGROUND;
+      nBg[(westDeckY - 2) * nWidth + x] = ITEM_IDS.GP_GLASS_PANE;
+    }
+    for (let x = 18; x <= 32; x++) {
+      nFg[(westDeckY + 1) * nWidth + x] =
+        x === 21 || x === 25 || x === 29 ? ITEM_IDS.GP_GLASS_BLOCK : ITEM_IDS.GP_ROCK;
+      nBg[(westDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+    }
+    nBg[(westDeckY - 1) * nWidth + 31] = ITEM_IDS.GP_DOOR;
+    nFg[(westDeckY - 1) * nWidth + 30] = ITEM_IDS.WOODEN_SIGN;
+    nFg[(westDeckY - 1) * nWidth + 25] = ITEM_IDS.GREENS_VENDOR_NPC;
+    nFg[(westDeckY - 1) * nWidth + 19] = ITEM_IDS.WOODEN_SIGN;
+
+    // 3. East Realm Steward Deck — Personal World Conjuring (x = 66..84, y = 28)
+    const eastDeckY = 28;
+    for (let x = 66; x <= 84; x++) {
+      nFg[eastDeckY * nWidth + x] = ITEM_IDS.GP_GREY_BLOCK;
+      nBg[eastDeckY * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+      nBg[(eastDeckY - 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+      nBg[(eastDeckY - 2) * nWidth + x] = ITEM_IDS.GP_GLASS_PANE;
+    }
+    for (let x = 68; x <= 82; x++) {
+      nFg[(eastDeckY + 1) * nWidth + x] =
+        x === 71 || x === 75 || x === 79 ? ITEM_IDS.GP_GLASS_BLOCK : ITEM_IDS.GP_ROCK;
+      nBg[(eastDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+    }
+    nBg[(eastDeckY - 1) * nWidth + 69] = ITEM_IDS.GP_DOOR;
+    nFg[(eastDeckY - 1) * nWidth + 70] = ITEM_IDS.WOODEN_SIGN;
+    nFg[(eastDeckY - 1) * nWidth + 75] = ITEM_IDS.LANDLORD_NPC;
+    nFg[(eastDeckY - 1) * nWidth + 81] = ITEM_IDS.WOODEN_SIGN;
+
+    // Intermediate Jump/Bounce Booster Platforms (y = 24, x = 44..46 & x = 54..56)
+    for (const lx of [44, 45, 46, 54, 55, 56]) {
+      nFg[24 * nWidth + lx] = lx === 45 || lx === 55 ? ITEM_IDS.BOUNCE_PAD : ITEM_IDS.GP_WOODEN_PLATFORM;
+      nBg[24 * nWidth + lx] = ITEM_IDS.GP_GLASS_PANE;
+    }
+
+    // 4. Upper Command & Exchange Deck (x = 38..62, y = 18)
+    const upperDeckY = 18;
+    for (let x = 38; x <= 62; x++) {
+      const isLandingHole = (x >= 44 && x <= 46) || (x >= 54 && x <= 56);
+      nFg[upperDeckY * nWidth + x] = isLandingHole ? ITEM_IDS.GP_WOODEN_PLATFORM : ITEM_IDS.GP_GREY_BLOCK;
+      nBg[upperDeckY * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+      nBg[(upperDeckY - 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+      nBg[(upperDeckY - 2) * nWidth + x] = ITEM_IDS.GP_GLASS_PANE;
+    }
+    for (let x = 40; x <= 60; x++) {
+      if ((x >= 44 && x <= 46) || (x >= 54 && x <= 56)) continue;
+      nFg[(upperDeckY + 1) * nWidth + x] =
+        x === 42 || x === 50 || x === 58 ? ITEM_IDS.GP_AQUA_BLOCK : ITEM_IDS.GP_ROCK;
+      nBg[(upperDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+    }
+    nFg[(upperDeckY - 1) * nWidth + 43] = ITEM_IDS.EXCHANGE_TERMINAL;
+    nFg[(upperDeckY - 1) * nWidth + 57] = ITEM_IDS.STONE_FURNACE;
+    nBg[(upperDeckY - 1) * nWidth + 51] = ITEM_IDS.GP_DOOR;
+    nFg[(upperDeckY - 1) * nWidth + 50] = ITEM_IDS.WOODEN_SIGN;
+
+    return {
+      name: normalized,
+      seed,
+      width: nWidth,
+      height: nHeight,
+      worldKind: 'standard',
+      worldFamily: 'temperate',
+      terraBlasted: false,
+      nexusLayoutVersion: NEXUS_LAYOUT_VERSION,
+      spawnX,
+      spawnY,
+      fg: nFg,
+      bg: nBg,
+      fluidType: nFluidType,
+      fluidLevel: nFluidLevel,
+      plants: {},
+      seedPots: {},
+      matteragenEngines: {},
+      atmMachines: {},
+      vaultboxes: {},
+      worldLock: null,
+      areaLocks: {},
+      shareLocks: {},
+      vendingMachines: {},
+      furnaces: {
+        '57,17': {
+          x: 57,
+          y: 17,
+          ownerId: 'SYSTEM',
+          recipeId: null,
+          startedAt: null,
+          finishesAt: null,
+          readyOutputItemId: 0,
+          readyOutputQty: 0,
+        },
       },
+      bfgCollectors: {},
+      signs: {
+        '47,29': '← Fresh Greens',
+        '52,29': '↑ Exchange & Furnace',
+        '55,29': 'Realm Steward →',
+        '30,27': '← Fresh Greens',
+        '19,27': 'Fresh Greens Market: Trade harvested Crops for Digibits & buy Crop Seeds!',
+        '70,27': 'Realm Steward →',
+        '81,27': 'Realm Steward: Conjure your personal 50×40 World with a Starter Supply Lootbox!',
+        '50,17': '↑ Exchange & Furnace',
+      },
+      doorLinks: {},
+      worldXp: 0,
+      worldLevel: 1,
+      coreTokens: 0,
       revision: 1,
     };
   }
@@ -306,11 +532,12 @@ export function generateWorld(
       }
     } else {
       const distFromSpawn = Math.abs(x - spawnX);
-      if (distFromSpawn <= 4) {
+      const flatRadius = normalized === 'NEXUS' ? 8 : 4;
+      if (distFromSpawn <= flatRadius) {
         surfaceHeights[x] = baseSurfaceY;
       } else {
         const wave = Math.sin(x * 0.14 + phase1) * 2.1 + Math.cos(x * 0.06 + phase2) * 1.6;
-        const blend = Math.min(1, (distFromSpawn - 4) / 6);
+        const blend = Math.min(1, (distFromSpawn - flatRadius) / 6);
         surfaceHeights[x] = Math.round(baseSurfaceY + wave * blend);
       }
     }
@@ -418,7 +645,7 @@ export function generateWorld(
 
   // Add biome-appropriate surface vegetation and formations away from spawn terrace
   for (let x = 6; x < WORLD_WIDTH - 6; x++) {
-    if (Math.abs(x - spawnX) <= 6) continue;
+    if (Math.abs(x - spawnX) <= (normalized === 'NEXUS' ? 8 : 6)) continue;
     const roll = rand();
     const sy = surfaceHeights[x];
     if (worldFamily === 'desert_blast') {
@@ -460,11 +687,16 @@ export function generateWorld(
   const spawnY = surfaceHeights[spawnX] - 1;
   fg[spawnY * WORLD_WIDTH + spawnX] = ITEM_IDS.ENTRANCE_PORTAL;
 
-  // Nexus has a permanent Landlord NPC beside the entrance for realm management.
+  // Nexus has two permanent 3x2 market stands on opposite sides of the spawn plaza:
+  // Landlord Realm Steward on the right (spawnX + 5) and Fresh Greens Vendor on the left (spawnX - 6).
   if (normalized === 'NEXUS') {
-    const landlordX = Math.min(WORLD_WIDTH - 4, spawnX + 4);
+    const landlordX = Math.min(WORLD_WIDTH - 4, spawnX + 5);
     const landlordY = surfaceHeights[landlordX] - 1;
     fg[landlordY * WORLD_WIDTH + landlordX] = ITEM_IDS.LANDLORD_NPC;
+
+    const greensX = Math.max(3, spawnX - 6);
+    const greensY = surfaceHeights[greensX] - 1;
+    fg[greensY * WORLD_WIDTH + greensX] = ITEM_IDS.GREENS_VENDOR_NPC;
   }
 
   // Place a helpful welcome GrowPixel sign at spawnX - 2
@@ -500,6 +732,8 @@ export function generateWorld(
     signs: {
       [`${signX},${signY}`]: `Welcome to ${normalized}! Mine blocks for seeds & gems, fish pools, or smelt at a Stone Furnace.`,
     },
+    worldXp: 0,
+    worldLevel: 1,
     revision: 1,
   };
 }
