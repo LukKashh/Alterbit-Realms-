@@ -62,6 +62,7 @@ import type {
   ExchangePriceStat,
   ExchangeSnapshot,
   FishingCastState,
+  FiscoreProgress,
   FriendEntry,
   FriendRequestEntry,
   InventorySlot,
@@ -116,6 +117,7 @@ export interface PlayerAccount {
   processedTxIds: string[];
   activeBuffs: ActiveBuff[];
   unclaimedWl: number;
+  fiscore: FiscoreProgress;
 }
 
 export interface CredentialRecord {
@@ -156,6 +158,8 @@ export interface ServerFishingCast extends FishingCastState {
   lastFightUpdateAt: number;
   biteAt: number;
   expiresAt: number;
+  mode?: 'world' | 'fiscore';
+  zoneId?: string;
 }
 
 export interface LiveWorld {
@@ -399,6 +403,13 @@ export class AuthoritativeWorldStore {
     acc.processedTxIds = acc.processedTxIds ?? [];
     acc.activeBuffs = (acc.activeBuffs ?? []).filter((b) => b.expiresAt > Date.now());
     acc.unclaimedWl = Math.max(0, Math.floor(Number(acc.unclaimedWl ?? 0)));
+    const fiscore = acc.fiscore ?? { xp: 0, level: 1, catches: 0, deepestDepth: 0 };
+    acc.fiscore = {
+      xp: Math.max(0, Math.floor(Number(fiscore.xp ?? 0))),
+      level: Math.max(1, Math.floor(Number(fiscore.level ?? 1))),
+      catches: Math.max(0, Math.floor(Number(fiscore.catches ?? 0))),
+      deepestDepth: Math.max(0, Math.min(6, Math.floor(Number(fiscore.deepestDepth ?? 0)))),
+    };
     if (!acc.inventory.some((s) => s.itemId === ITEM_IDS.FIST)) {
       acc.inventory.unshift({ itemId: ITEM_IDS.FIST, qty: 1 });
     }
@@ -449,6 +460,7 @@ export class AuthoritativeWorldStore {
       processedTxIds: [],
       activeBuffs: [],
       unclaimedWl: 0,
+      fiscore: { xp: 0, level: 1, catches: 0, deepestDepth: 0 },
     });
   }
 
@@ -677,6 +689,7 @@ export class AuthoritativeWorldStore {
       recentWorlds: account.recentWorlds,
       activeBuffs: this.pruneAndGetBuffs(account),
       unclaimedWl: account.unclaimedWl ?? 0,
+      fiscore: account.fiscore,
     };
   }
 
@@ -2312,6 +2325,84 @@ export class AuthoritativeWorldStore {
     return { ok: false, message: 'No effect defined for this consumable.' };
   }
 
+  ensureFiscoreStarterRod(account: PlayerAccount): { granted: boolean; notice?: string } {
+    const ownedRod = account.inventory.some((slot) => {
+      const def = getItemDef(slot.itemId);
+      return def?.toolKind === 'rod' && slot.qty > 0;
+    });
+    if (ownedRod) return { granted: false };
+    this.addInventory(account, ITEM_IDS.BAMBOO_ROD, 1);
+    this.savePlayer(account);
+    return { granted: true, notice: 'Your starter Bamboo Fishing Rod has been added to your equipment.' };
+  }
+
+  getActiveFiscoreCast(account: PlayerAccount): ServerFishingCast | null {
+    return this.getOrCreateWorld('FISHING').activeCasts.get(account.id) ?? null;
+  }
+
+  cancelFiscoreCast(account: PlayerAccount): boolean {
+    return this.getOrCreateWorld('FISHING').activeCasts.delete(account.id);
+  }
+
+  handleCastFiscore(
+    account: PlayerAccount,
+    rodInstanceId: string,
+    rawDepthLevel: number
+  ): { ok: true; cast: ServerFishingCast } | { ok: false; message: string } {
+    const depthLevel = Math.floor(Number(rawDepthLevel));
+    if (!Number.isInteger(depthLevel) || depthLevel < 1 || depthLevel > 6) {
+      return { ok: false, message: 'Select a valid fishing depth from 1 to 6.' };
+    }
+    const live = this.getOrCreateWorld('FISHING');
+    if (live.activeCasts.has(account.id)) {
+      return { ok: false, message: 'You already have an active fishing encounter.' };
+    }
+    const rodSlot = account.inventory.find((slot) => slot.rodInstanceId === rodInstanceId && slot.qty > 0);
+    const rodDef = rodSlot ? getItemDef(rodSlot.itemId) : undefined;
+    if (!rodSlot || rodDef?.toolKind !== 'rod' || !rodDef.rodType) {
+      return { ok: false, message: 'Select a fishing rod you currently own.' };
+    }
+    if ((rodSlot.durability ?? rodSlot.maxDurability ?? 1) <= 0) {
+      return { ok: false, message: `${rodDef.name} has no durability. Repair it before fishing.` };
+    }
+    if (!canRodFishAtDepth(rodDef.rodType, depthLevel)) {
+      return { ok: false, message: `${rodDef.name} can only fish at depth levels 1–${rodDef.rodType}.` };
+    }
+
+    const now = Date.now();
+    const depthTier: LiquidPoolInfo['depthTier'] = depthLevel <= 2 ? 'shallow' : depthLevel <= 4 ? 'deep' : 'abyssal';
+    const delayMs = rodDef.rodType >= 2
+      ? 1800 + Math.floor(Math.random() * 1400)
+      : 2600 + Math.floor(Math.random() * 1900);
+    const cast: ServerFishingCast = {
+      playerId: account.id,
+      playerName: account.name,
+      worldName: 'FISHING',
+      bobberTx: 50,
+      bobberTy: depthLevel,
+      fluidType: 1,
+      depthTier,
+      depthLevel,
+      rodItemId: rodSlot.itemId,
+      rodInstanceId: rodSlot.rodInstanceId!,
+      rodUpgradeLevel: rodSlot.rodUpgradeLevel ?? 1,
+      pullingStrength: getFishingPullStrength(rodDef.rodType, rodSlot.rodUpgradeLevel ?? 1, this.gameConfig.fishing),
+      pullProgress: 0,
+      lineTension: 0.15,
+      bobberOffset: 0,
+      fightStartedAt: now,
+      lastFightUpdateAt: now,
+      biting: false,
+      startedAt: now,
+      biteAt: now + delayMs,
+      expiresAt: now + delayMs + 15000,
+      mode: 'fiscore',
+      zoneId: `depth_${depthLevel}`,
+    };
+    live.activeCasts.set(account.id, cast);
+    return { ok: true, cast };
+  }
+
   handleCastFishing(
     live: LiveWorld,
     account: PlayerAccount,
@@ -2479,9 +2570,17 @@ export class AuthoritativeWorldStore {
     this.addInventory(account, caughtItemId, 1);
     account.stats.fishCaught = (account.stats.fishCaught ?? 0) + 1;
     const def = getItemDef(caughtItemId);
-    const leveled = addXp(account.level, account.xp, def?.xpValue ?? 4);
-    account.level = leveled.level;
-    account.xp = leveled.xp;
+    if (cast.mode === 'fiscore') {
+      const leveled = addXp(account.fiscore.level, account.fiscore.xp, def?.xpValue ?? 4);
+      account.fiscore.level = leveled.level;
+      account.fiscore.xp = leveled.xp;
+      account.fiscore.catches += 1;
+      account.fiscore.deepestDepth = Math.max(account.fiscore.deepestDepth, cast.depthLevel ?? 1);
+    } else {
+      const leveled = addXp(account.level, account.xp, def?.xpValue ?? 4);
+      account.level = leveled.level;
+      account.xp = leveled.xp;
+    }
     this.savePlayer(account);
 
     return {
@@ -2678,14 +2777,14 @@ export class AuthoritativeWorldStore {
   tickAllWorlds(now: number): {
     fluidUpdates: Array<{ worldName: string; deltas: FluidDelta[] }>;
     fishingBites: Array<{ worldName: string; cast: ServerFishingCast }>;
-    fishingTimeouts: Array<{ worldName: string; playerId: string }>;
+    fishingTimeouts: Array<{ worldName: string; playerId: string; mode?: 'world' | 'fiscore' }>;
     fishingStates: Array<{ worldName: string; cast: ServerFishingCast }>;
     completedFurnaces: Array<{ worldName: string; tx: number; ty: number }>;
     expiredMines: Array<{ worldName: string; playerIds: string[] }>;
   } {
     const fluidUpdates: Array<{ worldName: string; deltas: FluidDelta[] }> = [];
     const fishingBites: Array<{ worldName: string; cast: ServerFishingCast }> = [];
-    const fishingTimeouts: Array<{ worldName: string; playerId: string }> = [];
+    const fishingTimeouts: Array<{ worldName: string; playerId: string; mode?: 'world' | 'fiscore' }> = [];
     const fishingStates: Array<{ worldName: string; cast: ServerFishingCast }> = [];
     const completedFurnaces: Array<{ worldName: string; tx: number; ty: number }> = [];
     const expiredMines: Array<{ worldName: string; playerIds: string[] }> = [];
@@ -2697,7 +2796,7 @@ export class AuthoritativeWorldStore {
         continue;
       }
 
-      if (live.players.size === 0) continue;
+      if (live.players.size === 0 && live.activeCasts.size === 0) continue;
 
       if (live.fluidFrontier.size > 0) {
         const deltas = stepFluidFrontier(live.state, live.fluidFrontier, 220);
@@ -2713,7 +2812,7 @@ export class AuthoritativeWorldStore {
           fishingBites.push({ worldName: wName, cast });
         } else if (cast.biting && now >= cast.expiresAt) {
           live.activeCasts.delete(pid);
-          fishingTimeouts.push({ worldName: wName, playerId: pid });
+          fishingTimeouts.push({ worldName: wName, playerId: pid, mode: cast.mode });
         } else if (cast.biting) {
           if (cast.pullProgress > 0) cast.pullProgress = Math.max(0, cast.pullProgress - 1.5);
           const fishId = cast.fishItemId;
