@@ -160,7 +160,7 @@ export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
 
-    const waterGeometry = new THREE.PlaneGeometry(180, 180, 64, 64);
+    const waterGeometry = new THREE.PlaneGeometry(180, 180, 36, 36);
     waterGeometry.rotateX(-Math.PI / 2);
     const waterPositions = waterGeometry.attributes.position as THREE.BufferAttribute;
     const waterBase = Float32Array.from(waterPositions.array as ArrayLike<number>);
@@ -347,6 +347,7 @@ export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
     );
     encounterMarker.rotation.x = Math.PI / 2;
     encounterMarker.position.set(4.9, 0.03, -14.7);
+    const encounterMarkerMaterial = encounterMarker.material as THREE.MeshBasicMaterial;
     scene.add(encounterMarker);
 
     positionRef.current = { x: 0, y: 0, yaw: 0 };
@@ -396,7 +397,7 @@ export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
       const positions = waterGeometry.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < positions.count; i++) {
         const x = waterBase[i * 3];
-        const z = waterBase[i * 3 + 1];
+        const z = waterBase[i * 3 + 2];
         positions.setZ(i, Math.sin(x * 0.12 + nowMs * 0.0007) * 0.11 + Math.cos(z * 0.15 + nowMs * 0.0009) * 0.07);
       }
       positions.needsUpdate = true;
@@ -405,9 +406,7 @@ export const Fishing3dOverlay: React.FC<Fishing3dOverlayProps> = ({
       boat.rotation.z = Math.sin(nowMs * 0.0012) * 0.035;
       encounterMarker.rotation.z += dt * 0.65;
       encounterMarker.visible = encounterRef.current.active;
-      encounterMarker.material = encounterRef.current.biting
-        ? new THREE.MeshBasicMaterial({ color: 0xff655d })
-        : new THREE.MeshBasicMaterial({ color: 0xffd46a });
+      encounterMarkerMaterial.color.set(encounterRef.current.biting ? 0xff655d : 0xffd46a);
 
       renderer.render(scene, camera);
       rafId = requestAnimationFrame(frame);
