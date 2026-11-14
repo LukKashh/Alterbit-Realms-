@@ -35,6 +35,13 @@ export interface ActiveBuff {
 
 export type FishFightPattern = 'darting' | 'surging' | 'deep_run' | 'erratic';
 
+export interface FiscoreProgress {
+  xp: number;
+  level: number;
+  catches: number;
+  deepestDepth: number;
+}
+
 export interface FishingCastState {
   playerId: string;
   playerName: string;
@@ -49,6 +56,8 @@ export interface FishingCastState {
   lineTension?: number;
   bobberOffset?: number;
   fightPattern?: FishFightPattern;
+  mode?: 'world' | 'fiscore';
+  zoneId?: string;
 }
 
 export interface ExchangeListing {
@@ -152,6 +161,7 @@ export interface AuthUserProfile {
   recentWorlds: string[];
   activeBuffs: ActiveBuff[];
   unclaimedWl: number;
+  fiscore: FiscoreProgress;
 }
 
 export interface ResumePosition {
@@ -253,6 +263,10 @@ export type ClientMessage =
       action: 'toggle' | 'withdraw';
     }
   | { type: 'cast_fishing'; tx: number; ty: number; rodItemId: number }
+  | { type: 'fiscore_enter' }
+  | { type: 'fiscore_cast'; rodInstanceId: string; depthLevel: number }
+  | { type: 'fiscore_reel' }
+  | { type: 'fiscore_cancel' }
   | { type: 'upgrade_fishing_rod'; rodInstanceId: string }
   | { type: 'reel_fishing' }
   | {
@@ -286,6 +300,7 @@ export type ServerMessage =
       recentWorlds: string[];
       activeBuffs: ActiveBuff[];
       unclaimedWl: number;
+      fiscore: FiscoreProgress;
       gameConfig: GameConfig;
       exchange: ExchangeSnapshot;
     }
@@ -364,14 +379,15 @@ export type ServerMessage =
       recentWorlds: string[];
       activeBuffs: ActiveBuff[];
       unclaimedWl: number;
+      fiscore: FiscoreProgress;
       notice?: string;
     }
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'worlds_list'; worlds: WorldSummary[] }
   | { type: 'fishing_started'; cast: FishingCastState }
-  | { type: 'fishing_bite'; playerId: string; bobberTx: number; bobberTy: number; depthTier: LiquidPoolInfo['depthTier'] }
-  | { type: 'fishing_progress'; playerId: string; progress: number; lineTension: number; bobberOffset: number; fightPattern: FishFightPattern }
-  | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier'] }
+  | { type: 'fishing_bite'; playerId: string; bobberTx: number; bobberTy: number; depthTier: LiquidPoolInfo['depthTier']; mode?: 'world' | 'fiscore' }
+  | { type: 'fishing_progress'; playerId: string; progress: number; lineTension: number; bobberOffset: number; fightPattern: FishFightPattern; mode?: 'world' | 'fiscore' }
+  | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier']; mode?: 'world' | 'fiscore' }
   | { type: 'exchange_updated'; exchange: ExchangeSnapshot }
   | { type: 'mine_shaft_expired'; worldName: string; message: string }
   | { type: 'dungeon_state'; snapshot: import('./dungeon.ts').DungeonSnapshot }
