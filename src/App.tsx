@@ -7,6 +7,7 @@ import {
   type ChatMessage,
   type ExchangeSnapshot,
   type FishingCastState,
+  type FiscoreProgress,
   type FriendEntry,
   type FriendRequestEntry,
   type InventorySlot,
@@ -54,6 +55,8 @@ const DEFAULT_STATS: Record<PlayerStatKey, number> = {
   itemsSmelted: 0,
   exchangeTrades: 0,
 };
+
+const DEFAULT_FISCORE_PROGRESS: FiscoreProgress = { xp: 0, level: 1, catches: 0, deepestDepth: 0 };
 
 const DEFAULT_EXCHANGE: ExchangeSnapshot = {
   listings: [],
@@ -113,6 +116,8 @@ export default function App() {
   const [unclaimedWl, setUnclaimedWl] = useState<number>(0);
   const [exchangeSnapshot, setExchangeSnapshot] = useState<ExchangeSnapshot>(DEFAULT_EXCHANGE);
   const [fishingCast, setFishingCast] = useState<FishingCastState | null>(null);
+  const [fiscoreProgress, setFiscoreProgress] = useState<FiscoreProgress>(DEFAULT_FISCORE_PROGRESS);
+  const [lastFiscoreCatch, setLastFiscoreCatch] = useState<string | null>(null);
   const [fishingBiting, setFishingBiting] = useState<boolean>(false);
   const [fishingProgress, setFishingProgress] = useState<number>(0);
   const [fishingLineTension, setFishingLineTension] = useState<number>(0.15);
@@ -136,6 +141,10 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (fishing3dOpen && connected) socketRef.current?.send({ type: 'fiscore_enter' });
+  }, [fishing3dOpen, connected]);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -204,6 +213,7 @@ export default function App() {
       const buffs = user.activeBuffs ?? [];
       setActiveBuffs(buffs);
       setUnclaimedWl(user.unclaimedWl ?? 0);
+      setFiscoreProgress(user.fiscore ?? DEFAULT_FISCORE_PROGRESS);
       engineRef.current?.setLocalIdentity(user.playerId, user.playerName, '#3f8fd9', user.equipped);
       engineRef.current?.setActiveBuffs(buffs);
       void syncUserToFirestore(user, socketRef.current?.getActiveWorldName() ?? '').catch(() => {});
@@ -324,6 +334,7 @@ export default function App() {
             recentWorlds: msg.recentWorlds,
             activeBuffs: msg.activeBuffs,
             unclaimedWl: msg.unclaimedWl,
+            fiscore: msg.fiscore,
           });
           setGameConfig(msg.gameConfig);
           engine.applyGameConfig(msg.gameConfig);
@@ -479,6 +490,7 @@ export default function App() {
           setRecentWorlds(msg.recentWorlds);
           setActiveBuffs(msg.activeBuffs ?? []);
           setUnclaimedWl(msg.unclaimedWl ?? 0);
+          setFiscoreProgress(msg.fiscore ?? DEFAULT_FISCORE_PROGRESS);
           engine.setLocalEquipped(msg.equipped);
           engine.setActiveBuffs(msg.activeBuffs ?? []);
           if (msg.notice) showToast(msg.notice);
@@ -490,17 +502,18 @@ export default function App() {
           setWorlds(msg.worlds);
           break;
         case 'fishing_started':
-          setFishingProgress(0);
-          setFishingLineTension(0.15);
-          setFishingFightPattern('darting');
-          engine.setFishingCast(msg.cast);
+          if (msg.cast.mode === 'fiscore') setLastFiscoreCatch(null);
+          setFishingProgress(msg.cast.pullProgress ?? 0);
+          setFishingLineTension(msg.cast.lineTension ?? 0.15);
+          setFishingFightPattern(msg.cast.fightPattern ?? 'darting');
+          if (msg.cast.mode !== 'fiscore') engine.setFishingCast(msg.cast);
           if (msg.cast.playerId === playerIdRef.current) {
             setFishingCast(msg.cast);
             setFishingBiting(msg.cast.biting);
           }
           break;
         case 'fishing_progress':
-          engine.updateFishingProgress(msg.playerId, msg.progress, msg.lineTension, msg.bobberOffset, msg.fightPattern);
+          if (msg.mode !== 'fiscore') engine.updateFishingProgress(msg.playerId, msg.progress, msg.lineTension, msg.bobberOffset, msg.fightPattern);
           if (msg.playerId === playerIdRef.current) {
             setFishingProgress(msg.progress);
             setFishingLineTension(msg.lineTension);
@@ -509,7 +522,7 @@ export default function App() {
           }
           break;
         case 'fishing_bite':
-          engine.markFishingBite(msg.playerId);
+          if (msg.mode !== 'fiscore') engine.markFishingBite(msg.playerId);
           if (msg.playerId === playerIdRef.current) {
             soundEngine.fishingBite();
             setFishingBiting(true);
@@ -517,13 +530,14 @@ export default function App() {
           }
           break;
         case 'fishing_ended':
-          engine.removeFishingCast(msg.playerId);
+          if (msg.mode !== 'fiscore') engine.removeFishingCast(msg.playerId);
           if (msg.playerId === playerIdRef.current) {
             setFishingCast(null);
             setFishingBiting(false);
             setFishingProgress(0);
             setFishingLineTension(0.15);
             setFishingFightPattern('darting');
+            if (msg.mode === 'fiscore') setLastFiscoreCatch(msg.caughtName ?? null);
             if (msg.caughtName) {
               soundEngine.unlock();
               showToast(`Caught ${msg.caughtName}!`);
@@ -819,6 +833,7 @@ export default function App() {
           }}
           onOpenFishing3d={() => {
             soundEngine.uiClick();
+            setLastFiscoreCatch(null);
             setFishing3dOpen(true);
           }}
           onSignOut={handleSignOut}
@@ -982,13 +997,23 @@ export default function App() {
 
       {fishing3dOpen && (
         <Fishing3dOverlay
-          playerId={playerId}
-          level={level}
           gems={gems}
           inventory={inventory}
-          onClose={() => setFishing3dOpen(false)}
-          onCastFishing={(tx, ty, rodItemId) => socketRef.current?.send({ type: 'cast_fishing', tx, ty, rodItemId })}
-          onReelFishing={() => socketRef.current?.send({ type: 'reel_fishing' })}
+          fiscore={fiscoreProgress}
+          gameConfig={gameConfig}
+          activeCast={fishingCast?.mode === 'fiscore' ? fishingCast : null}
+          biting={fishingBiting}
+          progress={fishingProgress}
+          lineTension={fishingLineTension}
+          fightPattern={fishingFightPattern}
+          lastCatchName={lastFiscoreCatch}
+          onClose={() => {
+            socketRef.current?.send({ type: 'fiscore_cancel' });
+            setFishing3dOpen(false);
+          }}
+          onCastFishing={(rodInstanceId, depthLevel) => socketRef.current?.send({ type: 'fiscore_cast', rodInstanceId, depthLevel })}
+          onReelFishing={() => socketRef.current?.send({ type: 'fiscore_reel' })}
+          onUpgradeFishingRod={(rodInstanceId) => socketRef.current?.send({ type: 'upgrade_fishing_rod', rodInstanceId })}
         />
       )}
     </main>

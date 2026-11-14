@@ -149,6 +149,12 @@ async function startServer() {
     }
   }
 
+  function sendToPlayerId(playerId: string, msg: ServerMessage) {
+    for (const session of sessions) {
+      if (session.account?.id === playerId) sendTo(session.ws, msg);
+    }
+  }
+
   function sendProfileUpdate(ws: WebSocket, account: PlayerAccount, notice?: string) {
     sendTo(ws, {
       type: 'profile_updated',
@@ -167,6 +173,7 @@ async function startServer() {
       recentWorlds: account.recentWorlds,
       activeBuffs: store.pruneAndGetBuffs(account),
       unclaimedWl: account.unclaimedWl ?? 0,
+      fiscore: account.fiscore,
       notice,
     });
   }
@@ -348,6 +355,7 @@ async function startServer() {
           recentWorlds: account.recentWorlds,
           activeBuffs: store.pruneAndGetBuffs(account),
           unclaimedWl: account.unclaimedWl ?? 0,
+          fiscore: account.fiscore,
           gameConfig: store.getGameConfig(),
           exchange: store.getExchangeSnapshot(),
         });
@@ -383,6 +391,62 @@ async function startServer() {
         enterWorldSession(session, ws, account, result.worldName, undefined, true);
         sendProfileUpdate(ws, account, result.notice);
         broadcastAll({ type: 'worlds_list', worlds: store.listWorlds() });
+        return;
+      }
+
+      if (msg.type === 'fiscore_enter') {
+        const starter = store.ensureFiscoreStarterRod(account);
+        sendProfileUpdate(ws, account, starter.notice);
+        const activeCast = store.getActiveFiscoreCast(account);
+        if (activeCast) sendTo(ws, { type: 'fishing_started', cast: activeCast });
+        return;
+      }
+
+      if (msg.type === 'fiscore_cast') {
+        const result = store.handleCastFiscore(account, msg.rodInstanceId, msg.depthLevel);
+        if (!result.ok) {
+          sendTo(ws, { type: 'world_error', message: result.message });
+          return;
+        }
+        sendTo(ws, { type: 'fishing_started', cast: result.cast });
+        return;
+      }
+
+      if (msg.type === 'fiscore_reel') {
+        const live = store.getExistingWorld('FISHING') ?? store.getOrCreateWorld('FISHING');
+        const result = store.handleReelFishing(live, account);
+        if (!result.ok) {
+          sendTo(ws, { type: 'world_error', message: result.message });
+          return;
+        }
+        if (!result.finished) {
+          const activeCast = live.activeCasts.get(account.id);
+          sendTo(ws, {
+            type: 'fishing_progress',
+            playerId: account.id,
+            progress: result.progress,
+            lineTension: activeCast?.lineTension ?? 0.5,
+            bobberOffset: activeCast?.bobberOffset ?? 0,
+            fightPattern: activeCast?.fightPattern ?? 'darting',
+            mode: 'fiscore',
+          });
+          return;
+        }
+        sendTo(ws, {
+          type: 'fishing_ended',
+          playerId: account.id,
+          caughtItemId: result.caughtItemId,
+          caughtName: result.caughtName,
+          depthTier: result.depthTier,
+          mode: 'fiscore',
+        });
+        sendProfileUpdate(ws, account, result.notice);
+        return;
+      }
+
+      if (msg.type === 'fiscore_cancel') {
+        const cancelled = store.cancelFiscoreCast(account);
+        if (cancelled) sendTo(ws, { type: 'fishing_ended', playerId: account.id, mode: 'fiscore' });
         return;
       }
 
@@ -855,26 +919,34 @@ async function startServer() {
       broadcastWorld(fu.worldName, { type: 'fluid_delta', deltas: fu.deltas });
     }
     for (const fb of tick.fishingBites) {
-      broadcastWorld(fb.worldName, {
+      const message: ServerMessage = {
         type: 'fishing_bite',
         playerId: fb.cast.playerId,
         bobberTx: fb.cast.bobberTx,
         bobberTy: fb.cast.bobberTy,
         depthTier: fb.cast.depthTier,
-      });
+        mode: fb.cast.mode,
+      };
+      if (fb.cast.mode === 'fiscore') sendToPlayerId(fb.cast.playerId, message);
+      else broadcastWorld(fb.worldName, message);
     }
     for (const fs of tick.fishingStates) {
-      broadcastWorld(fs.worldName, {
+      const message: ServerMessage = {
         type: 'fishing_progress',
         playerId: fs.cast.playerId,
         progress: Math.round(fs.cast.pullProgress),
         lineTension: fs.cast.lineTension,
         bobberOffset: fs.cast.bobberOffset,
         fightPattern: fs.cast.fightPattern ?? 'darting',
-      });
+        mode: fs.cast.mode,
+      };
+      if (fs.cast.mode === 'fiscore') sendToPlayerId(fs.cast.playerId, message);
+      else broadcastWorld(fs.worldName, message);
     }
     for (const ft of tick.fishingTimeouts) {
-      broadcastWorld(ft.worldName, { type: 'fishing_ended', playerId: ft.playerId });
+      const message: ServerMessage = { type: 'fishing_ended', playerId: ft.playerId, mode: ft.mode };
+      if (ft.mode === 'fiscore') sendToPlayerId(ft.playerId, message);
+      else broadcastWorld(ft.worldName, message);
     }
     for (const cf of tick.completedFurnaces) {
       const lw = store.getExistingWorld(cf.worldName);

@@ -38,6 +38,13 @@ export const GATE_KEYS = [
  {tier:5,id:'station_gate_key_v',minLevel:15,gemPrice:1000,worldLockPrice:8,rooms:7,xp:1400,enemyFamily:'Omegazyte Overlords',orePool:['divinium','mythrilyte','omegazyte']},
 ] as const;
 
+export const FISCORE_DEPTH_LEVELS = [1, 2, 3, 4, 5, 6] as const;
+
+export function getFiscoreDepthTier(depthLevel: number): 'none' | 'shallow' | 'deep' | 'abyssal' {
+ if (!Number.isInteger(depthLevel) || depthLevel < 1 || depthLevel > 6) return 'none';
+ return depthLevel <= 2 ? 'shallow' : depthLevel <= 4 ? 'deep' : 'abyssal';
+}
+
 export const FISHING_RESERVOIRS = [
  {id:'shallow_stream',name:'Shallow Stream',sourceDepthLabel:2,fishingDepthLevel:1,environment:'shallow_freshwater'},
  {id:'mid_cavern_pond',name:'Mid Cavern Pond',sourceDepthLabel:6,fishingDepthLevel:3,environment:'mid_cavern'},
