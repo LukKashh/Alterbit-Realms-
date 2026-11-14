@@ -51,6 +51,9 @@ export function getMaterialForItem(itemId?: number): SoundMaterial {
     key.includes('bfg') ||
     key.includes('terminal') ||
     key.includes('portal') ||
+    key.includes('atm') ||
+    key.includes('vaultbox') ||
+    key.includes('matteragen') ||
     key.includes('ingot') ||
     key.includes('iron') ||
     key.includes('copper') ||

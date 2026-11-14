@@ -111,7 +111,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
       className="flex flex-col h-full min-h-0 gap-2.5 text-[#f7f4eb]"
     >
       {/* Header Summary Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#09131d] border border-[#2d4863] rounded-md px-3 py-2 shrink-0">
+      <div className="pixel-box-header -mx-3 -mt-3 flex flex-wrap items-center justify-between gap-2 px-3 py-2 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <img
             src={getItemIconUrl(ITEM_IDS.WORLD_LOCK)}
@@ -120,7 +120,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
             referrerPolicy="no-referrer"
           />
           <div className="min-w-0">
-            <h2 className="font-pixel text-xs text-[#ffe18c] truncate">Global WL Exchange</h2>
+            <h2 className="ui-pixel-heading text-xs text-[#ffe18c] truncate">Global WL Exchange</h2>
             <p className="text-[11px] font-mono-num text-[#9cb5cc]">
               Wallet: <strong className="text-[#ffe18c]">{wlInBag} WL</strong> ·{' '}
               <strong className="text-[#8cf7ee]">{Math.round(gems)} G</strong> · Burned:{' '}
@@ -136,7 +136,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
               type="button"
               data-testid="exchange-claim-wl-btn"
               onClick={onClaimWl}
-              className="px-3 py-2 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border border-[#82e068] text-[#081709] font-mono-num font-bold text-xs cursor-pointer"
+              className="pixel-btn pixel-btn-emerald !py-1.5 !px-3 !text-xs font-mono-num"
             >
               Claim {unclaimedWl} WL
             </button>
@@ -145,7 +145,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
             type="button"
             aria-label="Refresh Exchange"
             onClick={onRefresh}
-            className="p-2 rounded bg-[#142538] hover:bg-[#1e3752] border border-[#314e6b] text-[#89d6ff] cursor-pointer"
+            className="pixel-btn pixel-btn-primary !p-2"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -154,7 +154,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
               type="button"
               aria-label="Close Global Exchange"
               onClick={onClose}
-              className="p-2 rounded bg-[#192b3d] hover:bg-[#243d57] border border-[#3a597a] text-[#c8d9ea] cursor-pointer"
+              className="pixel-btn pixel-btn-wood !p-2"
             >
               <X className="w-4 h-4" />
             </button>
@@ -175,10 +175,10 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`py-2 px-2 rounded text-xs font-bold cursor-pointer border ${
+            className={`py-2 px-2 text-[11px] font-pixel uppercase cursor-pointer border-2 ${
               tab === id
-                ? 'bg-[#214463] border-[#f2b738] text-[#ffe18c]'
-                : 'bg-[#09131d] border-[#263c52] text-[#9cb5cc] hover:text-white'
+                ? 'bg-[#2a2210] border-[#facc15] text-[#fde047]'
+                : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:text-white'
             }`}
           >
             {label}
@@ -220,7 +220,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
 
           <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
             {filteredListings.length === 0 ? (
-              <div className="bg-[#09131d] border border-[#263c52] rounded-md p-4 text-center text-xs text-[#8aa4bd]">
+              <div className="pixel-slot p-4 text-center text-xs text-[#8aa4bd]">
                 No World Lock bundles match this filter. Switch to Post Bundle to list items!
               </div>
             ) : (
@@ -233,13 +233,13 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                 return (
                   <div
                     key={l.id}
-                    className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-[#09131d] border border-[#263c52] rounded p-2.5"
+                    className="pixel-slot flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 p-2.5"
                   >
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       <img
                         src={getItemIconUrl(l.itemId)}
                         alt={def?.name ?? 'Item'}
-                        className="w-8 h-8 pixelated shrink-0 bg-[#060d14] p-0.5 rounded border border-[#243b52]"
+                        className="w-8 h-8 pixelated shrink-0 bg-[#05080e] p-0.5 border border-[#243b52]"
                         referrerPolicy="no-referrer"
                       />
                       <div className="min-w-0">
@@ -262,7 +262,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                         <button
                           type="button"
                           onClick={() => onCancelListing(l.id)}
-                          className="px-3 py-2 rounded bg-[#3b1b1f] hover:bg-[#52242a] border border-[#7a343d] text-[#ffd4d4] font-bold text-xs cursor-pointer"
+                          className="pixel-btn pixel-btn-ruby !py-1.5 !px-3 !text-xs"
                         >
                           Cancel ({l.priceWl} WL)
                         </button>
@@ -271,7 +271,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                           type="button"
                           disabled={!canAfford}
                           onClick={() => onBuyListing(l.id)}
-                          className="px-3.5 py-2 rounded bg-[#f2b738] hover:bg-[#ffca52] disabled:bg-[#222f3d] disabled:text-[#667d94] text-[#1a1204] font-mono-num font-bold text-xs cursor-pointer"
+                          className="pixel-btn pixel-btn-gold !py-1.5 !px-3.5 !text-xs font-mono-num disabled:opacity-40"
                         >
                           Buy · {l.priceWl} WL
                         </button>
@@ -302,8 +302,8 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                     onChange={(e) => setSellItemId(Number(e.target.value))}
                     className="px-2.5 py-2 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white"
                   >
-                    {listableItems.map((s) => (
-                      <option key={s.itemId} value={s.itemId}>
+                    {listableItems.map((s, idx) => (
+                      <option key={s.rodInstanceId ?? `${s.itemId}-${idx}`} value={s.itemId}>
                         {getItemDef(s.itemId)?.name} ({s.qty} owned)
                       </option>
                     ))}

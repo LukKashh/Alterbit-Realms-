@@ -265,13 +265,13 @@ import {
 import { isWithinReach } from './rules.ts';
 import { AuthoritativeWorldStore } from '../../server/worldStore.ts';
 
-test('player hitbox is strictly 0.8 wide x 1.75 tall with >=40% upscaled 48px tiles', () => {
-  assert.ok(TILE_SIZE >= 44.8, 'TILE_SIZE must be upscaled by at least 40% from 32px');
-  assert.equal(TILE_SIZE, 48);
+test('player hitbox is strictly 0.8 wide x 1.75 tall with upscaled 60px tiles', () => {
+  assert.ok(TILE_SIZE >= 55, 'TILE_SIZE must be upscaled for 25% larger scale');
+  assert.equal(TILE_SIZE, 60);
   assert.equal(PLAYER_WIDTH_TILES, 0.8);
   assert.equal(PLAYER_HEIGHT_TILES, 1.75);
-  assert.equal(PLAYER_WIDTH, 38.4);
-  assert.equal(PLAYER_HEIGHT, 84);
+  assert.equal(PLAYER_WIDTH, 48);
+  assert.equal(PLAYER_HEIGHT, 105);
   assert.equal(DEFAULT_VIEW_SCALE, 1.5);
   assert.equal(MAX_REACH_TILES, 3.05);
 
@@ -456,58 +456,54 @@ test('admin store editor customization, live store purchase, and in-world landsc
 });
 
 test('calculated Farmability system function determines positive block yield ranges and assigns tiers accurately', () => {
-  // 1. Seed-linked block (Dirt #500)
+  // 1. Non-farmable general blocks (Dirt #500, Desert Sand #700) no longer have seed cycles
   const dirtDefault = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, DEFAULT_GAME_CONFIG);
-  assert.equal(dirtDefault.hasSeedCycle, true);
-  assert.equal(dirtDefault.linkedSeedId, ITEM_IDS.GP_SEED_DIRT);
-  assert.ok(dirtDefault.expectedBlockYield > 1.0, 'Default Dirt with 100% block + 20% seed is positive yield');
-  assert.ok(
-    dirtDefault.positiveYieldRanges.blockRateRangePct[0] >= 50 &&
-      dirtDefault.positiveYieldRanges.blockRateRangePct[1] <= 100
-  );
-  assert.ok(
-    dirtDefault.positiveYieldRanges.seedRateRangePct[0] >= 15 &&
-      dirtDefault.positiveYieldRanges.seedRateRangePct[1] >= dirtDefault.positiveYieldRanges.seedRateRangePct[0]
-  );
+  assert.equal(dirtDefault.hasSeedCycle, false);
+  assert.equal(dirtDefault.linkedSeedId, null);
 
-  // Assign Sink vs Balanced vs Farmable vs Abundant to Dirt
-  const sinkCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.GP_DIRT], 'sink');
-  const dirtSink = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, sinkCfg);
-  assert.ok(dirtSink.expectedBlockYield < 1.0, 'Sink tier must yield < 1.0x');
-  assert.equal(dirtSink.isPositiveYield, false);
-
-  const balancedCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.GP_DIRT], 'balanced');
-  const dirtBalanced = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, balancedCfg);
-  assert.ok(dirtBalanced.expectedBlockYield > 1.0 && dirtBalanced.expectedBlockYield < 1.2);
-  assert.equal(dirtBalanced.isPositiveYield, true);
-
-  const farmableCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.GP_DIRT], 'farmable');
-  const dirtFarmable = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, farmableCfg);
-  assert.ok(dirtFarmable.expectedBlockYield >= 1.25, 'Farmable tier must yield >= 1.25x positive block yield');
-  assert.equal(dirtFarmable.isPositiveYield, true);
-
-  const abundantCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.GP_DIRT], 'abundant');
-  const dirtAbundant = calculateFarmabilityProfile(ITEM_IDS.GP_DIRT, abundantCfg);
-  assert.ok(dirtAbundant.expectedBlockYield >= 1.65, 'Abundant tier must yield >= 1.65x');
-
-  // 2. Biome blocks now have Biome Seeds (Desert Sand #700 -> #750, Blue Ice #725 -> #760, Crystal Ore #746 -> #771)
-  for (const biomeId of [ITEM_IDS.DESERT_SAND, ITEM_IDS.BLUE_ICE, ITEM_IDS.CRYSTAL_ORE]) {
-    const baseProfile = calculateFarmabilityProfile(biomeId, DEFAULT_GAME_CONFIG);
+  // 2. Farmable blocks from the 40-crop registry have full seed cycles and positive block yield
+  for (const farmId of [
+    ITEM_IDS.FARM_SUGAR_CANE,
+    ITEM_IDS.FARM_CHANDELIER,
+    ITEM_IDS.FARM_STARLIGHT_PRISM,
+    ITEM_IDS.FARM_OMEGA_MONOLITH,
+  ]) {
+    const baseProfile = calculateFarmabilityProfile(farmId, DEFAULT_GAME_CONFIG);
     assert.equal(baseProfile.hasSeedCycle, true);
-    assert.ok(baseProfile.expectedBlockYield > 1.0);
+    assert.ok(baseProfile.expectedBlockYield > 1.0, `Farmable block #${farmId} must have positive yield`);
 
-    const { targetItemId, override } = buildFarmabilityOverride(biomeId, 'farmable', DEFAULT_GAME_CONFIG);
-    assert.equal(targetItemId, biomeId);
+    const { targetItemId, override } = buildFarmabilityOverride(farmId, 'farmable', DEFAULT_GAME_CONFIG);
+    assert.equal(targetItemId, farmId);
     assert.ok(override.drops && override.drops.length >= 1);
 
-    const nextCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [biomeId], 'farmable');
-    const farmProfile = calculateFarmabilityProfile(biomeId, nextCfg);
+    const nextCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [farmId], 'farmable');
+    const farmProfile = calculateFarmabilityProfile(farmId, nextCfg);
     assert.ok(
       farmProfile.expectedBlockYield >= 1.3,
-      `Biome block #${biomeId} farmable override must produce positive block yield >= 1.3x (got ${farmProfile.expectedBlockYield})`
+      `Farmable block #${farmId} farmable override must produce positive block yield >= 1.3x (got ${farmProfile.expectedBlockYield})`
     );
     assert.equal(farmProfile.isPositiveYield, true);
   }
+
+  // Assign Sink vs Balanced vs Farmable vs Abundant to Sugar Cane
+  const sinkCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.FARM_SUGAR_CANE], 'sink');
+  const caneSink = calculateFarmabilityProfile(ITEM_IDS.FARM_SUGAR_CANE, sinkCfg);
+  assert.ok(caneSink.expectedBlockYield < 1.0, 'Sink tier must yield < 1.0x');
+  assert.equal(caneSink.isPositiveYield, false);
+
+  const balancedCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.FARM_SUGAR_CANE], 'balanced');
+  const caneBalanced = calculateFarmabilityProfile(ITEM_IDS.FARM_SUGAR_CANE, balancedCfg);
+  assert.ok(caneBalanced.expectedBlockYield > 1.0 && caneBalanced.expectedBlockYield < 1.2);
+  assert.equal(caneBalanced.isPositiveYield, true);
+
+  const farmableCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.FARM_SUGAR_CANE], 'farmable');
+  const caneFarmable = calculateFarmabilityProfile(ITEM_IDS.FARM_SUGAR_CANE, farmableCfg);
+  assert.ok(caneFarmable.expectedBlockYield >= 1.25, 'Farmable tier must yield >= 1.25x positive block yield');
+  assert.equal(caneFarmable.isPositiveYield, true);
+
+  const abundantCfg = applyFarmabilityTier(DEFAULT_GAME_CONFIG, [ITEM_IDS.FARM_SUGAR_CANE], 'abundant');
+  const caneAbundant = calculateFarmabilityProfile(ITEM_IDS.FARM_SUGAR_CANE, abundantCfg);
+  assert.ok(caneAbundant.expectedBlockYield >= 1.65, 'Abundant tier must yield >= 1.65x');
 
   // Direct non-seed item (Stone Furnace #120) has no seed cycle
   const furnaceProfile = calculateFarmabilityProfile(ITEM_IDS.STONE_FURNACE, DEFAULT_GAME_CONFIG);
@@ -716,6 +712,7 @@ test('mining shaft 50x150 isolation (0 Gems), pickaxe durability + furnace craft
   let reelRes = store.handleReelFishing(startJoined.world, acct);
   let safetyPulls = 0;
   while (reelRes.ok && !reelRes.finished && safetyPulls < 12) {
+    if (castObj) castObj.lastReelAt = 0;
     reelRes = store.handleReelFishing(startJoined.world, acct);
     safetyPulls++;
   }
@@ -833,12 +830,12 @@ test('Global WL Exchange escrow, 5% WL sink, 10-Gem clearing fee, Claim Vault & 
   const bfgPlace = store.handlePlaceTile(joinedBfg.world, seller, ITEM_IDS.BFG_COLLECTOR, bTx, bTy);
   assert.equal(bfgPlace.ok, true);
 
-  // Plant a mature tree 2 tiles away -> BFG tick harvests & stores it
+  // Plant a mature farmable tree 2 tiles away -> BFG tick harvests & stores it
   const treeTx = bTx + 2;
   joinedBfg.world.state.plants[`${treeTx},${bTy}`] = {
     x: treeTx,
     y: bTy,
-    seedId: ITEM_IDS.GP_SEED_DIRT,
+    seedId: ITEM_IDS.SEED_FARM_SUGAR_CANE,
     plantedAt: 1000,
     maturityAt: 2000,
     ownerId: seller.id,

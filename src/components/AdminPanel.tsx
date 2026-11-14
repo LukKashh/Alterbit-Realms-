@@ -4,6 +4,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Coins,
+  Eraser,
+  Globe,
+  MapPin,
+  Paintbrush,
   Plus,
   RotateCcw,
   Save,
@@ -19,9 +23,12 @@ import {
 } from 'lucide-react';
 import {
   CATALOG,
+  FARMABLE_SPECS,
   GEM_STORE_LISTINGS,
   ITEM_IDS,
   type DropEntry,
+  type FarmableBranch,
+  type FarmableSpec,
   type GemStoreListing,
   type ItemDefinition,
   type StoreSection,
@@ -39,22 +46,44 @@ import {
   type GameMechanicsConfig,
   type ItemConfigOverride,
 } from '../game/config.ts';
+import { isSystemWorld } from '../game/expansion.ts';
 import { getItemIconUrl } from '../game/pixelArt.ts';
+
+export type AdminActionPayload = {
+  action:
+    | 'grant_item'
+    | 'grant_gems'
+    | 'grow_all_trees'
+    | 'reset_config'
+    | 'sys_paint_tile'
+    | 'sys_clear_tile'
+    | 'sys_fill_rect'
+    | 'sys_set_spawn'
+    | 'sys_reset_world';
+  itemId?: number;
+  qty?: number;
+  gems?: number;
+  tx?: number;
+  ty?: number;
+  tx2?: number;
+  ty2?: number;
+  layer?: 'fg' | 'bg' | 'both';
+};
 
 interface AdminPanelProps {
   gameConfig: GameConfig;
   inWorld: boolean;
+  worldName?: string;
+  coords?: { tx: number; ty: number };
+  adminWorldEdit?: boolean;
+  adminBrushItemId?: number | null;
+  onToggleAdminWorldEdit?: (enabled: boolean, brushItemId?: number | null) => void;
   onSaveConfig: (cfg: GameConfig) => void;
-  onAdminAction: (opts: {
-    action: 'grant_item' | 'grant_gems' | 'grow_all_trees' | 'reset_config';
-    itemId?: number;
-    qty?: number;
-    gems?: number;
-  }) => void;
+  onAdminAction: (opts: AdminActionPayload) => void;
   onClose?: () => void;
 }
 
-type AdminSection = 'catalog' | 'drops' | 'store' | 'tools';
+type AdminSection = 'farmables' | 'catalog' | 'drops' | 'store' | 'tools' | 'sysworld';
 
 type QuickFilterChip =
   | 'all'
@@ -79,17 +108,28 @@ const RARITY_BADGE: Record<string, string> = {
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   gameConfig,
   inWorld,
+  worldName = 'START',
+  coords = { tx: 50, ty: 23 },
+  adminWorldEdit = false,
+  adminBrushItemId = null,
+  onToggleAdminWorldEdit,
   onSaveConfig,
   onAdminAction,
   onClose,
 }) => {
-  const [section, setSection] = useState<AdminSection>('catalog');
+  const [section, setSection] = useState<AdminSection>('farmables');
   const [draft, setDraft] = useState<GameConfig>(() => cloneGameConfig(gameConfig));
   const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.GP_DIRT);
   const [grantQty, setGrantQty] = useState<number>(50);
   const [grantGemsAmt] = useState<number>(500);
   const [newDropItemId, setNewDropItemId] = useState<number>(ITEM_IDS.GP_SEED_DIRT);
   const [feedbackBanner, setFeedbackBanner] = useState<string | null>(null);
+
+  // Dedicated Farmables Registry Manager State
+  const [farmSearch, setFarmSearch] = useState<string>('');
+  const [farmTierFilter, setFarmTierFilter] = useState<number | 'all'>('all');
+  const [farmBranchFilter, setFarmBranchFilter] = useState<FarmableBranch | 'all'>('all');
+  const [selectedFarmSpecId, setSelectedFarmSpecId] = useState<number>(FARMABLE_SPECS[0]?.id ?? 900);
 
   // Minimized Whole-Catalogue Filter State
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -101,9 +141,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [newGrantItemId, setNewGrantItemId] = useState<number>(ITEM_IDS.GP_DIRT);
   const [newGrantQty, setNewGrantQty] = useState<number>(25);
 
+  // System World Modifying state
+  const [sysBrushId, setSysBrushId] = useState<number>(adminBrushItemId ?? ITEM_IDS.GP_DIRT);
+  const [sysLayer, setSysLayer] = useState<'fg' | 'bg' | 'both'>('fg');
+  const [sysX1, setSysX1] = useState<number>(coords.tx);
+  const [sysY1, setSysY1] = useState<number>(coords.ty);
+  const [sysX2, setSysX2] = useState<number>(coords.tx + 2);
+  const [sysY2, setSysY2] = useState<number>(coords.ty);
+  const [confirmResetWorld, setConfirmResetWorld] = useState<boolean>(false);
+
   useEffect(() => {
     setDraft(cloneGameConfig(gameConfig));
   }, [gameConfig]);
+
+  useEffect(() => {
+    if (adminBrushItemId && adminBrushItemId > 0) {
+      setSysBrushId(adminBrushItemId);
+    }
+  }, [adminBrushItemId]);
 
   const showFeedback = (msg: string) => {
     setFeedbackBanner(msg);
@@ -118,6 +173,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         .filter((i) => i.id !== ITEM_IDS.AIR)
         .sort((a, b) => a.id - b.id),
     []
+  );
+
+  const worldTileBrushItems = useMemo<ItemDefinition[]>(
+    () =>
+      editableItems.filter(
+        (i) =>
+          i.placeable ||
+          i.id === ITEM_IDS.WORLD_CORE ||
+          i.id === ITEM_IDS.LANDLORD_NPC ||
+          i.id === ITEM_IDS.ENTRANCE_PORTAL ||
+          i.id === ITEM_IDS.BEDROCK
+      ),
+    [editableItems]
   );
 
   // Pre-compute farmability analysis for all catalogue items against current draft
@@ -225,6 +293,119 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [editableItems, farmabilityMap, draft, searchQuery, quickFilter, sortBy]);
 
   const modifiedCount = Object.keys(draft.itemOverrides).length;
+
+  const filteredFarmables = useMemo<FarmableSpec[]>(() => {
+    const q = farmSearch.trim().toLowerCase();
+    return FARMABLE_SPECS.filter((spec) => {
+      if (farmTierFilter !== 'all' && spec.tier !== farmTierFilter) return false;
+      if (farmBranchFilter !== 'all' && spec.branch !== farmBranchFilter) return false;
+      if (q) {
+        const matchName = spec.name.toLowerCase().includes(q);
+        const matchBranch = spec.branch.toLowerCase().includes(q);
+        const matchId = String(spec.id).includes(q) || String(spec.seedId).includes(q);
+        if (!matchName && !matchBranch && !matchId) return false;
+      }
+      return true;
+    });
+  }, [farmSearch, farmTierFilter, farmBranchFilter]);
+
+  const activeFarmSpec = useMemo<FarmableSpec>(
+    () =>
+      FARMABLE_SPECS.find((s) => s.id === selectedFarmSpecId) ??
+      filteredFarmables[0] ??
+      FARMABLE_SPECS[0],
+    [selectedFarmSpecId, filteredFarmables]
+  );
+
+  const updateFarmableOverrides = (
+    spec: FarmableSpec,
+    patch: {
+      growthTimeSec?: number;
+      gemValue?: number;
+      xpValue?: number;
+      hardness?: number;
+      minBlocks?: number;
+      maxBlocks?: number;
+      seedDropRate?: number;
+      blockDropRate?: number;
+    }
+  ) => {
+    setDraft((prev) => {
+      const effBlock = getEffectiveItemDef(spec.id, prev) ?? CATALOG[spec.id];
+      const effSeed = getEffectiveItemDef(spec.seedId, prev) ?? CATALOG[spec.seedId];
+      if (!effBlock || !effSeed) return prev;
+
+      const curBlockOv = prev.itemOverrides[spec.id] ?? {};
+      const curSeedOv = prev.itemOverrides[spec.seedId] ?? {};
+
+      const nextGrowthMs =
+        patch.growthTimeSec !== undefined
+          ? Math.max(1000, Math.round(patch.growthTimeSec * 1000))
+          : (curSeedOv.growthTimeMs ?? effSeed.growthTimeMs ?? spec.growthTimeSec * 1000);
+
+      const curYield = curBlockOv.treeHarvestYield ?? effBlock.treeHarvestYield ?? {
+        minBlocks: spec.minBlocks,
+        maxBlocks: spec.maxBlocks,
+        seedChance: spec.seedDropRate,
+      };
+      const nextMin = patch.minBlocks !== undefined ? Math.max(1, patch.minBlocks) : curYield.minBlocks;
+      const nextMax = Math.max(nextMin, patch.maxBlocks !== undefined ? patch.maxBlocks : curYield.maxBlocks);
+      const nextSeedChance =
+        patch.seedDropRate !== undefined
+          ? Math.max(0, Math.min(1, patch.seedDropRate))
+          : curYield.seedChance;
+
+      const curDrops = [...(curBlockOv.drops ?? effBlock.drops ?? [])];
+      const blockDropIdx = curDrops.findIndex((d) => d.itemId === spec.id);
+      const seedDropIdx = curDrops.findIndex((d) => d.itemId === spec.seedId);
+      if (patch.blockDropRate !== undefined) {
+        const clampedBlockRate = Math.max(0, Math.min(1, patch.blockDropRate));
+        if (blockDropIdx >= 0) {
+          curDrops[blockDropIdx] = { ...curDrops[blockDropIdx], chance: clampedBlockRate };
+        } else {
+          curDrops.push({ itemId: spec.id, chance: clampedBlockRate, minQty: 1, maxQty: 1 });
+        }
+      }
+      if (patch.seedDropRate !== undefined) {
+        const clampedSeedRate = Math.max(0, Math.min(1, patch.seedDropRate));
+        if (seedDropIdx >= 0) {
+          curDrops[seedDropIdx] = { ...curDrops[seedDropIdx], chance: clampedSeedRate };
+        } else {
+          curDrops.push({ itemId: spec.seedId, chance: clampedSeedRate, minQty: 1, maxQty: 1 });
+        }
+      }
+
+      const nextYield = {
+        minBlocks: nextMin,
+        maxBlocks: nextMax,
+        seedChance: nextSeedChance,
+      };
+
+      return {
+        ...prev,
+        itemOverrides: {
+          ...prev.itemOverrides,
+          [spec.id]: {
+            ...curBlockOv,
+            hardness: patch.hardness ?? curBlockOv.hardness ?? effBlock.hardness,
+            gemValue: patch.gemValue ?? curBlockOv.gemValue ?? effBlock.gemValue,
+            xpValue: patch.xpValue ?? curBlockOv.xpValue ?? effBlock.xpValue,
+            growthTimeMs: nextGrowthMs,
+            treeHarvestYield: nextYield,
+            drops: curDrops,
+          },
+          [spec.seedId]: {
+            ...curSeedOv,
+            hardness: curSeedOv.hardness ?? effSeed.hardness,
+            gemValue: patch.gemValue ?? curSeedOv.gemValue ?? effSeed.gemValue,
+            xpValue: patch.xpValue ?? curSeedOv.xpValue ?? effSeed.xpValue,
+            growthTimeMs: nextGrowthMs,
+            treeHarvestYield: nextYield,
+          },
+        },
+      };
+    });
+  };
 
   const setMech = <K extends keyof GameMechanicsConfig>(
     key: K,
@@ -445,16 +626,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       className="flex flex-col h-full min-h-0 text-[#f7f4eb] select-none"
     >
       {/* Compact Mobile-First Top Bar */}
-      <div className="flex items-center justify-between gap-1.5 pb-1.5 border-b border-[#28425e] shrink-0">
+      <div className="pixel-box-header -mx-2.5 sm:-mx-3 -mt-2.5 sm:-mt-3 px-2.5 sm:px-3 py-2 flex items-center justify-between gap-1.5 shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="px-1.5 py-0.5 rounded bg-[#f2b738] text-[#1a1204] font-pixel text-[9px] shrink-0">
+          <span className="px-1.5 py-0.5 bg-[#eab308] border border-[#713f12] text-[#422006] font-pixel text-[9px] shrink-0">
             ADMIN
           </span>
-          <h2 className="font-pixel text-[10px] sm:text-xs text-[#ffe18c] truncate">
-            Control &amp; Farmability
+          <h2 className="ui-pixel-heading text-[10px] sm:text-xs text-[#ffe18c] truncate">
+            Control &amp; Farmables
           </h2>
           {modifiedCount > 0 && (
-            <span className="px-1.5 py-0.5 rounded bg-[#213b57] border border-[#f2b738]/60 text-[10px] font-mono-num font-bold text-[#ffe18c] shrink-0">
+            <span className="px-1.5 py-0.5 bg-[#090e17] border border-[#f2b738]/70 text-[10px] font-mono-num font-bold text-[#ffe18c] shrink-0">
               {modifiedCount} edited
             </span>
           )}
@@ -464,7 +645,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <button
             type="button"
             onClick={() => onAdminAction({ action: 'grant_gems', gems: 500 })}
-            className="px-2 py-1 rounded bg-[#153447] hover:bg-[#1e4963] border border-[#38e8d8] text-[10px] font-mono-num font-bold text-[#8cf7ee] cursor-pointer"
+            className="pixel-btn pixel-btn-primary !py-1 !px-2 !text-[10px]"
             title="Instant +500 Gems"
           >
             +500G
@@ -473,10 +654,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <button
               type="button"
               onClick={() => onAdminAction({ action: 'grow_all_trees' })}
-              className="px-2 py-1 rounded bg-[#1d3b26] hover:bg-[#275234] border border-[#82e068] text-[10px] font-bold text-[#a8f794] cursor-pointer"
+              className="pixel-btn pixel-btn-emerald !py-1 !px-2 !text-[10px]"
               title="Instantly Mature All Planted Trees"
             >
-              Grow Trees
+              Grow
             </button>
           )}
           {onClose && (
@@ -484,7 +665,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               type="button"
               aria-label="Close Admin Panel"
               onClick={onClose}
-              className="p-1 rounded bg-[#192b3d] hover:bg-[#243d57] border border-[#3a597a] text-[#c8d9ea] hover:text-white cursor-pointer"
+              className="p-1 bg-[#090e17] hover:bg-[#1c2b3d] border-2 border-[#334e68] text-[#c8d9ea] hover:text-white cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -494,7 +675,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Feedback Toast Banner */}
       {feedbackBanner && (
-        <div className="mt-1.5 px-2.5 py-1 rounded bg-[#183828] border border-[#82e068] text-[11px] font-bold text-[#a8f794] flex items-center justify-between shrink-0">
+        <div className="mt-1.5 px-2.5 py-1 bg-[#064e3b] border-2 border-[#10b981] text-[11px] font-bold text-[#a8f794] flex items-center justify-between shrink-0">
           <span className="truncate">{feedbackBanner}</span>
           <button
             type="button"
@@ -506,63 +687,438 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* 4-Tab Mobile Navigation Grid */}
-      <div className="grid grid-cols-4 gap-1 my-1.5 shrink-0">
+      {/* 6-Tab Navigation Grid */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 my-2 shrink-0">
+        <button
+          type="button"
+          data-testid="admin-tab-farmables"
+          onClick={() => setSection('farmables')}
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 border-2 text-[10px] font-bold cursor-pointer transition-colors ${
+            section === 'farmables'
+              ? 'bg-[#143b24] border-[#4ade80] text-[#bbf7d0]'
+              : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:border-[#334e68]'
+          }`}
+        >
+          <Sprout className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Crops</span>
+        </button>
+
         <button
           type="button"
           onClick={() => setSection('catalog')}
-          className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded text-[10px] sm:text-xs font-bold cursor-pointer transition-colors ${
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 border-2 text-[10px] font-bold cursor-pointer transition-colors ${
             section === 'catalog'
-              ? 'bg-[#362b12] border border-[#f2b738] text-[#ffe18c]'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
+              ? 'bg-[#362b12] border-[#f2b738] text-[#ffe18c]'
+              : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:border-[#334e68]'
           }`}
         >
           <BookOpen className="w-3.5 h-3.5 shrink-0" />
-          <span>Catalogue</span>
+          <span className="truncate">Items</span>
         </button>
 
         <button
           type="button"
           onClick={() => setSection('drops')}
-          className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded text-[10px] sm:text-xs font-bold cursor-pointer transition-colors ${
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 border-2 text-[10px] font-bold cursor-pointer transition-colors ${
             section === 'drops'
-              ? 'bg-[#1a3829] border border-[#82e068] text-[#a8f794]'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
+              ? 'bg-[#1a3829] border-[#82e068] text-[#a8f794]'
+              : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:border-[#334e68]'
           }`}
         >
           <TrendingUp className="w-3.5 h-3.5 shrink-0" />
-          <span>Farm &amp; Rates</span>
+          <span className="truncate">Rates</span>
         </button>
 
         <button
           type="button"
           onClick={() => setSection('store')}
-          className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded text-[10px] sm:text-xs font-bold cursor-pointer transition-colors ${
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 border-2 text-[10px] font-bold cursor-pointer transition-colors ${
             section === 'store'
-              ? 'bg-[#153447] border border-[#38e8d8] text-[#8cf7ee]'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
+              ? 'bg-[#153447] border-[#38e8d8] text-[#8cf7ee]'
+              : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:border-[#334e68]'
           }`}
         >
           <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
-          <span>Store</span>
+          <span className="truncate">Store</span>
         </button>
 
         <button
           type="button"
           onClick={() => setSection('tools')}
-          className={`flex items-center justify-center gap-1 py-1.5 px-1 rounded text-[10px] sm:text-xs font-bold cursor-pointer transition-colors ${
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 border-2 text-[10px] font-bold cursor-pointer transition-colors ${
             section === 'tools'
-              ? 'bg-[#213b57] border border-[#78c8f5] text-white'
-              : 'bg-[#09131d] border border-[#263c52] text-[#9cb5cc]'
+              ? 'bg-[#213b57] border-[#78c8f5] text-white'
+              : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:border-[#334e68]'
           }`}
         >
           <Sliders className="w-3.5 h-3.5 shrink-0" />
-          <span>Tools</span>
+          <span className="truncate">Tools</span>
+        </button>
+
+        <button
+          type="button"
+          data-testid="admin-tab-sysworld"
+          onClick={() => setSection('sysworld')}
+          className={`flex items-center justify-center gap-1 py-1.5 px-1 border-2 text-[10px] font-bold cursor-pointer transition-colors ${
+            section === 'sysworld'
+              ? 'bg-[#11383a] border-[#38e8d8] text-[#9efffa]'
+              : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:border-[#334e68]'
+          }`}
+        >
+          <Globe className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">SysWorld</span>
         </button>
       </div>
 
       {/* Main Scrollable Content Area */}
       <div className="flex-1 overflow-y-auto pr-0.5 flex flex-col gap-2 min-h-0">
+        {/* ===================================================================
+            TAB 0: DEDICATED FARMABLES REGISTRY VIEWER & LIVE EDITOR (40 CROPS)
+           =================================================================== */}
+        {section === 'farmables' && (() => {
+          const effBlock = getEffectiveItemDef(activeFarmSpec.id, draft) ?? CATALOG[activeFarmSpec.id];
+          const effSeed = getEffectiveItemDef(activeFarmSpec.seedId, draft) ?? CATALOG[activeFarmSpec.seedId];
+          const liveGrowthSec = Math.max(
+            1,
+            Math.round((effSeed?.growthTimeMs ?? activeFarmSpec.growthTimeSec * 1000) / 1000)
+          );
+          const liveGem = effBlock?.gemValue ?? activeFarmSpec.gemValue;
+          const liveXp = effBlock?.xpValue ?? activeFarmSpec.xpValue;
+          const liveHardness = effBlock?.hardness ?? activeFarmSpec.hardness;
+          const liveYield = effBlock?.treeHarvestYield ?? {
+            minBlocks: activeFarmSpec.minBlocks,
+            maxBlocks: activeFarmSpec.maxBlocks,
+            seedChance: activeFarmSpec.seedDropRate,
+          };
+          const liveBlockDrop =
+            effBlock?.drops?.find((d) => d.itemId === activeFarmSpec.id)?.chance ??
+            activeFarmSpec.blockDropRate;
+          const liveSeedDrop =
+            effBlock?.drops?.find((d) => d.itemId === activeFarmSpec.seedId)?.chance ??
+            liveYield.seedChance;
+
+          return (
+            <div className="flex flex-col gap-2" data-testid="admin-farmables-section">
+              {/* Filter Bar: Search, Tiers 1-8 & Branches */}
+              <div className="bg-[#090e17] border-2 border-[#1c2b3d] p-2 flex flex-col gap-1.5 shrink-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-pixel text-[10px] text-[#82e068]">
+                    40 Farmables Registry ({filteredFarmables.length}/40)
+                  </span>
+                  <div className="relative flex-1 max-w-[190px]">
+                    <Search className="w-3 h-3 text-[#7897b5] absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={farmSearch}
+                      onChange={(e) => setFarmSearch(e.target.value)}
+                      placeholder="Search crop or ID..."
+                      className="w-full pl-6 pr-2 py-1 bg-[#05080e] border border-[#2a3f57] text-[11px] text-white focus:outline-none focus:border-[#4ade80]"
+                    />
+                  </div>
+                </div>
+
+                {/* Tier 1..8 Chips */}
+                <div className="flex flex-wrap items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setFarmTierFilter('all')}
+                    className={`px-1.5 py-0.5 text-[10px] font-bold border cursor-pointer ${
+                      farmTierFilter === 'all'
+                        ? 'bg-[#143b24] border-[#4ade80] text-[#bbf7d0]'
+                        : 'bg-[#0d1522] border-[#1c2b3d] text-[#9cb5cc]'
+                    }`}
+                  >
+                    All Tiers
+                  </button>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setFarmTierFilter(t)}
+                      className={`px-1.5 py-0.5 text-[10px] font-mono-num font-bold border cursor-pointer ${
+                        farmTierFilter === t
+                          ? 'bg-[#362b12] border-[#facc15] text-[#fef08a]'
+                          : 'bg-[#0d1522] border-[#1c2b3d] text-[#9cb5cc]'
+                      }`}
+                    >
+                      T{t}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Branch Filter Chips */}
+                <div className="flex flex-wrap items-center gap-1">
+                  {(['all', 'botanical', 'geomineral', 'luminescent', 'arcane', 'cosmic'] as const).map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setFarmBranchFilter(b)}
+                      className={`px-1.5 py-0.5 text-[9px] font-bold uppercase border cursor-pointer ${
+                        farmBranchFilter === b
+                          ? 'bg-[#16344a] border-[#38bdf8] text-[#e0f2fe]'
+                          : 'bg-[#0d1522] border-[#1c2b3d] text-[#7d9bb8]'
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Selected Farmable Live Editor Card */}
+              <div className="bg-[#0b1812] border-2 border-[#3d7a4f] p-2.5 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 border-b border-[#1d422a] pb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-1 shrink-0 bg-[#060d09] p-1 border border-[#234d33]">
+                      <img
+                        src={getItemIconUrl(activeFarmSpec.id)}
+                        alt={activeFarmSpec.name}
+                        className="w-7 h-7 pixelated"
+                        referrerPolicy="no-referrer"
+                      />
+                      <img
+                        src={getItemIconUrl(activeFarmSpec.seedId)}
+                        alt="Seed"
+                        className="w-6 h-6 pixelated"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-[#ecfdf5] truncate">
+                        {activeFarmSpec.name}
+                      </div>
+                      <div className="text-[10px] text-[#86efac] font-mono-num">
+                        Tier {activeFarmSpec.tier} · {activeFarmSpec.branch.toUpperCase()} · Block #{activeFarmSpec.id} / Seed #{activeFarmSpec.seedId}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAdminAction({ action: 'grant_item', itemId: activeFarmSpec.id, qty: 50 });
+                        showFeedback(`Granted 50× ${activeFarmSpec.name}`);
+                      }}
+                      className="pixel-btn pixel-btn-emerald !py-1 !px-1.5 !text-[9px]"
+                    >
+                      +50 Blk
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAdminAction({ action: 'grant_item', itemId: activeFarmSpec.seedId, qty: 50 });
+                        showFeedback(`Granted 50× ${activeFarmSpec.name} Seed`);
+                      }}
+                      className="pixel-btn pixel-btn-gold !py-1 !px-1.5 !text-[9px]"
+                    >
+                      +50 Seed
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live Parameter Editors */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
+                  <label className="flex flex-col gap-0.5 text-[#a7f3d0]">
+                    <span className="font-bold">Grow Time (sec)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={3600}
+                      value={liveGrowthSec}
+                      onChange={(e) =>
+                        updateFarmableOverrides(activeFarmSpec, {
+                          growthTimeSec: Math.max(1, Number(e.target.value) || 1),
+                        })
+                      }
+                      className="px-2 py-1 bg-[#050a07] border border-[#2d5e3e] text-xs font-mono-num font-bold text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[#fde047]">
+                    <span className="font-bold">Gem Value</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={2000}
+                      value={liveGem}
+                      onChange={(e) =>
+                        updateFarmableOverrides(activeFarmSpec, {
+                          gemValue: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                      className="px-2 py-1 bg-[#050a07] border border-[#2d5e3e] text-xs font-mono-num font-bold text-[#fde047]"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[#7dd3fc]">
+                    <span className="font-bold">XP Value</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={500}
+                      value={liveXp}
+                      onChange={(e) =>
+                        updateFarmableOverrides(activeFarmSpec, {
+                          xpValue: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                      className="px-2 py-1 bg-[#050a07] border border-[#2d5e3e] text-xs font-mono-num font-bold text-[#7dd3fc]"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[#fda4af]">
+                    <span className="font-bold">Hardness (Hits)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={liveHardness}
+                      onChange={(e) =>
+                        updateFarmableOverrides(activeFarmSpec, {
+                          hardness: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                        })
+                      }
+                      className="px-2 py-1 bg-[#050a07] border border-[#2d5e3e] text-xs font-mono-num font-bold text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[#c7eed4]">
+                    <span className="font-bold">Tree Yield Min</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={liveYield.minBlocks}
+                      onChange={(e) =>
+                        updateFarmableOverrides(activeFarmSpec, {
+                          minBlocks: Math.max(1, Number(e.target.value) || 1),
+                        })
+                      }
+                      className="px-2 py-1 bg-[#050a07] border border-[#2d5e3e] text-xs font-mono-num font-bold text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[#c7eed4]">
+                    <span className="font-bold">Tree Yield Max</span>
+                    <input
+                      type="number"
+                      min={liveYield.minBlocks}
+                      max={30}
+                      value={liveYield.maxBlocks}
+                      onChange={(e) =>
+                        updateFarmableOverrides(activeFarmSpec, {
+                          maxBlocks: Math.max(liveYield.minBlocks, Number(e.target.value) || 1),
+                        })
+                      }
+                      className="px-2 py-1 bg-[#050a07] border border-[#2d5e3e] text-xs font-mono-num font-bold text-white"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[#86efac]">
+                    <span className="font-bold">Seed Drop %</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={Math.round(liveSeedDrop * 100)}
+                      onChange={(e) =>
+                        updateFarmableOverrides(activeFarmSpec, {
+                          seedDropRate: Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100,
+                        })
+                      }
+                      className="px-2 py-1 bg-[#050a07] border border-[#2d5e3e] text-xs font-mono-num font-bold text-[#86efac]"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[#93c5fd]">
+                    <span className="font-bold">Block Drop %</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={Math.round(liveBlockDrop * 100)}
+                      onChange={(e) =>
+                        updateFarmableOverrides(activeFarmSpec, {
+                          blockDropRate: Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100,
+                        })
+                      }
+                      className="px-2 py-1 bg-[#050a07] border border-[#2d5e3e] text-xs font-mono-num font-bold text-[#93c5fd]"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetItemToDefault(activeFarmSpec.id);
+                      resetItemToDefault(activeFarmSpec.seedId);
+                    }}
+                    className="pixel-btn pixel-btn-ruby !py-1 !px-2 !text-[10px]"
+                  >
+                    Reset Crop
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSaveConfig(draft);
+                      showFeedback(`Saved live farmable tuning for ${activeFarmSpec.name}!`);
+                    }}
+                    className="pixel-btn pixel-btn-emerald !py-1 !px-3 !text-[10px]"
+                  >
+                    Save Farmable Changes
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable List of All Filtered Farmables */}
+              <div className="flex flex-col gap-1">
+                {filteredFarmables.map((spec) => {
+                  const bEff = getEffectiveItemDef(spec.id, draft) ?? CATALOG[spec.id];
+                  const sEff = getEffectiveItemDef(spec.seedId, draft) ?? CATALOG[spec.seedId];
+                  const isSel = activeFarmSpec.id === spec.id;
+                  const gSec = Math.round((sEff?.growthTimeMs ?? spec.growthTimeSec * 1000) / 1000);
+                  const yMin = bEff?.treeHarvestYield?.minBlocks ?? spec.minBlocks;
+                  const yMax = bEff?.treeHarvestYield?.maxBlocks ?? spec.maxBlocks;
+                  return (
+                    <button
+                      key={spec.id}
+                      type="button"
+                      onClick={() => setSelectedFarmSpecId(spec.id)}
+                      className={`flex items-center justify-between gap-2 p-2 border-2 text-left cursor-pointer transition-colors ${
+                        isSel
+                          ? 'bg-[#122b1d] border-[#4ade80]'
+                          : 'bg-[#090e17] border-[#1c2b3d] hover:border-[#334e68]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <img
+                          src={getItemIconUrl(spec.id)}
+                          alt={spec.name}
+                          className="w-7 h-7 pixelated shrink-0"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-bold text-[#f7f4eb] truncate">
+                              {spec.name}
+                            </span>
+                            <span className="text-[9px] font-mono-num font-bold text-[#facc15]">
+                              T{spec.tier}
+                            </span>
+                            <span className="text-[9px] uppercase text-[#7dd3fc]">
+                              {spec.branch}
+                            </span>
+                          </div>
+                          <div className="text-[10px] font-mono-num text-[#9cb5cc]">
+                            {gSec}s grow · {bEff?.gemValue ?? spec.gemValue}G · {bEff?.xpValue ?? spec.xpValue}XP · {bEff?.hardness ?? spec.hardness} hits · {yMin}–{yMax} blk
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-pixel text-[#86efac] shrink-0">
+                        {isSel ? 'EDITING' : 'SELECT'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ===================================================================
             TAB 1: WHOLE-CATALOGUE MINIMIZED SEARCH & QUICK FARMABILITY ASSIGN
            =================================================================== */}
@@ -1868,10 +2424,332 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
         )}
+
+        {/* ===================================================================
+            TAB 5: SYSTEM WORLD MODIFIER (LIVE EDIT + PAINT / CLEAR / FILL / RESET)
+           =================================================================== */}
+        {section === 'sysworld' && (
+          <div className="flex flex-col gap-2.5">
+            {/* Active World Status & Live Edit Mode Toggle */}
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-[#38e8d8]" />
+                  <span className="text-xs font-bold text-[#fff8e8]">{worldName}</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${
+                      isSystemWorld(worldName)
+                        ? 'bg-[#143647] border-[#38e8d8] text-[#8cf7ee]'
+                        : 'bg-[#1b2e42] border-[#4b7299] text-[#b9d2e8]'
+                    }`}
+                  >
+                    {isSystemWorld(worldName) ? 'System World' : 'World'}
+                  </span>
+                </div>
+                <span className="text-[11px] font-mono-num text-[#8aa4bd]">
+                  Player: ({coords.tx}, {coords.ty})
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 bg-[#060d14] border border-[#1f344a] rounded p-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-[#9efffa]">
+                    Live System Edit Mode
+                  </div>
+                  <div className="text-[10px] text-[#8aa4bd]">
+                    Bypass system-world locks, 1-hit erase with Fist, 12-tile reach &amp; zero block cost.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  data-testid="admin-sysedit-toggle"
+                  disabled={!inWorld}
+                  onClick={() => {
+                    const next = !adminWorldEdit;
+                    onToggleAdminWorldEdit?.(next, next ? sysBrushId : null);
+                    showFeedback(
+                      next
+                        ? 'Live System Edit ON · Tap/drag canvas to sculpt'
+                        : 'Live System Edit OFF'
+                    );
+                  }}
+                  className={`px-3 py-1.5 rounded border text-xs font-bold shrink-0 cursor-pointer disabled:opacity-40 ${
+                    adminWorldEdit
+                      ? 'bg-[#124542] border-[#38e8d8] text-[#a8fff7]'
+                      : 'bg-[#142538] border-[#3a597a] text-[#b9d2e8]'
+                  }`}
+                >
+                  {adminWorldEdit ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            </div>
+
+            {/* Brush Tile Picker + Coordinates */}
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#ffe18c]">
+                  <Paintbrush className="w-3.5 h-3.5" />
+                  <span>Tile Brush &amp; Target</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={!inWorld}
+                  onClick={() => {
+                    setSysX1(coords.tx);
+                    setSysY1(coords.ty);
+                    setSysX2(coords.tx + 2);
+                    setSysY2(coords.ty);
+                  }}
+                  className="px-2 py-0.5 rounded bg-[#142538] hover:bg-[#1e3754] border border-[#3a597a] text-[10px] font-bold text-[#89d6ff] cursor-pointer disabled:opacity-40"
+                >
+                  Use Player Coords ({coords.tx},{coords.ty})
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <img
+                  src={getItemIconUrl(sysBrushId)}
+                  alt={CATALOG[sysBrushId]?.name ?? 'Brush'}
+                  className="w-8 h-8 rounded bg-[#060d14] border border-[#2d4863] p-1 pixelated shrink-0"
+                  referrerPolicy="no-referrer"
+                />
+                <select
+                  aria-label="System Brush Tile"
+                  value={sysBrushId}
+                  onChange={(e) => {
+                    const nextId = Number(e.target.value);
+                    setSysBrushId(nextId);
+                    if (adminWorldEdit) {
+                      onToggleAdminWorldEdit?.(true, nextId);
+                    }
+                  }}
+                  className="flex-1 min-w-0 px-2 py-1.5 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white truncate"
+                >
+                  {worldTileBrushItems.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      #{it.id} {it.name} ({it.category})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!inWorld}
+                  onClick={() => {
+                    onToggleAdminWorldEdit?.(true, sysBrushId);
+                    showFeedback(`Equipped live brush: ${CATALOG[sysBrushId]?.name ?? 'Tile'}`);
+                  }}
+                  className="px-2.5 py-1.5 rounded bg-[#153447] hover:bg-[#1e4963] border border-[#38e8d8] text-[11px] font-bold text-[#9efffa] shrink-0 cursor-pointer disabled:opacity-40"
+                >
+                  Equip Brush
+                </button>
+              </div>
+
+              {/* Layer + Single-Tile X/Y */}
+              <div className="grid grid-cols-4 gap-1.5 items-end">
+                <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc]">
+                  <span>X</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={sysX1}
+                    onChange={(e) => setSysX1(Math.max(0, Math.min(99, Number(e.target.value) || 0)))}
+                    className="px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num text-white"
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc]">
+                  <span>Y</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={sysY1}
+                    onChange={(e) => setSysY1(Math.max(0, Math.min(59, Number(e.target.value) || 0)))}
+                    className="px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num text-white"
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc] col-span-2">
+                  <span>Clear Layer</span>
+                  <select
+                    value={sysLayer}
+                    onChange={(e) => setSysLayer(e.target.value as 'fg' | 'bg' | 'both')}
+                    className="px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white"
+                  >
+                    <option value="fg">Foreground Only</option>
+                    <option value="bg">Background Only</option>
+                    <option value="both">FG + BG + Fluid</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  disabled={!inWorld}
+                  onClick={() => {
+                    onAdminAction({
+                      action: 'sys_paint_tile',
+                      itemId: sysBrushId,
+                      tx: sysX1,
+                      ty: sysY1,
+                    });
+                    showFeedback(`Painted ${CATALOG[sysBrushId]?.name ?? 'Tile'} at (${sysX1}, ${sysY1})`);
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-1.5 rounded bg-[#4aa64d] hover:bg-[#57ba5a] disabled:opacity-40 text-[#081709] text-xs font-bold cursor-pointer"
+                >
+                  <Paintbrush className="w-3.5 h-3.5" />
+                  <span>Paint Tile</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!inWorld}
+                  onClick={() => {
+                    onAdminAction({
+                      action: 'sys_clear_tile',
+                      tx: sysX1,
+                      ty: sysY1,
+                      layer: sysLayer,
+                    });
+                    showFeedback(`Cleared (${sysX1}, ${sysY1}) [${sysLayer.toUpperCase()}]`);
+                  }}
+                  className="flex items-center justify-center gap-1.5 py-1.5 rounded bg-[#3b1b1f] hover:bg-[#52242a] disabled:opacity-40 border border-[#7a343d] text-[#ffd4d4] text-xs font-bold cursor-pointer"
+                >
+                  <Eraser className="w-3.5 h-3.5" />
+                  <span>Clear Tile</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Region Fill Rect */}
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 flex flex-col gap-2">
+              <div className="flex items-center justify-between text-xs font-bold text-[#89d6ff]">
+                <span>Region Fill ({sysX1},{sysY1}) → ({sysX2},{sysY2})</span>
+                <span className="text-[10px] font-mono-num text-[#7897b5]">Max 400 tiles</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc]">
+                  <span>End X2</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={sysX2}
+                    onChange={(e) => setSysX2(Math.max(0, Math.min(99, Number(e.target.value) || 0)))}
+                    className="px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num text-white"
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc]">
+                  <span>End Y2</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={sysY2}
+                    onChange={(e) => setSysY2(Math.max(0, Math.min(59, Number(e.target.value) || 0)))}
+                    className="px-2 py-1 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num text-white"
+                  />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  disabled={!inWorld}
+                  onClick={() => {
+                    onAdminAction({
+                      action: 'sys_fill_rect',
+                      itemId: sysBrushId,
+                      tx: sysX1,
+                      ty: sysY1,
+                      tx2: sysX2,
+                      ty2: sysY2,
+                    });
+                    showFeedback(`Filled rect (${sysX1},${sysY1})→(${sysX2},${sysY2})`);
+                  }}
+                  className="py-1.5 rounded bg-[#214463] hover:bg-[#2d5b82] disabled:opacity-40 border border-[#78c8f5] text-white text-xs font-bold cursor-pointer"
+                >
+                  Fill With Brush
+                </button>
+                <button
+                  type="button"
+                  disabled={!inWorld}
+                  onClick={() => {
+                    onAdminAction({
+                      action: 'sys_fill_rect',
+                      itemId: ITEM_IDS.AIR,
+                      tx: sysX1,
+                      ty: sysY1,
+                      tx2: sysX2,
+                      ty2: sysY2,
+                      layer: sysLayer,
+                    });
+                    showFeedback(`Cleared rect (${sysX1},${sysY1})→(${sysX2},${sysY2})`);
+                  }}
+                  className="py-1.5 rounded bg-[#3b1b1f] hover:bg-[#52242a] disabled:opacity-40 border border-[#7a343d] text-[#ffd4d4] text-xs font-bold cursor-pointer"
+                >
+                  Clear Region
+                </button>
+              </div>
+            </div>
+
+            {/* Spawn & World Reset Controls */}
+            <div className="bg-[#09131d] border border-[#263c52] rounded-md p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                disabled={!inWorld}
+                onClick={() => {
+                  onAdminAction({
+                    action: 'sys_set_spawn',
+                    tx: sysX1,
+                    ty: sysY1,
+                  });
+                  showFeedback(`Updated ${worldName} spawn to (${sysX1}, ${sysY1})`);
+                }}
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded bg-[#362b12] hover:bg-[#4a3a18] disabled:opacity-40 border border-[#f2b738] text-[#ffe18c] text-xs font-bold cursor-pointer"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Set Spawn ({sysX1},{sysY1})</span>
+              </button>
+
+              {!confirmResetWorld ? (
+                <button
+                  type="button"
+                  disabled={!inWorld}
+                  onClick={() => setConfirmResetWorld(true)}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2 rounded bg-[#3b1b1f] hover:bg-[#52242a] disabled:opacity-40 border border-[#7a343d] text-[#ffd4d4] text-xs font-bold cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset {worldName} Layout</span>
+                </button>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={!inWorld}
+                    onClick={() => {
+                      setConfirmResetWorld(false);
+                      onAdminAction({ action: 'sys_reset_world' });
+                      showFeedback(`Regenerated ${worldName} layout`);
+                    }}
+                    className="flex-1 py-2 rounded bg-[#a62626] hover:bg-[#c42f2f] text-white text-xs font-bold cursor-pointer"
+                  >
+                    Confirm Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmResetWorld(false)}
+                    className="px-2.5 py-2 rounded bg-[#142538] text-[#9cb5cc] text-xs font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sticky Bottom Save Bar for 1-Thumb Mobile Reach */}
-      <div className="pt-2 mt-2 border-t border-[#28425e] flex items-center justify-between gap-2 shrink-0">
+      <div className="pt-2 mt-2 border-t-2 border-[#1c2b3d] flex items-center justify-between gap-2 shrink-0">
         <div className="text-[10px] text-[#9cb5cc] truncate">
           {modifiedCount > 0
             ? `${modifiedCount} item override(s) staged`
@@ -1884,7 +2762,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             onSaveConfig(draft);
             showFeedback('Saved & broadcast live config to all worlds!');
           }}
-          className="flex items-center justify-center gap-1.5 px-4 py-2 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border-2 border-[#82e068] text-[#081709] font-pixel text-[10px] cursor-pointer shrink-0 shadow-md"
+          className="pixel-btn pixel-btn-emerald !py-2 !px-3.5 !text-[10px] gap-1.5 shrink-0"
         >
           <Save className="w-3.5 h-3.5" />
           <span>Save &amp; Apply Live</span>

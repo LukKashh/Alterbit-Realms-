@@ -3,7 +3,6 @@ import path from 'node:path';
 import express from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { AuthoritativeWorldStore, type LiveWorld, type PlayerAccount } from './server/worldStore.ts';
-import { DungeonStore } from './server/dungeonStore.ts';
 import { adminAuth } from './src/lib/firebase-admin.ts';
 import type { ClientMessage, ResumePosition, ServerMessage } from './src/game/network.ts';
 import { TILE_SIZE } from './src/game/constants.ts';
@@ -24,8 +23,7 @@ async function startServer() {
   app.use(express.json());
 
   const store = new AuthoritativeWorldStore();
-  const dungeonStore = new DungeonStore(store);
-
+  
   function extractBearerToken(req: express.Request): string | undefined {
     const auth = req.headers.authorization;
     if (auth && auth.startsWith('Bearer ')) {
@@ -173,8 +171,7 @@ async function startServer() {
       recentWorlds: account.recentWorlds,
       activeBuffs: store.pruneAndGetBuffs(account),
       unclaimedWl: account.unclaimedWl ?? 0,
-      fiscore: account.fiscore,
-      notice,
+            notice,
     });
   }
 
@@ -183,26 +180,6 @@ async function startServer() {
       if (s.account && s.account.id === playerId) {
         sendProfileUpdate(s.ws, s.account, notice);
       }
-    }
-  }
-
-  function broadcastDungeon(snapshot: import('./src/game/dungeon.ts').DungeonSnapshot, playerIds: string[]) {
-    const payload: ServerMessage = { type: 'dungeon_state', snapshot };
-    for (const session of sessions) {
-      if (session.account && playerIds.includes(session.account.id)) sendTo(session.ws, payload);
-    }
-  }
-
-  function applyDungeonRewards(rewards: import('./src/game/dungeon.ts').DungeonReward[]) {
-    for (const reward of rewards) {
-      const account = dungeonStore.getAccountRef(reward.playerId);
-      if (!account) continue;
-      const progress = addXp(account.level, account.xp, reward.xp);
-      account.level = progress.level;
-      account.xp = progress.xp;
-      for (const item of reward.items) store.addInventory(account, item.itemId, item.qty);
-      store.savePlayer(account);
-      sendProfileToPlayerId(account.id, 'Dungeon cleared! +' + reward.xp + ' XP and expedition materials secured.');
     }
   }
 
@@ -233,6 +210,10 @@ async function startServer() {
       vendingMachine: live.state.vendingMachines?.[key] ?? null,
       furnace: live.state.furnaces?.[key] ?? null,
       bfgCollector: live.state.bfgCollectors?.[key] ?? null,
+      seedPot: live.state.seedPots?.[key] ?? null,
+      matteragenEngine: live.state.matteragenEngines?.[key] ?? null,
+      atmMachine: live.state.atmMachines?.[key] ?? null,
+      vaultbox: live.state.vaultboxes?.[key] ?? null,
       signText: live.state.signs?.[key] ?? null,
       revision: live.state.revision,
     });
@@ -355,7 +336,6 @@ async function startServer() {
           recentWorlds: account.recentWorlds,
           activeBuffs: store.pruneAndGetBuffs(account),
           unclaimedWl: account.unclaimedWl ?? 0,
-          fiscore: account.fiscore,
           gameConfig: store.getGameConfig(),
           exchange: store.getExchangeSnapshot(),
         });
@@ -394,121 +374,7 @@ async function startServer() {
         return;
       }
 
-      if (msg.type === 'fiscore_enter') {
-        const starter = store.ensureFiscoreStarterRod(account);
-        sendProfileUpdate(ws, account, starter.notice);
-        const activeCast = store.getActiveFiscoreCast(account);
-        if (activeCast) sendTo(ws, { type: 'fishing_started', cast: activeCast });
-        return;
-      }
 
-      if (msg.type === 'fiscore_cast') {
-        const result = store.handleCastFiscore(account, msg.rodInstanceId, msg.depthLevel);
-        if (!result.ok) {
-          sendTo(ws, { type: 'world_error', message: result.message });
-          return;
-        }
-        sendTo(ws, { type: 'fishing_started', cast: result.cast });
-        return;
-      }
-
-      if (msg.type === 'fiscore_reel') {
-        const live = store.getExistingWorld('FISHING') ?? store.getOrCreateWorld('FISHING');
-        const result = store.handleReelFishing(live, account);
-        if (!result.ok) {
-          sendTo(ws, { type: 'world_error', message: result.message });
-          return;
-        }
-        if (!result.finished) {
-          const activeCast = live.activeCasts.get(account.id);
-          sendTo(ws, {
-            type: 'fishing_progress',
-            playerId: account.id,
-            progress: result.progress,
-            lineTension: activeCast?.lineTension ?? 0.5,
-            bobberOffset: activeCast?.bobberOffset ?? 0,
-            fightPattern: activeCast?.fightPattern ?? 'darting',
-            mode: 'fiscore',
-          });
-          return;
-        }
-        sendTo(ws, {
-          type: 'fishing_ended',
-          playerId: account.id,
-          caughtItemId: result.caughtItemId,
-          caughtName: result.caughtName,
-          depthTier: result.depthTier,
-          mode: 'fiscore',
-        });
-        sendProfileUpdate(ws, account, result.notice);
-        return;
-      }
-
-      if (msg.type === 'fiscore_cancel') {
-        const cancelled = store.cancelFiscoreCast(account);
-        if (cancelled) sendTo(ws, { type: 'fishing_ended', playerId: account.id, mode: 'fiscore' });
-        return;
-      }
-
-      if (msg.type === 'dungeon_buy_key') {
-        const result = dungeonStore.buyGateKey(account, msg.tier, msg.payment, msg.txId);
-        if (!result.ok) {
-          sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not purchase Gate Key.' });
-          return;
-        }
-        sendProfileUpdate(ws, account, result.message);
-        return;
-      }
-
-      if (msg.type === 'dungeon_create') {
-        const result = dungeonStore.createRun(account, msg.tier, msg.partyMode);
-        if (!result.ok || !result.snapshot) {
-          sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not create dungeon.' });
-          return;
-        }
-        sendProfileUpdate(ws, account, result.message);
-        broadcastDungeon(result.snapshot, dungeonStore.getParticipantIds(result.snapshot.runId));
-        return;
-      }
-
-      if (msg.type === 'dungeon_join') {
-        const result = dungeonStore.joinRun(account, msg.code);
-        if (!result.ok || !result.snapshot) {
-          sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Could not join dungeon.' });
-          return;
-        }
-        broadcastDungeon(result.snapshot, dungeonStore.getParticipantIds(result.snapshot.runId));
-        return;
-      }
-
-      if (msg.type === 'dungeon_resume') {
-        const result = dungeonStore.resume(account);
-        if (result.ok && result.snapshot) {
-          broadcastDungeon(result.snapshot, [account.id]);
-          broadcastDungeon(result.snapshot, dungeonStore.getParticipantIds(result.snapshot.runId).filter((id) => id !== account.id));
-        }
-        return;
-      }
-
-      if (msg.type === 'dungeon_action') {
-        const result = dungeonStore.act(account, msg.action, msg.dx ?? 0, msg.dy ?? 0, Date.now(), msg.attackId);
-        if (!result.ok) {
-          if (
-            msg.action !== 'move' &&
-            result.message !== 'Wait for your action cooldown.'
-          ) {
-            sendTo(ws, { type: 'dungeon_error', message: result.message ?? 'Dungeon action failed.' });
-          }
-          return;
-        }
-        if (result.rewards) applyDungeonRewards(result.rewards);
-        if (result.snapshot && result.affectedPlayerIds?.length) {
-          broadcastDungeon(result.snapshot, result.affectedPlayerIds);
-        } else if (msg.action === 'leave') {
-          sendTo(ws, { type: 'dungeon_error', message: 'You left the expedition.' });
-        }
-        return;
-      }
 
       if (msg.type === 'list_worlds') {
         sendTo(ws, { type: 'worlds_list', worlds: store.listWorlds() });
@@ -661,6 +527,11 @@ async function startServer() {
           itemId: msg.itemId,
           qty: msg.qty,
           gems: msg.gems,
+          tx: msg.tx,
+          ty: msg.ty,
+          tx2: msg.tx2,
+          ty2: msg.ty2,
+          layer: msg.layer,
         });
         if (!res.ok) {
           sendTo(ws, { type: 'world_error', message: res.message });
@@ -677,6 +548,21 @@ async function startServer() {
           for (const t of res.grownTiles) {
             broadcastTileSnapshot(liveForAction, t.tx, t.ty);
           }
+        }
+        if (res.updatedTiles && liveForAction) {
+          for (const t of res.updatedTiles) {
+            broadcastTileSnapshot(liveForAction, t.tx, t.ty);
+          }
+        }
+        if (res.fullWorldSync && liveForAction) {
+          broadcastWorld(liveForAction.state.name, {
+            type: 'world_joined',
+            world: liveForAction.state,
+            players: Array.from(liveForAction.players.values()),
+            drops: Array.from(liveForAction.drops.values()),
+            chatHistory: liveForAction.chatHistory,
+            resumed: true,
+          });
         }
         sendProfileUpdate(ws, account, res.notice);
         return;
@@ -712,12 +598,13 @@ async function startServer() {
       }
 
       if (msg.type === 'punch_tile') {
-        const res = store.handlePunchTile(live, account, msg.tx, msg.ty, msg.toolItemId);
+        const adminEdit = account.role === 'admin' && Boolean(msg.adminEdit);
+        const res = store.handlePunchTile(live, account, msg.tx, msg.ty, msg.toolItemId, adminEdit);
         if (!res.ok) {
           if (res.reason) sendTo(ws, { type: 'world_error', message: res.reason });
           return;
         }
-        if (!res.broken) {
+        if (!res.broken && res.drops.length === 0) {
           broadcastWorld(live.state.name, {
             type: 'tile_damaged',
             tx: msg.tx,
@@ -737,7 +624,8 @@ async function startServer() {
       }
 
       if (msg.type === 'place_tile') {
-        const res = store.handlePlaceTile(live, account, msg.itemId, msg.tx, msg.ty);
+        const adminEdit = account.role === 'admin' && Boolean(msg.adminEdit);
+        const res = store.handlePlaceTile(live, account, msg.itemId, msg.tx, msg.ty, adminEdit);
         if (!res.ok) {
           if (res.reason) sendTo(ws, { type: 'world_error', message: res.reason });
           return;
@@ -838,6 +726,34 @@ async function startServer() {
         return;
       }
 
+      if (msg.type === 'upgrade_matteragen') {
+        const res = store.upgradeMatteragenEngine(account, live.state.name, msg.tx, msg.ty);
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        broadcastTileSnapshot(live, msg.tx, msg.ty);
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
+      if (msg.type === 'configure_vaultbox') {
+        const res = store.handleConfigureVaultbox(live, account, msg.tx, msg.ty, {
+          action: msg.action,
+          itemId: msg.itemId,
+          qty: msg.qty,
+          slotIndex: msg.slotIndex,
+          invIndex: msg.invIndex,
+        });
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
+        }
+        broadcastTileSnapshot(live, msg.tx, msg.ty);
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
       if (msg.type === 'cast_fishing') {
         const res = store.handleCastFishing(live, account, msg.tx, msg.ty, msg.rodItemId);
         if (!res.ok) {
@@ -902,8 +818,7 @@ async function startServer() {
       const hasOtherSession = playerId
         ? [...sessions].some((other) => other !== session && other.account?.id === playerId && other.ws.readyState === WebSocket.OPEN)
         : false;
-      if (playerId && !hasOtherSession) dungeonStore.disconnect(playerId);
-      leaveCurrentWorld(session, false);
+            leaveCurrentWorld(session, false);
       sessions.delete(session);
     });
   });
@@ -912,9 +827,6 @@ async function startServer() {
   const simTickTimer = setInterval(() => {
     const now = Date.now();
     const tick = store.tickAllWorlds(now);
-    for (const snapshot of dungeonStore.tick(now)) {
-      broadcastDungeon(snapshot, dungeonStore.getParticipantIds(snapshot.runId));
-    }
     for (const fu of tick.fluidUpdates) {
       broadcastWorld(fu.worldName, { type: 'fluid_delta', deltas: fu.deltas });
     }
@@ -925,10 +837,8 @@ async function startServer() {
         bobberTx: fb.cast.bobberTx,
         bobberTy: fb.cast.bobberTy,
         depthTier: fb.cast.depthTier,
-        mode: fb.cast.mode,
       };
-      if (fb.cast.mode === 'fiscore') sendToPlayerId(fb.cast.playerId, message);
-      else broadcastWorld(fb.worldName, message);
+      broadcastWorld(fb.worldName, message);
     }
     for (const fs of tick.fishingStates) {
       const message: ServerMessage = {
@@ -938,19 +848,20 @@ async function startServer() {
         lineTension: fs.cast.lineTension,
         bobberOffset: fs.cast.bobberOffset,
         fightPattern: fs.cast.fightPattern ?? 'darting',
-        mode: fs.cast.mode,
       };
-      if (fs.cast.mode === 'fiscore') sendToPlayerId(fs.cast.playerId, message);
-      else broadcastWorld(fs.worldName, message);
+      broadcastWorld(fs.worldName, message);
     }
     for (const ft of tick.fishingTimeouts) {
-      const message: ServerMessage = { type: 'fishing_ended', playerId: ft.playerId, mode: ft.mode };
-      if (ft.mode === 'fiscore') sendToPlayerId(ft.playerId, message);
-      else broadcastWorld(ft.worldName, message);
+      const message: ServerMessage = { type: 'fishing_ended', playerId: ft.playerId };
+      broadcastWorld(ft.worldName, message);
     }
     for (const cf of tick.completedFurnaces) {
       const lw = store.getExistingWorld(cf.worldName);
       if (lw) broadcastTileSnapshot(lw, cf.tx, cf.ty);
+    }
+    for (const ce of tick.completedEngines) {
+      const lw = store.getExistingWorld(ce.worldName);
+      if (lw) broadcastTileSnapshot(lw, ce.tx, ce.ty);
     }
     for (const em of tick.expiredMines) {
       for (const s of sessions) {

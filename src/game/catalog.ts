@@ -87,7 +87,7 @@ export interface ItemDefinition {
   repairMaterialId?: number;
   repairQty?: number;
   buffEffect?: BuffEffect;
-  farmableTier?: 1 | 2 | 3 | 4 | 5;
+  farmableTier?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 }
 
 // Stable numeric item & tile IDs (Unified GrowPixel + Core Primitives + Locks + Vending + Wearables)
@@ -148,6 +148,7 @@ export const ITEM_IDS = {
   FISH_CARP: 221,
   FISH_GLACIER_TROUT: 222,
   FISH_SLIMEFIN: 223,
+  STARTER_BAIT: 224,
   BUFF_GLACIER_FILLET: 230,
   BUFF_MINER_CHOWDER: 231,
   BUFF_LUCK_BROTH: 232,
@@ -329,7 +330,17 @@ export const ITEM_IDS = {
   RAW_MYTHRILYTE_ORE: 840,
   RAW_OMEGAZYTE_ORE: 841,
 
-  // 20 Dedicated Farmable Blocks (900..919) - Low to High Tier Gem & Seed Multipliers
+    // Agricultural Overhaul & Machinery
+  SEED_POT: 550,
+  MATTERAGEN_BOTANICAL: 551,
+  MATTERAGEN_GEOMINERAL: 552,
+  MATTERAGEN_LUMINESCENT: 553,
+  MATTERAGEN_ARCANE: 554,
+  MATTERAGEN_COSMIC: 555,
+  ATM_MACHINE: 556,
+  VAULTBOX: 557,
+
+  // 40 Dedicated Farmable Blocks (900..939)
   FARM_SUGAR_CANE: 900,
   FARM_PEPPER_BUSH: 901,
   FARM_BOUNTY_WHEAT: 902,
@@ -350,8 +361,28 @@ export const ITEM_IDS = {
   FARM_DRAGON_HOARD: 917,
   FARM_AETHER_REACTOR: 918,
   FARM_CELESTIAL_MONOLITH: 919,
+  FARM_CRYSTAL_BLOSSOM: 920,
+  FARM_MAGMA_ROSE: 921,
+  FARM_SHADOW_TENDRIL: 922,
+  FARM_PLASMA_ORCHID: 923,
+  FARM_PRISM_SHARD: 924,
+  FARM_THUNDER_CACTUS: 925,
+  FARM_VOID_LILY: 926,
+  FARM_HYPERION_BULB: 927,
+  FARM_SOLARIUM_BLOOM: 928,
+  FARM_CHRONO_FERN: 929,
+  FARM_NEBULA_SPORE: 930,
+  FARM_DARK_MATTER_CORE: 931,
+  FARM_PULSAR_BLOSSOM: 932,
+  FARM_SUPERNOVA_FRUIT: 933,
+  FARM_TITAN_THORN: 934,
+  FARM_QUANTUM_VINE: 935,
+  FARM_ASTRAL_CHRYSALIS: 936,
+  FARM_GENESIS_SEEDLING: 937,
+  FARM_INFINITY_LOTUS: 938,
+  FARM_OMEGA_MONOLITH: 939,
 
-  // Matching Farmable Seeds (950..969)
+  // Matching 40 Farmable Seeds (950..989)
   SEED_FARM_SUGAR_CANE: 950,
   SEED_FARM_PEPPER_BUSH: 951,
   SEED_FARM_BOUNTY_WHEAT: 952,
@@ -372,6 +403,26 @@ export const ITEM_IDS = {
   SEED_FARM_DRAGON_HOARD: 967,
   SEED_FARM_AETHER_REACTOR: 968,
   SEED_FARM_CELESTIAL_MONOLITH: 969,
+  SEED_FARM_CRYSTAL_BLOSSOM: 970,
+  SEED_FARM_MAGMA_ROSE: 971,
+  SEED_FARM_SHADOW_TENDRIL: 972,
+  SEED_FARM_PLASMA_ORCHID: 973,
+  SEED_FARM_PRISM_SHARD: 974,
+  SEED_FARM_THUNDER_CACTUS: 975,
+  SEED_FARM_VOID_LILY: 976,
+  SEED_FARM_HYPERION_BULB: 977,
+  SEED_FARM_SOLARIUM_BLOOM: 978,
+  SEED_FARM_CHRONO_FERN: 979,
+  SEED_FARM_NEBULA_SPORE: 980,
+  SEED_FARM_DARK_MATTER_CORE: 981,
+  SEED_FARM_PULSAR_BLOSSOM: 982,
+  SEED_FARM_SUPERNOVA_FRUIT: 983,
+  SEED_FARM_TITAN_THORN: 984,
+  SEED_FARM_QUANTUM_VINE: 985,
+  SEED_FARM_ASTRAL_CHRYSALIS: 986,
+  SEED_FARM_GENESIS_SEEDLING: 987,
+  SEED_FARM_INFINITY_LOTUS: 988,
+  SEED_FARM_OMEGA_MONOLITH: 989,
 } as const;
 
 export const CATALOG: Record<number, ItemDefinition> = {
@@ -888,6 +939,14 @@ export const CATALOG: Record<number, ItemDefinition> = {
     collision: 'none', breakable: false, hardness: 0,
     placeable: false, tradeable: true, gemValue: 0, xpValue: 8,
     colorPrimary: '#7be849', colorSecondary: '#2d781c', colorAccent: '#e2ff99',
+  },
+  [ITEM_IDS.STARTER_BAIT]: {
+    id: ITEM_IDS.STARTER_BAIT, key: 'starter_bait', name: 'Starter Earthworm Bait',
+    description: 'Juicy wiggling earthworms dug up from damp island sands. Increases bite attraction in Fishcore.',
+    category: 'consumable', rarity: 'common', stackLimit: 200,
+    collision: 'none', breakable: false, hardness: 0,
+    placeable: false, tradeable: true, gemValue: 1, xpValue: 1,
+    colorPrimary: '#c46a47', colorSecondary: '#783820', colorAccent: '#ffb394',
   },
   [ITEM_IDS.BUFF_GLACIER_FILLET]: {
     id: ITEM_IDS.BUFF_GLACIER_FILLET, key: 'buff_glacier_fillet', name: 'Glacier Fillet',
@@ -2459,7 +2518,86 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
 
   // ============================================================================
-  // 20 DEDICATED FARMABLE BLOCKS (900..919) & SEEDS (950..969) — TIERS 1 TO 5
+  // AGRICULTURAL MACHINERY & GROWBOX CONTAINERS (550..555)
+  // ============================================================================
+  [ITEM_IDS.SEED_POT]: {
+    id: ITEM_IDS.SEED_POT, key: 'seed_pot', name: 'Seed Pot / Growbox',
+    description: 'Specialized terracotta agricultural planter. Strictly required to plant any farmable seed (1 seed per pot).',
+    category: 'interactive', rarity: 'uncommon', stackLimit: 200,
+    collision: 'platform', breakable: true, hardness: 3,
+    placeable: true, tradeable: true, gemValue: 100, xpValue: 5,
+    storePrice: 500,
+    drops: [{ itemId: ITEM_IDS.SEED_POT, chance: 1.0, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#b45309', colorSecondary: '#78350f', colorAccent: '#f59e0b',
+  },
+  [ITEM_IDS.MATTERAGEN_BOTANICAL]: {
+    id: ITEM_IDS.MATTERAGEN_BOTANICAL, key: 'matteragen_botanical', name: 'Botanical Matteragen Engine',
+    description: 'Tier 1 Organic Synthesizer. Automatically generates Botanical farmables every 10 minutes. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'rare', stackLimit: 20,
+    collision: 'solid', breakable: true, hardness: 6,
+    placeable: true, tradeable: true, gemValue: 250, xpValue: 15,
+    drops: [{ itemId: ITEM_IDS.MATTERAGEN_BOTANICAL, chance: 1.0, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#15803d', colorSecondary: '#166534', colorAccent: '#4ade80',
+  },
+  [ITEM_IDS.MATTERAGEN_GEOMINERAL]: {
+    id: ITEM_IDS.MATTERAGEN_GEOMINERAL, key: 'matteragen_geomineral', name: 'Geomineral Matteragen Engine',
+    description: 'Tier 2 Subterranean Synthesizer. Automatically generates Geomineral farmables every 30 minutes. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'rare', stackLimit: 20,
+    collision: 'solid', breakable: true, hardness: 6,
+    placeable: true, tradeable: true, gemValue: 350, xpValue: 20,
+    drops: [{ itemId: ITEM_IDS.MATTERAGEN_GEOMINERAL, chance: 1.0, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#b45309', colorSecondary: '#78350f', colorAccent: '#fde047',
+  },
+  [ITEM_IDS.MATTERAGEN_LUMINESCENT]: {
+    id: ITEM_IDS.MATTERAGEN_LUMINESCENT, key: 'matteragen_luminescent', name: 'Luminescent Matteragen Engine',
+    description: 'Tier 3 Radiant Synthesizer. Automatically generates Luminescent farmables every 1 hour. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'rare', stackLimit: 20,
+    collision: 'solid', breakable: true, hardness: 7,
+    placeable: true, tradeable: true, gemValue: 500, xpValue: 25,
+    drops: [{ itemId: ITEM_IDS.MATTERAGEN_LUMINESCENT, chance: 1.0, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#0284c7', colorSecondary: '#0369a1', colorAccent: '#38bdf8',
+  },
+  [ITEM_IDS.MATTERAGEN_ARCANE]: {
+    id: ITEM_IDS.MATTERAGEN_ARCANE, key: 'matteragen_arcane', name: 'Arcane Matteragen Engine',
+    description: 'Tier 4 Etheric Synthesizer. Automatically generates Arcane farmables every 2 hours. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'epic', stackLimit: 20,
+    collision: 'solid', breakable: true, hardness: 7,
+    placeable: true, tradeable: true, gemValue: 750, xpValue: 35,
+    drops: [{ itemId: ITEM_IDS.MATTERAGEN_ARCANE, chance: 1.0, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#7e22ce', colorSecondary: '#581c87', colorAccent: '#d8b4fe',
+  },
+  [ITEM_IDS.MATTERAGEN_COSMIC]: {
+    id: ITEM_IDS.MATTERAGEN_COSMIC, key: 'matteragen_cosmic', name: 'Cosmic Matteragen Engine',
+    description: 'Tier 5 Stellar Synthesizer. Automatically generates Apex Cosmic farmables every 5 hours. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'epic', stackLimit: 20,
+    collision: 'solid', breakable: true, hardness: 8,
+    placeable: true, tradeable: true, gemValue: 1200, xpValue: 50,
+    drops: [{ itemId: ITEM_IDS.MATTERAGEN_COSMIC, chance: 1.0, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#be185d', colorSecondary: '#831843', colorAccent: '#f472b6',
+  },
+  [ITEM_IDS.ATM_MACHINE]: {
+    id: ITEM_IDS.ATM_MACHINE, key: 'atm_machine', name: 'ATM Machine',
+    description: 'Automated Gem Synthesizer. Generates 5–125 Gems directly every 30m–1.5h. Punch when ready to collect Gems.',
+    category: 'interactive', rarity: 'epic', stackLimit: 20,
+    collision: 'solid', breakable: true, hardness: 6,
+    placeable: true, tradeable: true, gemValue: 2000, xpValue: 35,
+    storePrice: 10000,
+    drops: [{ itemId: ITEM_IDS.ATM_MACHINE, chance: 1.0, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#0ea5e9', colorSecondary: '#0c4a6e', colorAccent: '#fde047',
+  },
+  [ITEM_IDS.VAULTBOX]: {
+    id: ITEM_IDS.VAULTBOX, key: 'vaultbox', name: 'Vaultbox',
+    description: 'Player-owned secure storage block with 10 empty item storage tiles. Only the owner can access or withdraw stored items.',
+    category: 'interactive', rarity: 'rare', stackLimit: 50,
+    collision: 'solid', breakable: true, hardness: 6,
+    placeable: true, tradeable: true, gemValue: 400, xpValue: 15,
+    storePrice: 1750,
+    drops: [{ itemId: ITEM_IDS.VAULTBOX, chance: 1.0, minQty: 1, maxQty: 1 }],
+    colorPrimary: '#64748b', colorSecondary: '#1e293b', colorAccent: '#fbbf24',
+  },
+
+  // ============================================================================
+  // 40 DEDICATED FARMABLE BLOCKS (900..939) & SEEDS (950..989) — TIERS 1 TO 8
   // ============================================================================
   // --- TIER 1 (LOW TIER FARMABLES: Fast growth, 2-3 hits, reliable early Gem income) ---
   [ITEM_IDS.FARM_SUGAR_CANE]: {
@@ -2751,7 +2889,293 @@ export const CATALOG: Record<number, ItemDefinition> = {
     colorPrimary: '#c084fc', colorSecondary: '#3b0764', colorAccent: '#fef08a',
   },
 
-  // --- MATCHING 20 FARMABLE SEEDS (950..969) ---
+  // --- TIER 5 EXTENDED & TIER 6 (ADVANCED FARMABLES: 7-8 hits, crystalline wealth) ---
+  [ITEM_IDS.FARM_CRYSTAL_BLOSSOM]: {
+    id: ITEM_IDS.FARM_CRYSTAL_BLOSSOM, key: 'farm_crystal_blossom', name: 'Crystal Rose Blossom',
+    description: 'Tier V Botanical Farmable. Crystalline petals that shimmer with mineral pollen and concentrated Gems.',
+    category: 'farmable', farmableTier: 5, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 7,
+    placeable: true, tradeable: true, gemValue: 42, xpValue: 14,
+    seedId: ITEM_IDS.SEED_FARM_CRYSTAL_BLOSSOM,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 5, seedChance: 0.29 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_CRYSTAL_BLOSSOM, chance: 0.71, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_CRYSTAL_BLOSSOM, chance: 0.36, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#ec4899', colorSecondary: '#9d174d', colorAccent: '#fbcfe8',
+  },
+  [ITEM_IDS.FARM_MAGMA_ROSE]: {
+    id: ITEM_IDS.FARM_MAGMA_ROSE, key: 'farm_magma_rose', name: 'Obsidian Magma Rose',
+    description: 'Tier V Botanical Farmable. Volcanic flora forged in subterranean heat, yielding heated ruby Gems.',
+    category: 'farmable', farmableTier: 5, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 7,
+    placeable: true, tradeable: true, gemValue: 44, xpValue: 14,
+    seedId: ITEM_IDS.SEED_FARM_MAGMA_ROSE,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 5, seedChance: 0.29 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_MAGMA_ROSE, chance: 0.71, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_MAGMA_ROSE, chance: 0.36, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#f97316', colorSecondary: '#9a3412', colorAccent: '#fde047',
+  },
+  [ITEM_IDS.FARM_SHADOW_TENDRIL]: {
+    id: ITEM_IDS.FARM_SHADOW_TENDRIL, key: 'farm_shadow_tendril', name: 'Umbral Shadow Tendril',
+    description: 'Tier V Arcane Farmable. Wreathed in dark violet tendrils that condense shadowy Gem clusters.',
+    category: 'farmable', farmableTier: 5, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 7,
+    placeable: true, tradeable: true, gemValue: 46, xpValue: 15,
+    seedId: ITEM_IDS.SEED_FARM_SHADOW_TENDRIL,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 5, seedChance: 0.29 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_SHADOW_TENDRIL, chance: 0.71, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_SHADOW_TENDRIL, chance: 0.36, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#6366f1', colorSecondary: '#312e81', colorAccent: '#c7d2fe',
+  },
+  [ITEM_IDS.FARM_PLASMA_ORCHID]: {
+    id: ITEM_IDS.FARM_PLASMA_ORCHID, key: 'farm_plasma_orchid', name: 'Radiant Plasma Orchid',
+    description: 'Tier V Luminescent Farmable. Vibrant electric bloom emitting ion clouds and high Gem wealth.',
+    category: 'farmable', farmableTier: 5, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 7,
+    placeable: true, tradeable: true, gemValue: 48, xpValue: 16,
+    seedId: ITEM_IDS.SEED_FARM_PLASMA_ORCHID,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 5, seedChance: 0.30 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_PLASMA_ORCHID, chance: 0.72, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_PLASMA_ORCHID, chance: 0.36, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#06b6d4', colorSecondary: '#0e7490', colorAccent: '#a5f3fc',
+  },
+  [ITEM_IDS.FARM_PRISM_SHARD]: {
+    id: ITEM_IDS.FARM_PRISM_SHARD, key: 'farm_prism_shard', name: 'Refractive Prism Spire',
+    description: 'Tier VI Geomineral Farmable. Multi-faceted crystalline quartz cluster that bursts into diamond-grade Gems.',
+    category: 'farmable', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 8,
+    placeable: true, tradeable: true, gemValue: 56, xpValue: 19,
+    seedId: ITEM_IDS.SEED_FARM_PRISM_SHARD,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 6, seedChance: 0.30 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_PRISM_SHARD, chance: 0.72, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_PRISM_SHARD, chance: 0.36, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#a855f7', colorSecondary: '#581c87', colorAccent: '#f0abfc',
+  },
+  [ITEM_IDS.FARM_THUNDER_CACTUS]: {
+    id: ITEM_IDS.FARM_THUNDER_CACTUS, key: 'farm_thunder_cactus', name: 'Fulgarite Thunder Spike',
+    description: 'Tier VI Geomineral Farmable. Vitrified lightning formation charged with crackling topaz Gem energy.',
+    category: 'farmable', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 8,
+    placeable: true, tradeable: true, gemValue: 60, xpValue: 20,
+    seedId: ITEM_IDS.SEED_FARM_THUNDER_CACTUS,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 6, seedChance: 0.30 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_THUNDER_CACTUS, chance: 0.72, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_THUNDER_CACTUS, chance: 0.36, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#eab308', colorSecondary: '#854d0e', colorAccent: '#fef08a',
+  },
+  [ITEM_IDS.FARM_VOID_LILY]: {
+    id: ITEM_IDS.FARM_VOID_LILY, key: 'farm_void_lily', name: 'Abyssal Void Lily',
+    description: 'Tier VI Arcane Farmable. Deep abyss blossom blooming with shimmering dark amethyst Gems.',
+    category: 'farmable', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 8,
+    placeable: true, tradeable: true, gemValue: 64, xpValue: 21,
+    seedId: ITEM_IDS.SEED_FARM_VOID_LILY,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 6, seedChance: 0.31 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_VOID_LILY, chance: 0.73, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_VOID_LILY, chance: 0.37, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#8b5cf6', colorSecondary: '#4c1d95', colorAccent: '#ddd6fe',
+  },
+  [ITEM_IDS.FARM_HYPERION_BULB]: {
+    id: ITEM_IDS.FARM_HYPERION_BULB, key: 'farm_hyperion_bulb', name: 'Hyperion Sol Globe',
+    description: 'Tier VI Luminescent Farmable. Miniature solar lamp containing blazing white-hot Gem plasma.',
+    category: 'farmable', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 8,
+    placeable: true, tradeable: true, gemValue: 68, xpValue: 22,
+    seedId: ITEM_IDS.SEED_FARM_HYPERION_BULB,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 6, seedChance: 0.31 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_HYPERION_BULB, chance: 0.73, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_HYPERION_BULB, chance: 0.37, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#f59e0b', colorSecondary: '#b45309', colorAccent: '#fef3c7',
+  },
+  [ITEM_IDS.FARM_SOLARIUM_BLOOM]: {
+    id: ITEM_IDS.FARM_SOLARIUM_BLOOM, key: 'farm_solarium_bloom', name: 'Solarium Core Blossom',
+    description: 'Tier VI Luminescent Farmable. Engineered radiant flora producing dazzling golden Gem shards.',
+    category: 'farmable', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 8,
+    placeable: true, tradeable: true, gemValue: 72, xpValue: 24,
+    seedId: ITEM_IDS.SEED_FARM_SOLARIUM_BLOOM,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 6, seedChance: 0.31 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_SOLARIUM_BLOOM, chance: 0.73, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_SOLARIUM_BLOOM, chance: 0.37, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#facc15', colorSecondary: '#ca8a04', colorAccent: '#ffffff',
+  },
+  [ITEM_IDS.FARM_CHRONO_FERN]: {
+    id: ITEM_IDS.FARM_CHRONO_FERN, key: 'farm_chrono_fern', name: 'Temporal Chrono Fern',
+    description: 'Tier VI Arcane Farmable. Plant tissue oscillating between time streams, dropping dense sapphire Gems.',
+    category: 'farmable', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 8,
+    placeable: true, tradeable: true, gemValue: 76, xpValue: 25,
+    seedId: ITEM_IDS.SEED_FARM_CHRONO_FERN,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 6, seedChance: 0.32 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_CHRONO_FERN, chance: 0.73, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_CHRONO_FERN, chance: 0.37, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#3b82f6', colorSecondary: '#1e3a8a', colorAccent: '#bfdbfe',
+  },
+
+  // --- TIER 7 (EPIC HIGH TIER FARMABLES: 9 hits, colossal Gem cascades) ---
+  [ITEM_IDS.FARM_NEBULA_SPORE]: {
+    id: ITEM_IDS.FARM_NEBULA_SPORE, key: 'farm_nebula_spore', name: 'Cosmic Nebula Spore',
+    description: 'Tier VII Cosmic Farmable. Interstellar spore cluster swirling with iridescent violet Gem star dust.',
+    category: 'farmable', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 9,
+    placeable: true, tradeable: true, gemValue: 84, xpValue: 28,
+    seedId: ITEM_IDS.SEED_FARM_NEBULA_SPORE,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 6, seedChance: 0.32 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_NEBULA_SPORE, chance: 0.74, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_NEBULA_SPORE, chance: 0.37, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#d946ef', colorSecondary: '#701a75', colorAccent: '#f5d0fe',
+  },
+  [ITEM_IDS.FARM_DARK_MATTER_CORE]: {
+    id: ITEM_IDS.FARM_DARK_MATTER_CORE, key: 'farm_dark_matter_core', name: 'Dark Matter Crucible',
+    description: 'Tier VII Cosmic Farmable. Gravitationally collapsed core that erupts into ultra-dense onyx Gems.',
+    category: 'farmable', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 9,
+    placeable: true, tradeable: true, gemValue: 90, xpValue: 30,
+    seedId: ITEM_IDS.SEED_FARM_DARK_MATTER_CORE,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 6, seedChance: 0.32 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_DARK_MATTER_CORE, chance: 0.74, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_DARK_MATTER_CORE, chance: 0.38, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#18181b', colorSecondary: '#09090b', colorAccent: '#818cf8',
+  },
+  [ITEM_IDS.FARM_PULSAR_BLOSSOM]: {
+    id: ITEM_IDS.FARM_PULSAR_BLOSSOM, key: 'farm_pulsar_blossom', name: 'Pulsar Neutron Blossom',
+    description: 'Tier VII Luminescent Farmable. Rotating beam petal formation releasing rhythmic Gem surges.',
+    category: 'farmable', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 9,
+    placeable: true, tradeable: true, gemValue: 96, xpValue: 32,
+    seedId: ITEM_IDS.SEED_FARM_PULSAR_BLOSSOM,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 7, seedChance: 0.33 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_PULSAR_BLOSSOM, chance: 0.74, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_PULSAR_BLOSSOM, chance: 0.38, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#38bdf8', colorSecondary: '#075985', colorAccent: '#e0f2fe',
+  },
+  [ITEM_IDS.FARM_SUPERNOVA_FRUIT]: {
+    id: ITEM_IDS.FARM_SUPERNOVA_FRUIT, key: 'farm_supernova_fruit', name: 'Supernova Fusion Fruit',
+    description: 'Tier VII Cosmic Farmable. Concentrated stellar explosion trapped in crystalline hull, dropping fiery Gems.',
+    category: 'farmable', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 9,
+    placeable: true, tradeable: true, gemValue: 104, xpValue: 35,
+    seedId: ITEM_IDS.SEED_FARM_SUPERNOVA_FRUIT,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 7, seedChance: 0.33 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_SUPERNOVA_FRUIT, chance: 0.75, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_SUPERNOVA_FRUIT, chance: 0.38, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#ef4444', colorSecondary: '#7f1d1d', colorAccent: '#fed7aa',
+  },
+  [ITEM_IDS.FARM_TITAN_THORN]: {
+    id: ITEM_IDS.FARM_TITAN_THORN, key: 'farm_titan_thorn', name: 'Colossal Titan Thorn',
+    description: 'Tier VII Botanical Farmable. Petrified primordial wood that shatters into emerald and gold wealth.',
+    category: 'farmable', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 9,
+    placeable: true, tradeable: true, gemValue: 110, xpValue: 37,
+    seedId: ITEM_IDS.SEED_FARM_TITAN_THORN,
+    treeHarvestYield: { minBlocks: 3, maxBlocks: 7, seedChance: 0.33 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_TITAN_THORN, chance: 0.75, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_TITAN_THORN, chance: 0.38, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#16a34a', colorSecondary: '#14532d', colorAccent: '#bbf7d0',
+  },
+
+  // --- TIER 8 (GOD TIER APEX FARMABLES: 10 hits, supreme economy pinnacles) ---
+  [ITEM_IDS.FARM_QUANTUM_VINE]: {
+    id: ITEM_IDS.FARM_QUANTUM_VINE, key: 'farm_quantum_vine', name: 'Quantum Entangled Vine',
+    description: 'Tier VIII Botanical Farmable. Multidimensional vine weaving probability fields into endless Gem riches.',
+    category: 'farmable', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 10,
+    placeable: true, tradeable: true, gemValue: 120, xpValue: 40,
+    seedId: ITEM_IDS.SEED_FARM_QUANTUM_VINE,
+    treeHarvestYield: { minBlocks: 4, maxBlocks: 7, seedChance: 0.34 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_QUANTUM_VINE, chance: 0.75, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_QUANTUM_VINE, chance: 0.39, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#10b981', colorSecondary: '#064e3b', colorAccent: '#a7f3d0',
+  },
+  [ITEM_IDS.FARM_ASTRAL_CHRYSALIS]: {
+    id: ITEM_IDS.FARM_ASTRAL_CHRYSALIS, key: 'farm_astral_chrysalis', name: 'Astral Monarch Chrysalis',
+    description: 'Tier VIII Arcane Farmable. Divine etheric cocoon radiating celestial luminescence and regal Gem showers.',
+    category: 'farmable', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 10,
+    placeable: true, tradeable: true, gemValue: 130, xpValue: 43,
+    seedId: ITEM_IDS.SEED_FARM_ASTRAL_CHRYSALIS,
+    treeHarvestYield: { minBlocks: 4, maxBlocks: 7, seedChance: 0.34 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_ASTRAL_CHRYSALIS, chance: 0.75, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_ASTRAL_CHRYSALIS, chance: 0.39, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#8b5cf6', colorSecondary: '#4c1d95', colorAccent: '#fdf4ff',
+  },
+  [ITEM_IDS.FARM_GENESIS_SEEDLING]: {
+    id: ITEM_IDS.FARM_GENESIS_SEEDLING, key: 'farm_genesis_seedling', name: 'Genesis World Sapling',
+    description: 'Tier VIII Botanical Farmable. World-tree branch blessed by ancient earth deities, dropping massive wealth.',
+    category: 'farmable', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 10,
+    placeable: true, tradeable: true, gemValue: 140, xpValue: 46,
+    seedId: ITEM_IDS.SEED_FARM_GENESIS_SEEDLING,
+    treeHarvestYield: { minBlocks: 4, maxBlocks: 7, seedChance: 0.35 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_GENESIS_SEEDLING, chance: 0.76, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_GENESIS_SEEDLING, chance: 0.40, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#22c55e', colorSecondary: '#15803d', colorAccent: '#fef08a',
+  },
+  [ITEM_IDS.FARM_INFINITY_LOTUS]: {
+    id: ITEM_IDS.FARM_INFINITY_LOTUS, key: 'farm_infinity_lotus', name: 'Infinity Prism Lotus',
+    description: 'Tier VIII Cosmic Farmable. Sacred multidimensional lotus whose endless bloom generates supreme Gem fortunes.',
+    category: 'farmable', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'none', transparent: true, breakable: true, hardness: 10,
+    placeable: true, tradeable: true, gemValue: 155, xpValue: 50,
+    seedId: ITEM_IDS.SEED_FARM_INFINITY_LOTUS,
+    treeHarvestYield: { minBlocks: 4, maxBlocks: 8, seedChance: 0.35 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_INFINITY_LOTUS, chance: 0.76, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_INFINITY_LOTUS, chance: 0.40, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#06b6d4', colorSecondary: '#0f766e', colorAccent: '#f43f5e',
+  },
+  [ITEM_IDS.FARM_OMEGA_MONOLITH]: {
+    id: ITEM_IDS.FARM_OMEGA_MONOLITH, key: 'farm_omega_monolith', name: 'Omega Sovereign Monolith',
+    description: 'Tier VIII Sovereign Apex Farmable. The ultimate manifestation of agricultural mastery in the cosmos.',
+    category: 'farmable', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'solid', breakable: true, hardness: 10,
+    placeable: true, tradeable: true, gemValue: 175, xpValue: 60,
+    seedId: ITEM_IDS.SEED_FARM_OMEGA_MONOLITH,
+    treeHarvestYield: { minBlocks: 4, maxBlocks: 8, seedChance: 0.36 },
+    drops: [
+      { itemId: ITEM_IDS.FARM_OMEGA_MONOLITH, chance: 0.77, minQty: 1, maxQty: 1 },
+      { itemId: ITEM_IDS.SEED_FARM_OMEGA_MONOLITH, chance: 0.40, minQty: 1, maxQty: 1 },
+    ],
+    colorPrimary: '#e11d48', colorSecondary: '#4c0519', colorAccent: '#fbbf24',
+  },
+
+  // --- MATCHING 40 FARMABLE SEEDS (950..989) ---
   [ITEM_IDS.SEED_FARM_SUGAR_CANE]: {
     id: ITEM_IDS.SEED_FARM_SUGAR_CANE, key: 'seed_farm_sugar_cane', name: 'Sugar Cane Seed',
     description: 'Tier I Farmable Seed. Plant or mix with another planted seed to splice higher-tier Farmables.',
@@ -2932,7 +3356,385 @@ export const CATALOG: Record<number, ItemDefinition> = {
     spliceIngredients: [ITEM_IDS.SEED_FARM_STARLIGHT_PRISM, ITEM_IDS.SEED_FARM_DRAGON_HOARD],
     colorPrimary: '#c084fc', colorSecondary: '#3b0764', colorAccent: '#fef08a',
   },
+  [ITEM_IDS.SEED_FARM_CRYSTAL_BLOSSOM]: {
+    id: ITEM_IDS.SEED_FARM_CRYSTAL_BLOSSOM, key: 'seed_farm_crystal_blossom', name: 'Crystal Blossom Seed',
+    description: 'Tier V Botanical Seed. Grows into a Crystal Rose Blossom.',
+    category: 'seed', farmableTier: 5, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 21, xpValue: 14,
+    producesTileId: ITEM_IDS.FARM_CRYSTAL_BLOSSOM, growthTimeMs: 110000,
+    colorPrimary: '#ec4899', colorSecondary: '#9d174d', colorAccent: '#fbcfe8',
+  },
+  [ITEM_IDS.SEED_FARM_MAGMA_ROSE]: {
+    id: ITEM_IDS.SEED_FARM_MAGMA_ROSE, key: 'seed_farm_magma_rose', name: 'Magma Rose Seed',
+    description: 'Tier V Botanical Seed. Grows into an Obsidian Magma Rose.',
+    category: 'seed', farmableTier: 5, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 22, xpValue: 14,
+    producesTileId: ITEM_IDS.FARM_MAGMA_ROSE, growthTimeMs: 115000,
+    colorPrimary: '#f97316', colorSecondary: '#9a3412', colorAccent: '#fde047',
+  },
+  [ITEM_IDS.SEED_FARM_SHADOW_TENDRIL]: {
+    id: ITEM_IDS.SEED_FARM_SHADOW_TENDRIL, key: 'seed_farm_shadow_tendril', name: 'Shadow Tendril Seed',
+    description: 'Tier V Arcane Seed. Grows into an Umbral Shadow Tendril.',
+    category: 'seed', farmableTier: 5, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 23, xpValue: 15,
+    producesTileId: ITEM_IDS.FARM_SHADOW_TENDRIL, growthTimeMs: 125000,
+    colorPrimary: '#6366f1', colorSecondary: '#312e81', colorAccent: '#c7d2fe',
+  },
+  [ITEM_IDS.SEED_FARM_PLASMA_ORCHID]: {
+    id: ITEM_IDS.SEED_FARM_PLASMA_ORCHID, key: 'seed_farm_plasma_orchid', name: 'Plasma Orchid Seed',
+    description: 'Tier V Luminescent Seed. Grows into a Radiant Plasma Orchid.',
+    category: 'seed', farmableTier: 5, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 24, xpValue: 16,
+    producesTileId: ITEM_IDS.FARM_PLASMA_ORCHID, growthTimeMs: 130000,
+    colorPrimary: '#06b6d4', colorSecondary: '#0e7490', colorAccent: '#a5f3fc',
+  },
+  [ITEM_IDS.SEED_FARM_PRISM_SHARD]: {
+    id: ITEM_IDS.SEED_FARM_PRISM_SHARD, key: 'seed_farm_prism_shard', name: 'Prism Spire Seed',
+    description: 'Tier VI Geomineral Seed. Grows into a Refractive Prism Spire.',
+    category: 'seed', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 28, xpValue: 19,
+    producesTileId: ITEM_IDS.FARM_PRISM_SHARD, growthTimeMs: 150000,
+    colorPrimary: '#a855f7', colorSecondary: '#581c87', colorAccent: '#f0abfc',
+  },
+  [ITEM_IDS.SEED_FARM_THUNDER_CACTUS]: {
+    id: ITEM_IDS.SEED_FARM_THUNDER_CACTUS, key: 'seed_farm_thunder_cactus', name: 'Thunder Spike Seed',
+    description: 'Tier VI Geomineral Seed. Grows into a Fulgarite Thunder Spike.',
+    category: 'seed', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 30, xpValue: 20,
+    producesTileId: ITEM_IDS.FARM_THUNDER_CACTUS, growthTimeMs: 165000,
+    colorPrimary: '#eab308', colorSecondary: '#854d0e', colorAccent: '#fef08a',
+  },
+  [ITEM_IDS.SEED_FARM_VOID_LILY]: {
+    id: ITEM_IDS.SEED_FARM_VOID_LILY, key: 'seed_farm_void_lily', name: 'Void Lily Seed',
+    description: 'Tier VI Arcane Seed. Grows into an Abyssal Void Lily.',
+    category: 'seed', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 32, xpValue: 21,
+    producesTileId: ITEM_IDS.FARM_VOID_LILY, growthTimeMs: 180000,
+    colorPrimary: '#8b5cf6', colorSecondary: '#4c1d95', colorAccent: '#ddd6fe',
+  },
+  [ITEM_IDS.SEED_FARM_HYPERION_BULB]: {
+    id: ITEM_IDS.SEED_FARM_HYPERION_BULB, key: 'seed_farm_hyperion_bulb', name: 'Hyperion Globe Seed',
+    description: 'Tier VI Luminescent Seed. Grows into a Hyperion Sol Globe.',
+    category: 'seed', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 34, xpValue: 22,
+    producesTileId: ITEM_IDS.FARM_HYPERION_BULB, growthTimeMs: 195000,
+    colorPrimary: '#f59e0b', colorSecondary: '#b45309', colorAccent: '#fef3c7',
+  },
+  [ITEM_IDS.SEED_FARM_SOLARIUM_BLOOM]: {
+    id: ITEM_IDS.SEED_FARM_SOLARIUM_BLOOM, key: 'seed_farm_solarium_bloom', name: 'Solarium Core Seed',
+    description: 'Tier VI Luminescent Seed. Grows into a Solarium Core Blossom.',
+    category: 'seed', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 36, xpValue: 24,
+    producesTileId: ITEM_IDS.FARM_SOLARIUM_BLOOM, growthTimeMs: 210000,
+    colorPrimary: '#facc15', colorSecondary: '#ca8a04', colorAccent: '#ffffff',
+  },
+  [ITEM_IDS.SEED_FARM_CHRONO_FERN]: {
+    id: ITEM_IDS.SEED_FARM_CHRONO_FERN, key: 'seed_farm_chrono_fern', name: 'Chrono Fern Seed',
+    description: 'Tier VI Arcane Seed. Grows into a Temporal Chrono Fern.',
+    category: 'seed', farmableTier: 6, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 38, xpValue: 25,
+    producesTileId: ITEM_IDS.FARM_CHRONO_FERN, growthTimeMs: 225000,
+    colorPrimary: '#3b82f6', colorSecondary: '#1e3a8a', colorAccent: '#bfdbfe',
+  },
+  [ITEM_IDS.SEED_FARM_NEBULA_SPORE]: {
+    id: ITEM_IDS.SEED_FARM_NEBULA_SPORE, key: 'seed_farm_nebula_spore', name: 'Nebula Spore Seed',
+    description: 'Tier VII Cosmic Seed. Grows into a Cosmic Nebula Spore.',
+    category: 'seed', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 42, xpValue: 28,
+    producesTileId: ITEM_IDS.FARM_NEBULA_SPORE, growthTimeMs: 250000,
+    colorPrimary: '#d946ef', colorSecondary: '#701a75', colorAccent: '#f5d0fe',
+  },
+  [ITEM_IDS.SEED_FARM_DARK_MATTER_CORE]: {
+    id: ITEM_IDS.SEED_FARM_DARK_MATTER_CORE, key: 'seed_farm_dark_matter_core', name: 'Dark Matter Seed',
+    description: 'Tier VII Cosmic Seed. Grows into a Dark Matter Crucible.',
+    category: 'seed', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 45, xpValue: 30,
+    producesTileId: ITEM_IDS.FARM_DARK_MATTER_CORE, growthTimeMs: 275000,
+    colorPrimary: '#18181b', colorSecondary: '#09090b', colorAccent: '#818cf8',
+  },
+  [ITEM_IDS.SEED_FARM_PULSAR_BLOSSOM]: {
+    id: ITEM_IDS.SEED_FARM_PULSAR_BLOSSOM, key: 'seed_farm_pulsar_blossom', name: 'Pulsar Blossom Seed',
+    description: 'Tier VII Luminescent Seed. Grows into a Pulsar Neutron Blossom.',
+    category: 'seed', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 48, xpValue: 32,
+    producesTileId: ITEM_IDS.FARM_PULSAR_BLOSSOM, growthTimeMs: 300000,
+    colorPrimary: '#38bdf8', colorSecondary: '#075985', colorAccent: '#e0f2fe',
+  },
+  [ITEM_IDS.SEED_FARM_SUPERNOVA_FRUIT]: {
+    id: ITEM_IDS.SEED_FARM_SUPERNOVA_FRUIT, key: 'seed_farm_supernova_fruit', name: 'Supernova Seed',
+    description: 'Tier VII Cosmic Seed. Grows into a Supernova Fusion Fruit.',
+    category: 'seed', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 52, xpValue: 35,
+    producesTileId: ITEM_IDS.FARM_SUPERNOVA_FRUIT, growthTimeMs: 330000,
+    colorPrimary: '#ef4444', colorSecondary: '#7f1d1d', colorAccent: '#fed7aa',
+  },
+  [ITEM_IDS.SEED_FARM_TITAN_THORN]: {
+    id: ITEM_IDS.SEED_FARM_TITAN_THORN, key: 'seed_farm_titan_thorn', name: 'Titan Thorn Seed',
+    description: 'Tier VII Botanical Seed. Grows into a Colossal Titan Thorn.',
+    category: 'seed', farmableTier: 7, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 55, xpValue: 37,
+    producesTileId: ITEM_IDS.FARM_TITAN_THORN, growthTimeMs: 360000,
+    colorPrimary: '#16a34a', colorSecondary: '#14532d', colorAccent: '#bbf7d0',
+  },
+  [ITEM_IDS.SEED_FARM_QUANTUM_VINE]: {
+    id: ITEM_IDS.SEED_FARM_QUANTUM_VINE, key: 'seed_farm_quantum_vine', name: 'Quantum Vine Seed',
+    description: 'Tier VIII Botanical Seed. Grows into a Quantum Entangled Vine.',
+    category: 'seed', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 60, xpValue: 40,
+    producesTileId: ITEM_IDS.FARM_QUANTUM_VINE, growthTimeMs: 400000,
+    colorPrimary: '#10b981', colorSecondary: '#064e3b', colorAccent: '#a7f3d0',
+  },
+  [ITEM_IDS.SEED_FARM_ASTRAL_CHRYSALIS]: {
+    id: ITEM_IDS.SEED_FARM_ASTRAL_CHRYSALIS, key: 'seed_farm_astral_chrysalis', name: 'Astral Chrysalis Seed',
+    description: 'Tier VIII Arcane Seed. Grows into an Astral Monarch Chrysalis.',
+    category: 'seed', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 65, xpValue: 43,
+    producesTileId: ITEM_IDS.FARM_ASTRAL_CHRYSALIS, growthTimeMs: 450000,
+    colorPrimary: '#8b5cf6', colorSecondary: '#4c1d95', colorAccent: '#fdf4ff',
+  },
+  [ITEM_IDS.SEED_FARM_GENESIS_SEEDLING]: {
+    id: ITEM_IDS.SEED_FARM_GENESIS_SEEDLING, key: 'seed_farm_genesis_seedling', name: 'Genesis Seedling',
+    description: 'Tier VIII Botanical Seed. Grows into a Genesis World Sapling.',
+    category: 'seed', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 70, xpValue: 46,
+    producesTileId: ITEM_IDS.FARM_GENESIS_SEEDLING, growthTimeMs: 500000,
+    colorPrimary: '#22c55e', colorSecondary: '#15803d', colorAccent: '#fef08a',
+  },
+  [ITEM_IDS.SEED_FARM_INFINITY_LOTUS]: {
+    id: ITEM_IDS.SEED_FARM_INFINITY_LOTUS, key: 'seed_farm_infinity_lotus', name: 'Infinity Lotus Seed',
+    description: 'Tier VIII Cosmic Seed. Grows into an Infinity Prism Lotus.',
+    category: 'seed', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 78, xpValue: 50,
+    producesTileId: ITEM_IDS.FARM_INFINITY_LOTUS, growthTimeMs: 550000,
+    colorPrimary: '#06b6d4', colorSecondary: '#0f766e', colorAccent: '#f43f5e',
+  },
+  [ITEM_IDS.SEED_FARM_OMEGA_MONOLITH]: {
+    id: ITEM_IDS.SEED_FARM_OMEGA_MONOLITH, key: 'seed_farm_omega_monolith', name: 'Omega Monolith Seed',
+    description: 'Tier VIII Sovereign Apex Seed. Grows into an Omega Sovereign Monolith.',
+    category: 'seed', farmableTier: 8, rarity: 'epic', stackLimit: 200,
+    collision: 'none', breakable: true, hardness: 1, placeable: true, tradeable: true, gemValue: 88, xpValue: 60,
+    producesTileId: ITEM_IDS.FARM_OMEGA_MONOLITH, growthTimeMs: 600000,
+    colorPrimary: '#e11d48', colorSecondary: '#4c0519', colorAccent: '#fbbf24',
+  },
 };
+
+export type FarmableBranch = 'botanical' | 'geomineral' | 'luminescent' | 'arcane' | 'cosmic';
+
+export interface FarmableSpec {
+  id: number;
+  seedId: number;
+  key: string;
+  name: string;
+  tier: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  branch: FarmableBranch;
+  growthTimeSec: number;
+  gemValue: number;
+  xpValue: number;
+  hardness: number;
+  minBlocks: number;
+  maxBlocks: number;
+  seedDropRate: number;
+  blockDropRate: number;
+  description: string;
+  colorPrimary: string;
+  colorSecondary: string;
+  colorAccent: string;
+}
+
+export const FARMABLE_SPECS: FarmableSpec[] = [
+  // 1..5
+  { id: 900, seedId: 950, key: 'farm_sugar_cane', name: 'Sugar Cane Stalk', tier: 1, branch: 'botanical', growthTimeSec: 14, gemValue: 4, xpValue: 2, hardness: 2, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.25, blockDropRate: 0.68, description: 'Fast-multiplying sweet reed.', colorPrimary: '#78d64b', colorSecondary: '#3b8220', colorAccent: '#d9ff9e' },
+  { id: 901, seedId: 951, key: 'farm_pepper_bush', name: 'Crimson Pepper Tree', tier: 1, branch: 'botanical', growthTimeSec: 16, gemValue: 5, xpValue: 2, hardness: 3, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.25, blockDropRate: 0.68, description: 'Classic spicy bush with steady gems.', colorPrimary: '#dc2626', colorSecondary: '#15803d', colorAccent: '#fde047' },
+  { id: 902, seedId: 952, key: 'farm_bounty_wheat', name: 'Golden Bounty Bale', tier: 1, branch: 'botanical', growthTimeSec: 18, gemValue: 5, xpValue: 2, hardness: 2, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.24, blockDropRate: 0.67, description: 'Golden grain bale with generous gems.', colorPrimary: '#eab308', colorSecondary: '#a16207', colorAccent: '#fef08a' },
+  { id: 903, seedId: 953, key: 'farm_glow_shroom', name: 'Luminous Spore Cap', tier: 1, branch: 'luminescent', growthTimeSec: 20, gemValue: 6, xpValue: 3, hardness: 3, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.25, blockDropRate: 0.68, description: 'Bioluminescent cave fungus.', colorPrimary: '#22d3ee', colorSecondary: '#0e7490', colorAccent: '#cffafe' },
+  { id: 904, seedId: 954, key: 'farm_bamboo_shoot', name: 'Jade Bamboo Bundle', tier: 2, branch: 'botanical', growthTimeSec: 24, gemValue: 8, xpValue: 3, hardness: 3, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.26, blockDropRate: 0.68, description: 'Dense emerald bamboo stalks.', colorPrimary: '#10b981', colorSecondary: '#047857', colorAccent: '#a7f3d0' },
+
+  // 6..10
+  { id: 905, seedId: 955, key: 'farm_honey_comb', name: 'Amber Honeycomb', tier: 2, branch: 'arcane', growthTimeSec: 28, gemValue: 9, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.26, blockDropRate: 0.68, description: 'Golden hive cell of crystallized nectar.', colorPrimary: '#f59e0b', colorSecondary: '#92400e', colorAccent: '#fde68a' },
+  { id: 906, seedId: 956, key: 'farm_pinball_bumper', name: 'Pinball Pulse Bumper', tier: 2, branch: 'arcane', growthTimeSec: 32, gemValue: 10, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.26, blockDropRate: 0.68, description: 'Kinetic rubber bumper bursting with spark gems.', colorPrimary: '#ec4899', colorSecondary: '#831843', colorAccent: '#fbcfe8' },
+  { id: 907, seedId: 957, key: 'farm_venus_trap', name: 'Carnivorous Venus Trap', tier: 2, branch: 'botanical', growthTimeSec: 36, gemValue: 12, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.26, blockDropRate: 0.68, description: 'Ferocious jungle trap dropping rich gems.', colorPrimary: '#84cc16', colorSecondary: '#3f6212', colorAccent: '#f43f5e' },
+  { id: 908, seedId: 958, key: 'farm_blackrock_gem', name: 'Obsidian Blackrock Core', tier: 3, branch: 'geomineral', growthTimeSec: 42, gemValue: 14, xpValue: 5, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.27, blockDropRate: 0.69, description: 'Hardened basalt embedded with dark gems.', colorPrimary: '#334155', colorSecondary: '#0f172a', colorAccent: '#f43f5e' },
+  { id: 909, seedId: 959, key: 'farm_gold_treasure', name: 'Gilded Bullion Crate', tier: 3, branch: 'geomineral', growthTimeSec: 48, gemValue: 16, xpValue: 6, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.27, blockDropRate: 0.69, description: 'Reinforced coffer of minted gold coins.', colorPrimary: '#fbbf24', colorSecondary: '#78350f', colorAccent: '#fef9c3' },
+
+  // 11..15
+  { id: 910, seedId: 960, key: 'farm_chandelier', name: 'Royal Crystal Chandelier', tier: 3, branch: 'luminescent', growthTimeSec: 54, gemValue: 18, xpValue: 6, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.27, blockDropRate: 0.69, description: 'Iconic crystal chandelier bursting into gems.', colorPrimary: '#facc15', colorSecondary: '#ca8a04', colorAccent: '#e0f2fe' },
+  { id: 911, seedId: 961, key: 'farm_laser_grid', name: 'Photon Laser Emitter', tier: 3, branch: 'luminescent', growthTimeSec: 60, gemValue: 19, xpValue: 7, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.27, blockDropRate: 0.69, description: 'High-tech optical grid emitter.', colorPrimary: '#06b6d4', colorSecondary: '#1e293b', colorAccent: '#ef4444' },
+  { id: 912, seedId: 962, key: 'farm_sorcerer_orb', name: 'Sorcerer Mana Sphere', tier: 4, branch: 'arcane', growthTimeSec: 68, gemValue: 24, xpValue: 8, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.28, blockDropRate: 0.70, description: 'Arcane levitating sphere of condensed ether.', colorPrimary: '#a855f7', colorSecondary: '#4c1d95', colorAccent: '#f0abfc' },
+  { id: 913, seedId: 963, key: 'farm_emerald_geode', name: 'Verdant Emerald Geode', tier: 4, branch: 'geomineral', growthTimeSec: 74, gemValue: 26, xpValue: 9, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.28, blockDropRate: 0.70, description: 'Hollow cavity lined with emerald spires.', colorPrimary: '#10b981', colorSecondary: '#064e3b', colorAccent: '#6ee7b7' },
+  { id: 914, seedId: 964, key: 'farm_sunstone_pillar', name: 'Solar Sunstone Obelisk', tier: 4, branch: 'geomineral', growthTimeSec: 80, gemValue: 28, xpValue: 9, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.28, blockDropRate: 0.70, description: 'Desert-gold monument infused with solar energy.', colorPrimary: '#f97316', colorSecondary: '#9a3412', colorAccent: '#fde047' },
+
+  // 16..20
+  { id: 915, seedId: 965, key: 'farm_frost_lotus', name: 'Glacial Diamond Lotus', tier: 4, branch: 'arcane', growthTimeSec: 86, gemValue: 30, xpValue: 10, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.28, blockDropRate: 0.70, description: 'Ice blossom shattering into diamond gems.', colorPrimary: '#38bdf8', colorSecondary: '#0369a1', colorAccent: '#f0f9ff' },
+  { id: 916, seedId: 966, key: 'farm_starlight_prism', name: 'Starlight Refracting Prism', tier: 5, branch: 'luminescent', growthTimeSec: 96, gemValue: 36, xpValue: 12, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Astral prism splitting starlight into gems.', colorPrimary: '#818cf8', colorSecondary: '#312e81', colorAccent: '#fdf4ff' },
+  { id: 917, seedId: 967, key: 'farm_dragon_hoard', name: 'Drake Sovereign Hoard', tier: 5, branch: 'geomineral', growthTimeSec: 108, gemValue: 40, xpValue: 13, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Draconic ruby vault of ancient kings.', colorPrimary: '#ef4444', colorSecondary: '#7f1d1d', colorAccent: '#facc15' },
+  { id: 918, seedId: 968, key: 'farm_aether_reactor', name: 'Quantum Aether Core', tier: 5, branch: 'cosmic', growthTimeSec: 120, gemValue: 45, xpValue: 15, hardness: 8, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Hyper-dense plasma containment cell.', colorPrimary: '#2dd4bf', colorSecondary: '#115e59', colorAccent: '#f472b6' },
+  { id: 919, seedId: 969, key: 'farm_celestial_monolith', name: 'Celestial Crown Monolith', tier: 5, branch: 'cosmic', growthTimeSec: 140, gemValue: 52, xpValue: 18, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Celestial monolith erupting with gem clusters.', colorPrimary: '#c084fc', colorSecondary: '#3b0764', colorAccent: '#fef08a' },
+
+  // 21..25
+  { id: 920, seedId: 970, key: 'farm_crystal_blossom', name: 'Crystal Rose Blossom', tier: 5, branch: 'botanical', growthTimeSec: 110, gemValue: 42, xpValue: 14, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Crystalline flower with mineral pollen.', colorPrimary: '#ec4899', colorSecondary: '#9d174d', colorAccent: '#fbcfe8' },
+  { id: 921, seedId: 971, key: 'farm_magma_rose', name: 'Obsidian Magma Rose', tier: 5, branch: 'botanical', growthTimeSec: 115, gemValue: 44, xpValue: 14, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Volcanic rose yielding heated ruby gems.', colorPrimary: '#f97316', colorSecondary: '#9a3412', colorAccent: '#fde047' },
+  { id: 922, seedId: 972, key: 'farm_shadow_tendril', name: 'Umbral Shadow Tendril', tier: 5, branch: 'arcane', growthTimeSec: 125, gemValue: 46, xpValue: 15, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Dark violet tendrils condensing shadowy gems.', colorPrimary: '#6366f1', colorSecondary: '#312e81', colorAccent: '#c7d2fe' },
+  { id: 923, seedId: 973, key: 'farm_plasma_orchid', name: 'Radiant Plasma Orchid', tier: 5, branch: 'luminescent', growthTimeSec: 130, gemValue: 48, xpValue: 16, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Vibrant electric bloom emitting ion clouds.', colorPrimary: '#06b6d4', colorSecondary: '#0e7490', colorAccent: '#a5f3fc' },
+  { id: 924, seedId: 974, key: 'farm_prism_shard', name: 'Refractive Prism Spire', tier: 6, branch: 'geomineral', growthTimeSec: 150, gemValue: 56, xpValue: 19, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Multi-faceted crystalline quartz cluster.', colorPrimary: '#a855f7', colorSecondary: '#581c87', colorAccent: '#f0abfc' },
+
+  // 26..30
+  { id: 925, seedId: 975, key: 'farm_thunder_cactus', name: 'Fulgarite Thunder Spike', tier: 6, branch: 'geomineral', growthTimeSec: 165, gemValue: 60, xpValue: 20, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Vitrified lightning charged with topaz gems.', colorPrimary: '#eab308', colorSecondary: '#854d0e', colorAccent: '#fef08a' },
+  { id: 926, seedId: 976, key: 'farm_void_lily', name: 'Abyssal Void Lily', tier: 6, branch: 'arcane', growthTimeSec: 180, gemValue: 64, xpValue: 21, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.31, blockDropRate: 0.73, description: 'Deep abyss bloom with dark amethyst gems.', colorPrimary: '#8b5cf6', colorSecondary: '#4c1d95', colorAccent: '#ddd6fe' },
+  { id: 927, seedId: 977, key: 'farm_hyperion_bulb', name: 'Hyperion Sol Globe', tier: 6, branch: 'luminescent', growthTimeSec: 195, gemValue: 68, xpValue: 22, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.31, blockDropRate: 0.73, description: 'Miniature solar lamp of blazing gem plasma.', colorPrimary: '#f59e0b', colorSecondary: '#b45309', colorAccent: '#fef3c7' },
+  { id: 928, seedId: 978, key: 'farm_solarium_bloom', name: 'Solarium Core Blossom', tier: 6, branch: 'luminescent', growthTimeSec: 210, gemValue: 72, xpValue: 24, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.31, blockDropRate: 0.73, description: 'Radiant engineered flora with golden shards.', colorPrimary: '#facc15', colorSecondary: '#ca8a04', colorAccent: '#ffffff' },
+  { id: 929, seedId: 979, key: 'farm_chrono_fern', name: 'Temporal Chrono Fern', tier: 6, branch: 'arcane', growthTimeSec: 225, gemValue: 76, xpValue: 25, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.32, blockDropRate: 0.73, description: 'Temporal fern dropping sapphire gems.', colorPrimary: '#3b82f6', colorSecondary: '#1e3a8a', colorAccent: '#bfdbfe' },
+
+  // 31..35
+  { id: 930, seedId: 980, key: 'farm_nebula_spore', name: 'Cosmic Nebula Spore', tier: 7, branch: 'cosmic', growthTimeSec: 250, gemValue: 84, xpValue: 28, hardness: 9, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.32, blockDropRate: 0.74, description: 'Interstellar spore cluster with violet stardust.', colorPrimary: '#d946ef', colorSecondary: '#701a75', colorAccent: '#f5d0fe' },
+  { id: 931, seedId: 981, key: 'farm_dark_matter_core', name: 'Dark Matter Crucible', tier: 7, branch: 'cosmic', growthTimeSec: 275, gemValue: 90, xpValue: 30, hardness: 9, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.32, blockDropRate: 0.74, description: 'Gravitationally collapsed core of onyx gems.', colorPrimary: '#18181b', colorSecondary: '#09090b', colorAccent: '#818cf8' },
+  { id: 932, seedId: 982, key: 'farm_pulsar_blossom', name: 'Pulsar Neutron Blossom', tier: 7, branch: 'luminescent', growthTimeSec: 300, gemValue: 96, xpValue: 32, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.33, blockDropRate: 0.74, description: 'Neutron beam petals releasing rhythmic gem surges.', colorPrimary: '#38bdf8', colorSecondary: '#075985', colorAccent: '#e0f2fe' },
+  { id: 933, seedId: 983, key: 'farm_supernova_fruit', name: 'Supernova Fusion Fruit', tier: 7, branch: 'cosmic', growthTimeSec: 330, gemValue: 104, xpValue: 35, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.33, blockDropRate: 0.75, description: 'Concentrated stellar explosion in crystal hull.', colorPrimary: '#ef4444', colorSecondary: '#7f1d1d', colorAccent: '#fed7aa' },
+  { id: 934, seedId: 984, key: 'farm_titan_thorn', name: 'Colossal Titan Thorn', tier: 7, branch: 'botanical', growthTimeSec: 360, gemValue: 110, xpValue: 37, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.33, blockDropRate: 0.75, description: 'Petrified primordial wood of emerald wealth.', colorPrimary: '#16a34a', colorSecondary: '#14532d', colorAccent: '#bbf7d0' },
+
+  // 36..40
+  { id: 935, seedId: 985, key: 'farm_quantum_vine', name: 'Quantum Entangled Vine', tier: 8, branch: 'botanical', growthTimeSec: 400, gemValue: 120, xpValue: 40, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.34, blockDropRate: 0.75, description: 'Multidimensional vine weaving probability fields.', colorPrimary: '#10b981', colorSecondary: '#064e3b', colorAccent: '#a7f3d0' },
+  { id: 936, seedId: 986, key: 'farm_astral_chrysalis', name: 'Astral Monarch Chrysalis', tier: 8, branch: 'arcane', growthTimeSec: 450, gemValue: 130, xpValue: 43, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.34, blockDropRate: 0.75, description: 'Divine etheric cocoon with regal gem showers.', colorPrimary: '#8b5cf6', colorSecondary: '#4c1d95', colorAccent: '#fdf4ff' },
+  { id: 937, seedId: 987, key: 'farm_genesis_seedling', name: 'Genesis World Sapling', tier: 8, branch: 'botanical', growthTimeSec: 500, gemValue: 140, xpValue: 46, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.35, blockDropRate: 0.76, description: 'World-tree sapling blessed by ancient earth deities.', colorPrimary: '#22c55e', colorSecondary: '#15803d', colorAccent: '#fef08a' },
+  { id: 938, seedId: 988, key: 'farm_infinity_lotus', name: 'Infinity Prism Lotus', tier: 8, branch: 'cosmic', growthTimeSec: 550, gemValue: 155, xpValue: 50, hardness: 10, minBlocks: 4, maxBlocks: 8, seedDropRate: 0.35, blockDropRate: 0.76, description: 'Sacred multidimensional lotus of endless wealth.', colorPrimary: '#06b6d4', colorSecondary: '#0f766e', colorAccent: '#f43f5e' },
+  { id: 939, seedId: 989, key: 'farm_omega_monolith', name: 'Omega Sovereign Monolith', tier: 8, branch: 'cosmic', growthTimeSec: 600, gemValue: 175, xpValue: 60, hardness: 10, minBlocks: 4, maxBlocks: 8, seedDropRate: 0.36, blockDropRate: 0.77, description: 'The ultimate manifestation of agricultural mastery.', colorPrimary: '#e11d48', colorSecondary: '#4c0519', colorAccent: '#fbbf24' },
+];
+
+export function getFarmableSpec(idOrSeedId: number): FarmableSpec | undefined {
+  return FARMABLE_SPECS.find(s => s.id === idOrSeedId || s.seedId === idOrSeedId);
+}
+
+export function getFarmablesByBranch(branch: FarmableBranch): FarmableSpec[] {
+  return FARMABLE_SPECS.filter(s => s.branch === branch);
+}
+
+export function isFarmableSeed(seedId: number): boolean {
+  return seedId >= 950 && seedId <= 989;
+}
+
+// Synchronize all 40 Farmables (blocks 900..939 & seeds 950..989) from FARMABLE_SPECS
+// and purge general block seed drops from non-farmable blocks.
+for (const def of Object.values(CATALOG)) {
+  if (def.category === 'seed' && !isFarmableSeed(def.id)) {
+    def.placeable = false;
+  } else if (def.category !== 'farmable') {
+    if (def.seedId && !isFarmableSeed(def.seedId)) {
+      delete def.seedId;
+    }
+    if (Array.isArray(def.drops)) {
+      def.drops = def.drops.filter((d) => {
+        const dropDef = CATALOG[d.itemId];
+        return !(dropDef?.category === 'seed' && !isFarmableSeed(d.itemId));
+      });
+    }
+  }
+}
+
+for (const spec of FARMABLE_SPECS) {
+  const blockDef = CATALOG[spec.id];
+  if (blockDef) {
+    blockDef.hardness = spec.hardness;
+    blockDef.gemValue = spec.gemValue;
+    blockDef.xpValue = spec.xpValue;
+    blockDef.farmableTier = spec.tier;
+    blockDef.seedId = spec.seedId;
+    blockDef.treeHarvestYield = {
+      minBlocks: spec.minBlocks,
+      maxBlocks: spec.maxBlocks,
+      seedChance: spec.seedDropRate,
+    };
+    blockDef.drops = [
+      { itemId: spec.id, chance: spec.blockDropRate, minQty: 1, maxQty: 1 },
+      { itemId: spec.seedId, chance: spec.seedDropRate, minQty: 1, maxQty: 1 },
+    ];
+  }
+  const seedDef = CATALOG[spec.seedId];
+  if (seedDef) {
+    seedDef.farmableTier = spec.tier;
+    seedDef.growthTimeMs = spec.growthTimeSec * 1000;
+    seedDef.gemValue = Math.max(1, Math.round(spec.gemValue * 0.5));
+    seedDef.xpValue = spec.xpValue;
+    seedDef.placeable = true;
+    seedDef.producesTileId = spec.id;
+    seedDef.treeHarvestYield = {
+      minBlocks: spec.minBlocks,
+      maxBlocks: spec.maxBlocks,
+      seedChance: spec.seedDropRate,
+    };
+  }
+}
+
+export function getMatteragenIntervalMs(typeId: number): number {
+  switch (typeId) {
+    case ITEM_IDS.MATTERAGEN_BOTANICAL:
+      return 10 * 60 * 1000; // 10 min
+    case ITEM_IDS.MATTERAGEN_GEOMINERAL:
+      return 30 * 60 * 1000; // 30 min
+    case ITEM_IDS.MATTERAGEN_LUMINESCENT:
+      return 60 * 60 * 1000; // 1 hr
+    case ITEM_IDS.MATTERAGEN_ARCANE:
+      return 120 * 60 * 1000; // 2 hr
+    case ITEM_IDS.MATTERAGEN_COSMIC:
+      return 300 * 60 * 1000; // 5 hr
+    default:
+      return 10 * 60 * 1000;
+  }
+}
+
+export function getMatteragenBranch(typeId: number): FarmableBranch {
+  switch (typeId) {
+    case ITEM_IDS.MATTERAGEN_BOTANICAL:
+      return 'botanical';
+    case ITEM_IDS.MATTERAGEN_GEOMINERAL:
+      return 'geomineral';
+    case ITEM_IDS.MATTERAGEN_LUMINESCENT:
+      return 'luminescent';
+    case ITEM_IDS.MATTERAGEN_ARCANE:
+      return 'arcane';
+    case ITEM_IDS.MATTERAGEN_COSMIC:
+      return 'cosmic';
+    default:
+      return 'botanical';
+  }
+}
+
+export function rollMatteragenYield(typeId: number, level = 1): { itemId: number; count: number }[] {
+  const branch = getMatteragenBranch(typeId);
+  const pool = getFarmablesByBranch(branch);
+  if (!pool || pool.length === 0) return [];
+  const crop = pool[Math.floor(Math.random() * pool.length)];
+  const baseQty = Math.max(3, 4 + level * 3 + Math.floor(Math.random() * (level * 2 + 3)));
+  const drops: { itemId: number; count: number }[] = [
+    { itemId: crop.id, count: baseQty },
+  ];
+  if (Math.random() < 0.25 + level * 0.1) {
+    const seedQty = Math.min(3, 1 + Math.floor(Math.random() * Math.max(1, Math.floor(level / 2))));
+    drops.push({ itemId: crop.seedId, count: seedQty });
+  }
+  return drops;
+}
+
+export const MATTERAGEN_UPGRADE_COSTS: Record<number, number> = {
+  1: 250,  // 1 -> 2
+  2: 500,  // 2 -> 3
+  3: 1000, // 3 -> 4
+  4: 2000, // 4 -> 5
+};
+
+export const ATM_MIN_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+export const ATM_MAX_INTERVAL_MS = 90 * 60 * 1000; // 1.5 hours
+export const ATM_MIN_GEMS = 5;
+export const ATM_MAX_GEMS = 125;
+
+export function rollAtmIntervalMs(rng: () => number = Math.random): number {
+  const span = ATM_MAX_INTERVAL_MS - ATM_MIN_INTERVAL_MS;
+  return ATM_MIN_INTERVAL_MS + Math.round(rng() * span);
+}
+
+export function rollAtmGems(rng: () => number = Math.random): number {
+  const span = ATM_MAX_GEMS - ATM_MIN_GEMS + 1;
+  return ATM_MIN_GEMS + Math.floor(rng() * span);
+}
+
 
 export const GROWPIXEL_COLLECTION_IDS = {
   blocks: [ITEM_IDS.GP_DIRT, ITEM_IDS.GP_ROCK, ITEM_IDS.GP_LAVA, ITEM_IDS.GP_CAVE_BACKGROUND, ITEM_IDS.GP_SAND, ITEM_IDS.GP_DOOR, ITEM_IDS.GP_GLASS_PANE, ITEM_IDS.GP_GRASS, ITEM_IDS.GP_LAVA_ROCK, ITEM_IDS.GP_SIGN, ITEM_IDS.GP_WOOD_BLOCK, ITEM_IDS.GP_BRICKS, ITEM_IDS.GP_CRAPPY_SIGN, ITEM_IDS.GP_DAISY, ITEM_IDS.GP_MUSHROOM, ITEM_IDS.GP_ROSE, ITEM_IDS.GP_WHEAT, ITEM_IDS.GP_WOODEN_PLATFORM, ITEM_IDS.GP_BLACK_BLOCK, ITEM_IDS.GP_BROWN_BLOCK, ITEM_IDS.GP_GREY_BLOCK, ITEM_IDS.GP_RED_BLOCK, ITEM_IDS.GP_AQUA_BLOCK, ITEM_IDS.GP_GREEN_BLOCK, ITEM_IDS.GP_WHITE_BLOCK, ITEM_IDS.GP_WINDOW, ITEM_IDS.GP_YELLOW_BLOCK, ITEM_IDS.GP_GLASS_BLOCK, ITEM_IDS.GP_TOILET, ITEM_IDS.GP_RED_BRICKS, ITEM_IDS.GP_DEATH_SPIKES, ITEM_IDS.GP_DUNGEON_DOOR, ITEM_IDS.GP_BUSH, ITEM_IDS.GP_HEDGE, ITEM_IDS.GP_ORANGE_BLOCK, ITEM_IDS.GP_BLUE_BLOCK, ITEM_IDS.GP_POPPY, ITEM_IDS.GP_WOODEN_BACKGROUND, ITEM_IDS.GP_ROCK_BACKGROUND, ITEM_IDS.GP_POINTY_SIGN, ITEM_IDS.GP_DANGER_SIGN, ITEM_IDS.GP_BLUEBERRY],
@@ -3283,7 +4085,7 @@ export const FURNACE_RECIPES: FurnaceRecipe[] = [
     inputs: [
       { itemId: ITEM_IDS.IRON_INGOT, qty: 4 },
       { itemId: ITEM_IDS.CRYSTAL_INGOT, qty: 2 },
-      { itemId: ITEM_IDS.WORLD_LOCK, qty: 1 },
+      { itemId: ITEM_IDS.OBSIDIAN_INGOT, qty: 2 },
     ],
     fuelQty: 2,
     outputItemId: ITEM_IDS.BFG_COLLECTOR,
@@ -3345,17 +4147,116 @@ export interface GemStoreListing {
 
 export const GEM_STORE_LISTINGS: GemStoreListing[] = [
   {
-    id: 'store_locks_world_blocks',
-    section: 'locks',
-    name: 'Sovereign Locks & Vending Kit',
-    description: '1 Micro-Share Lock, 1 Small-Share Lock, 1 Cover-Share Lock, and 1 Personal Vending Machine.',
-    iconItemId: ITEM_IDS.MICRO_SHARE_LOCK,
+    id: 'store_seed_pot',
+    section: 'seeds',
+    name: 'Seed Pot / Growbox',
+    description: 'Specialized terracotta planter required to plant any farmable seed. Holds 1 seed at a time.',
+    iconItemId: ITEM_IDS.SEED_POT,
     gemPrice: 500,
     grants: [
-      { itemId: ITEM_IDS.MICRO_SHARE_LOCK, qty: 1 },
-      { itemId: ITEM_IDS.SMALL_SHARE_LOCK, qty: 1 },
-      { itemId: ITEM_IDS.COVER_SHARE_LOCK, qty: 1 },
-      { itemId: ITEM_IDS.VENDING_MACHINE, qty: 1 },
+      { itemId: ITEM_IDS.SEED_POT, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_seed_pot_bundle',
+    section: 'seeds',
+    name: 'Seed Pot 5-Pack Bundle',
+    description: 'Bulk bundle of 5 Seed Pots for expanding your personal farm groves.',
+    iconItemId: ITEM_IDS.SEED_POT,
+    gemPrice: 2500,
+    grants: [
+      { itemId: ITEM_IDS.SEED_POT, qty: 5 },
+    ],
+  },
+  {
+    id: 'store_matteragen_botanical',
+    section: 'blocks',
+    name: 'Botanical Matteragen Engine',
+    description: 'Tier 1 generator yielding Botanical farmables every 10 min. Upgradeable Lv.1-5. (World cap: 20 engines total)',
+    iconItemId: ITEM_IDS.MATTERAGEN_BOTANICAL,
+    gemPrice: 1000,
+    grants: [
+      { itemId: ITEM_IDS.MATTERAGEN_BOTANICAL, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_matteragen_geomineral',
+    section: 'blocks',
+    name: 'Geomineral Matteragen Engine',
+    description: 'Tier 2 generator yielding Geomineral farmables every 30 min. Upgradeable Lv.1-5. (World cap: 20 engines total)',
+    iconItemId: ITEM_IDS.MATTERAGEN_GEOMINERAL,
+    gemPrice: 2500,
+    grants: [
+      { itemId: ITEM_IDS.MATTERAGEN_GEOMINERAL, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_matteragen_luminescent',
+    section: 'blocks',
+    name: 'Luminescent Matteragen Engine',
+    description: 'Tier 3 generator yielding Luminescent farmables every 1h. Upgradeable Lv.1-5. (World cap: 20 engines total)',
+    iconItemId: ITEM_IDS.MATTERAGEN_LUMINESCENT,
+    gemPrice: 5000,
+    grants: [
+      { itemId: ITEM_IDS.MATTERAGEN_LUMINESCENT, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_matteragen_arcane',
+    section: 'blocks',
+    name: 'Arcane Matteragen Engine',
+    description: 'Tier 4 generator yielding Arcane farmables every 2h. Upgradeable Lv.1-5. (World cap: 20 engines total)',
+    iconItemId: ITEM_IDS.MATTERAGEN_ARCANE,
+    gemPrice: 10000,
+    grants: [
+      { itemId: ITEM_IDS.MATTERAGEN_ARCANE, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_matteragen_cosmic',
+    section: 'blocks',
+    name: 'Cosmic Matteragen Engine',
+    description: 'Tier 5 generator yielding Cosmic farmables every 5h. Upgradeable Lv.1-5. (World cap: 20 engines total)',
+    iconItemId: ITEM_IDS.MATTERAGEN_COSMIC,
+    gemPrice: 20000,
+    grants: [
+      { itemId: ITEM_IDS.MATTERAGEN_COSMIC, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_atm_machine',
+    section: 'blocks',
+    name: 'ATM Machine',
+    description: 'Generates 5–125 Gems directly at random 30m–1.5h intervals. Punch when ready to collect.',
+    iconItemId: ITEM_IDS.ATM_MACHINE,
+    gemPrice: 10000,
+    grants: [
+      { itemId: ITEM_IDS.ATM_MACHINE, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_vaultbox',
+    section: 'blocks',
+    name: 'Vaultbox (10-Slot Storage)',
+    description: 'Player-owned secure storage chest block with 10 empty item storage tiles.',
+    iconItemId: ITEM_IDS.VAULTBOX,
+    gemPrice: 1750,
+    grants: [
+      { itemId: ITEM_IDS.VAULTBOX, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_builders_mix',
+    section: 'blocks',
+    name: 'Builders Mix Pack',
+    description: '10 Wooden Platforms (pass-through from underneath), 10 Bricks, 10 Wood Blocks, and 10 Glass Panes.',
+    iconItemId: ITEM_IDS.GP_WOODEN_PLATFORM,
+    gemPrice: 120,
+    grants: [
+      { itemId: ITEM_IDS.GP_WOODEN_PLATFORM, qty: 10 },
+      { itemId: ITEM_IDS.GP_BRICKS, qty: 10 },
+      { itemId: ITEM_IDS.GP_WOOD_BLOCK, qty: 10 },
+      { itemId: ITEM_IDS.GP_GLASS_PANE, qty: 10 },
     ],
   },
   {

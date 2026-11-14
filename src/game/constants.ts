@@ -4,16 +4,16 @@ export const BEDROCK_ROWS = 6;
 export const PLAYABLE_ROWS = WORLD_HEIGHT - BEDROCK_ROWS; // 54 rows above bedrock
 export const WORLD_TILE_COUNT = WORLD_WIDTH * WORLD_HEIGHT; // 6,000 tiles
 
-export const TILE_SIZE = 48; // +50% upscaled world tile grid (from 32px -> 48px)
-export const DEFAULT_VIEW_SCALE = 1.5; // 72 CSS px per tile upscaled crisp pixel view
+export const TILE_SIZE = 60; // World tile size increased 25% larger (48px -> 60px)
+export const DEFAULT_VIEW_SCALE = 1.5; // Crisps upscaled pixel view
 export const MAX_WORLD_PLAYERS = 20;
 export const MAX_REACH_TILES = 3.05; // 3-block interaction radius
 
 // Player hitbox dimensions strictly 0.8 tiles wide x 1.75 tiles tall
 export const PLAYER_WIDTH_TILES = 0.8;
 export const PLAYER_HEIGHT_TILES = 1.75;
-export const PLAYER_WIDTH = 38.4; // 0.8 * 48
-export const PLAYER_HEIGHT = 84; // 1.75 * 48
+export const PLAYER_WIDTH = 48; // 0.8 * 60
+export const PLAYER_HEIGHT = 105; // 1.75 * 60
 
 export const MOVE_ACCEL = 1280;
 export const MOVE_DECEL = 1480;

@@ -21,6 +21,7 @@ import {
   type EquippedWearables,
   type PlayerPose,
 } from './pixelArt.ts';
+import { PLAYER_LOGICAL_H, PLAYER_LOGICAL_W } from './playerSpriteHD.ts';
 import {
   canBreakTile,
   canPlaceTile,
@@ -35,25 +36,27 @@ import {
 import {
   generateWorld,
   type AreaLockRecord,
+  type AtmMachineRecord,
   type ShareLockRecord,
   type BfgCollectorRecord,
   type FurnaceRecord,
+  type MatteragenRecord,
   type PlantedTree,
+  type SeedPotRecord,
+  type VaultboxRecord,
   type VendingMachineRecord,
   type WorldLockRecord,
   type WorldState,
 } from './worldGen.ts';
 import { soundEngine } from './audio.ts';
 import { BLOCKGROVE_ART_THEME } from './artTheme.ts';
-import {
-  createDungeonMap,
-  getDungeonEnemyStats,
-  type DungeonSnapshot,
-} from './dungeon.ts';
 import type { ActiveBuff, FishingCastState, RemotePlayerState, WorldDrop } from './network.ts';
+
+type ParticleShape = 'shard' | 'spark' | 'ring' | 'dust' | 'plus';
 
 interface Particle {
   active: boolean;
+  shape: ParticleShape;
   x: number;
   y: number;
   vx: number;
@@ -61,7 +64,32 @@ interface Particle {
   life: number;
   maxLife: number;
   size: number;
+  endSize: number;
+  gravity: number;
+  drag: number;
+  rot: number;
+  vRot: number;
   color: string;
+  accentColor: string;
+}
+
+interface TileAnim {
+  kind: 'hit' | 'place';
+  startedAt: number;
+  durationMs: number;
+  dirX: number;
+  dirY: number;
+  itemId: number;
+}
+
+interface WorldPopup {
+  x: number;
+  y: number;
+  vy: number;
+  text: string;
+  color: string;
+  life: number;
+  maxLife: number;
 }
 
 interface TileCrackVisual {
@@ -88,6 +116,9 @@ export interface TileInspectInfo {
   bfgCollector?: BfgCollectorRecord | null;
   isExchangeTerminal?: boolean;
   signText?: string | null;
+  matteragenEngine?: MatteragenRecord | null;
+  atmMachine?: AtmMachineRecord | null;
+  vaultbox?: VaultboxRecord | null;
 }
 
 export interface EngineCallbacks {
@@ -101,8 +132,8 @@ export interface EngineCallbacks {
     punching: boolean;
     placing?: boolean;
   }) => void;
-  onPunchTile?: (tx: number, ty: number, toolItemId?: number) => void;
-  onPlaceTile?: (tx: number, ty: number, itemId: number) => void;
+  onPunchTile?: (tx: number, ty: number, toolItemId?: number, adminEdit?: boolean) => void;
+  onPlaceTile?: (tx: number, ty: number, itemId: number, adminEdit?: boolean) => void;
   onPickupDrop?: (dropId: string) => void;
   onInspectTile?: (info: TileInspectInfo | null) => void;
   onCoordsChange?: (tx: number, ty: number) => void;
@@ -112,7 +143,8 @@ export interface EngineCallbacks {
   onHazardHit?: (hazard: 'acid' | 'spikes') => void;
 }
 
-const MAX_PARTICLES = 128;
+const MAX_PARTICLES = 280;
+const MAX_POPUPS = 24;
 const PUNCH_ANIM_DURATION = 0.28;
 const PLACE_ANIM_DURATION = 0.24;
 const PLACE_COOLDOWN = 0.24;
@@ -164,6 +196,7 @@ export class BlockgroveEngine {
   private punchTimer = 0;
   private punchAnimTimer = 0;
   private placeAnimTimer = 0;
+  private landAnimTimer = 0;
   private lastSyncSent = 0;
   private lastCoordTx = -1;
   private lastCoordTy = -1;
@@ -173,9 +206,13 @@ export class BlockgroveEngine {
   private stepDistanceAccum = 0;
   private gameConfig: GameConfig = cloneGameConfig(DEFAULT_GAME_CONFIG);
   private viewScale = DEFAULT_VIEW_SCALE;
+  private adminWorldEdit = false;
+  private adminBrushItemId: number | null = null;
 
   private particles: Particle[] = [];
   private particleCursor = 0;
+  private tileAnims = new Map<string, TileAnim>();
+  private popups: WorldPopup[] = [];
 
   private rafId: number | null = null;
   private throttleTimerId: number | null = null;
@@ -213,6 +250,7 @@ export class BlockgroveEngine {
     for (let i = 0; i < MAX_PARTICLES; i++) {
       this.particles.push({
         active: false,
+        shape: 'shard',
         x: 0,
         y: 0,
         vx: 0,
@@ -220,7 +258,13 @@ export class BlockgroveEngine {
         life: 0,
         maxLife: 0.4,
         size: 4,
+        endSize: 2,
+        gravity: 420,
+        drag: 0.98,
+        rot: 0,
+        vRot: 0,
         color: '#ffffff',
+        accentColor: '#ffffff',
       });
     }
 
@@ -259,6 +303,7 @@ export class BlockgroveEngine {
       grad.addColorStop(1, '#c8ecff');
       this.skyGradient = grad;
     }
+    this.applyEffectiveViewScale();
   }
 
   private bindEvents() {
@@ -436,9 +481,24 @@ export class BlockgroveEngine {
     this.selectedItemId = itemId;
   }
 
+  public setAdminWorldEdit(enabled: boolean, brushItemId: number | null = null) {
+    this.adminWorldEdit = enabled;
+    this.adminBrushItemId = brushItemId;
+  }
+
+  private applyEffectiveViewScale() {
+    const configured = Math.max(1, Math.min(2.5, this.gameConfig.mechanics.viewScale || DEFAULT_VIEW_SCALE));
+    if (this.cssWidth >= 900 && this.cssHeight >= 520) {
+      this.viewScale = configured;
+      return;
+    }
+    const factor = Math.min(this.cssWidth / 900, this.cssHeight / 520);
+    this.viewScale = Math.max(0.92, Math.min(configured, Math.round(configured * factor * 20) / 20));
+  }
+
   public applyGameConfig(cfg: GameConfig) {
     this.gameConfig = cloneGameConfig(cfg);
-    this.viewScale = Math.max(1, Math.min(2.5, cfg.mechanics.viewScale || DEFAULT_VIEW_SCALE));
+    this.applyEffectiveViewScale();
   }
 
   public setActiveBuffs(buffs: ActiveBuff[]) {
@@ -613,6 +673,12 @@ export class BlockgroveEngine {
     this.world.signs = this.world.signs ?? {};
     this.world.furnaces = this.world.furnaces ?? {};
     this.world.bfgCollectors = this.world.bfgCollectors ?? {};
+    this.world.seedPots = this.world.seedPots ?? {};
+    this.world.matteragenEngines = this.world.matteragenEngines ?? {};
+    this.world.atmMachines = this.world.atmMachines ?? {};
+    this.world.vaultboxes = this.world.vaultboxes ?? {};
+    this.tileAnims.clear();
+    this.popups = [];
     ensureFluidArrays(this.world);
 
     const wPx = worldWidth(this.world) * TILE_SIZE;
@@ -702,12 +768,33 @@ export class BlockgroveEngine {
       (plant ? getEffectiveItemDef(plant.seedId, this.gameConfig) : undefined) ??
       getEffectiveItemDef(bgId, this.gameConfig);
     soundEngine.hitBlock(targetId, this.selectedItemId, hits / Math.max(1, maxHits));
-    this.spawnParticles(
-      tx * TILE_SIZE + TILE_SIZE * 0.5,
-      ty * TILE_SIZE + TILE_SIZE * 0.5,
-      6,
-      def?.colorPrimary ?? '#a88462'
-    );
+
+    const cxWorld = tx * TILE_SIZE + TILE_SIZE * 0.5;
+    const cyWorld = ty * TILE_SIZE + TILE_SIZE * 0.5;
+    const pCx = this.body.x + PLAYER_WIDTH * 0.5;
+    const pCy = this.body.y + PLAYER_HEIGHT * 0.5;
+    const dirX = cxWorld >= pCx ? 1 : -1;
+    const dirY = cyWorld >= pCy ? 1 : -1;
+
+    this.tileAnims.set(key, {
+      kind: 'hit',
+      startedAt: performance.now(),
+      durationMs: 165,
+      dirX,
+      dirY,
+      itemId: targetId,
+    });
+
+    const primary = def?.colorPrimary ?? '#a88462';
+    const secondary = def?.colorSecondary ?? primary;
+    const accent = def?.colorAccent ?? '#ffffff';
+
+    this.spawnShards(cxWorld, cyWorld, 7, primary, secondary, accent, dirX);
+    this.spawnSparks(cxWorld, cyWorld, 5, accent);
+    if (hits >= Math.ceil(maxHits * 0.5)) {
+      this.spawnRing(cxWorld, cyWorld, 20, accent, 0.22);
+    }
+    this.shakeTrauma = Math.min(0.32, this.shakeTrauma + 0.06);
   }
 
   public applyTileUpdated(
@@ -724,13 +811,20 @@ export class BlockgroveEngine {
     fluidType?: number,
     fluidLevel?: number,
     furnace?: FurnaceRecord | null,
-    bfgCollector?: BfgCollectorRecord | null
+    bfgCollector?: BfgCollectorRecord | null,
+    seedPot?: SeedPotRecord | null,
+    matteragenEngine?: MatteragenRecord | null,
+    atmMachine?: AtmMachineRecord | null,
+    vaultbox?: VaultboxRecord | null
   ) {
     const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
     const prevFg = this.world.fg[idx];
     const prevBg = this.world.bg[idx];
     const prevPlant = this.world.plants[key];
+    const prevEng = this.world.matteragenEngines?.[key];
+    const prevAtm = this.world.atmMachines?.[key];
+
     this.world.fg[idx] = fg;
     this.world.bg[idx] = bg;
 
@@ -771,6 +865,26 @@ export class BlockgroveEngine {
       if (bfgCollector) this.world.bfgCollectors[key] = bfgCollector;
       else delete this.world.bfgCollectors[key];
     }
+    this.world.seedPots = this.world.seedPots ?? {};
+    if (seedPot !== undefined) {
+      if (seedPot) this.world.seedPots[key] = seedPot;
+      else delete this.world.seedPots[key];
+    }
+    this.world.matteragenEngines = this.world.matteragenEngines ?? {};
+    if (matteragenEngine !== undefined) {
+      if (matteragenEngine) this.world.matteragenEngines[key] = matteragenEngine;
+      else delete this.world.matteragenEngines[key];
+    }
+    this.world.atmMachines = this.world.atmMachines ?? {};
+    if (atmMachine !== undefined) {
+      if (atmMachine) this.world.atmMachines[key] = atmMachine;
+      else delete this.world.atmMachines[key];
+    }
+    this.world.vaultboxes = this.world.vaultboxes ?? {};
+    if (vaultbox !== undefined) {
+      if (vaultbox) this.world.vaultboxes[key] = vaultbox;
+      else delete this.world.vaultboxes[key];
+    }
     this.world.signs = this.world.signs ?? {};
     if (signText !== undefined) {
       if (signText) this.world.signs[key] = signText;
@@ -782,45 +896,104 @@ export class BlockgroveEngine {
     this.paintLayerTile(tx, ty + 1);
     this.cracks.delete(key);
 
-    if (prevFg !== ITEM_IDS.AIR && fg === ITEM_IDS.AIR) {
+    const cxWorld = tx * TILE_SIZE + TILE_SIZE * 0.5;
+    const cyWorld = ty * TILE_SIZE + TILE_SIZE * 0.5;
+
+    if (prevAtm?.isReady && atmMachine && !atmMachine.isReady) {
+      // ATM Payout collected!
+      this.spawnSparks(cxWorld, cyWorld, 18, '#fde047');
+      this.spawnRing(cxWorld, cyWorld, 36, '#38e8d8', 0.34);
+      this.spawnPopup(cxWorld, cyWorld - 14, `+${prevAtm.storedGems} GEMS!`, '#fde047');
+      this.tileAnims.set(key, {
+        kind: 'hit',
+        startedAt: performance.now(),
+        durationMs: 180,
+        dirX: 0,
+        dirY: -1,
+        itemId: ITEM_IDS.ATM_MACHINE,
+      });
+      this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.18);
+      soundEngine.gem();
+    } else if (prevEng?.isReady && matteragenEngine && !matteragenEngine.isReady) {
+      // Matteragen Yield collected!
+      this.spawnSparks(cxWorld, cyWorld, 16, '#34d399');
+      this.spawnRing(cxWorld, cyWorld, 34, '#34d399', 0.32);
+      this.spawnPopup(cxWorld, cyWorld - 14, 'SYNTH COLLECTED!', '#a7f3d0');
+      this.tileAnims.set(key, {
+        kind: 'hit',
+        startedAt: performance.now(),
+        durationMs: 180,
+        dirX: 0,
+        dirY: -1,
+        itemId: matteragenEngine.typeId,
+      });
+      this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.16);
+      soundEngine.unlock();
+    } else if (prevFg !== ITEM_IDS.AIR && fg === ITEM_IDS.AIR) {
       const def = getItemDef(prevFg);
-      this.spawnParticles(
-        tx * TILE_SIZE + TILE_SIZE * 0.5,
-        ty * TILE_SIZE + TILE_SIZE * 0.5,
+      this.spawnShards(
+        cxWorld,
+        cyWorld,
         16,
-        def?.colorPrimary ?? '#9c6e49'
+        def?.colorPrimary ?? '#9c6e49',
+        def?.colorSecondary ?? '#6b4222',
+        def?.colorAccent ?? '#ffffff',
+        0
       );
-      this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.25);
-      this.hitstopTimer = 0.035;
+      this.spawnSparks(cxWorld, cyWorld, 8, def?.colorAccent ?? '#ffffff');
+      this.spawnDust(cxWorld, cyWorld, 6, def?.colorPrimary ?? '#9c6e49');
+      this.spawnRing(cxWorld, cyWorld, 30, def?.colorAccent ?? '#ffffff', 0.28);
+      this.tileAnims.delete(key);
+      this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.26);
+      this.hitstopTimer = 0.028;
       soundEngine.breakBlock(prevFg);
     } else if (prevPlant && !plant) {
       const seedDef = getItemDef(prevPlant.seedId);
-      this.spawnParticles(
-        tx * TILE_SIZE + TILE_SIZE * 0.5,
-        ty * TILE_SIZE + TILE_SIZE * 0.5,
+      this.spawnShards(
+        cxWorld,
+        cyWorld,
         14,
-        seedDef?.colorPrimary ?? '#5fc95a'
+        seedDef?.colorPrimary ?? '#5fc95a',
+        seedDef?.colorSecondary ?? '#2d7a36',
+        seedDef?.colorAccent ?? '#e8ffad',
+        0
       );
+      this.spawnSparks(cxWorld, cyWorld, 10, seedDef?.colorAccent ?? '#e8ffad');
+      this.spawnRing(cxWorld, cyWorld, 28, '#82e068', 0.26);
       this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.18);
       soundEngine.breakBlock(prevPlant.seedId);
     } else if (prevBg !== ITEM_IDS.BG_SKY && bg === ITEM_IDS.BG_SKY) {
       const bgDef = getItemDef(prevBg);
-      this.spawnParticles(
-        tx * TILE_SIZE + TILE_SIZE * 0.5,
-        ty * TILE_SIZE + TILE_SIZE * 0.5,
+      this.spawnShards(
+        cxWorld,
+        cyWorld,
         12,
-        bgDef?.colorPrimary ?? '#7c6b5e'
+        bgDef?.colorPrimary ?? '#7c6b5e',
+        bgDef?.colorSecondary ?? '#52443b',
+        bgDef?.colorAccent ?? '#c7b8ac',
+        0
       );
+      this.spawnDust(cxWorld, cyWorld, 5, bgDef?.colorPrimary ?? '#7c6b5e');
+      this.spawnRing(cxWorld, cyWorld, 24, bgDef?.colorAccent ?? '#c7b8ac', 0.24);
       this.shakeTrauma = Math.min(1, this.shakeTrauma + 0.18);
       soundEngine.breakBlock(prevBg);
+    } else if ((prevFg === ITEM_IDS.AIR && fg !== ITEM_IDS.AIR) || (!prevPlant && plant) || (prevBg === ITEM_IDS.BG_SKY && bg !== ITEM_IDS.BG_SKY)) {
+      const placedId = fg !== ITEM_IDS.AIR ? fg : plant ? plant.seedId : bg;
+      const def = getItemDef(placedId);
+      this.tileAnims.set(key, {
+        kind: 'place',
+        startedAt: performance.now(),
+        durationMs: 210,
+        dirX: 0,
+        dirY: 1,
+        itemId: placedId,
+      });
+      this.spawnDust(cxWorld, ty * TILE_SIZE + TILE_SIZE - 4, 6, def?.colorAccent ?? '#e2f0d9');
+      this.spawnSparks(cxWorld, cyWorld, 6, def?.colorAccent ?? '#ffffff');
+      this.spawnRing(cxWorld, cyWorld, 22, def?.colorAccent ?? '#ffffff', 0.22);
     } else if (fg !== ITEM_IDS.AIR) {
       const def = getItemDef(fg);
-      this.spawnParticles(
-        tx * TILE_SIZE + TILE_SIZE * 0.5,
-        ty * TILE_SIZE + TILE_SIZE * 0.5,
-        7,
-        def?.colorAccent ?? '#ffffff'
-      );
+      this.spawnSparks(cxWorld, cyWorld, 5, def?.colorAccent ?? '#ffffff');
     }
   }
 
@@ -865,12 +1038,20 @@ export class BlockgroveEngine {
     const pcy = (this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE;
     const ptx = Math.floor(pcx);
     const pty = Math.floor(pcy);
-    const playerCtx = { id: this.localPlayerId, x: this.body.x, y: this.body.y };
-    const reach = this.gameConfig.mechanics.reachTiles;
+    const playerCtx = {
+      id: this.localPlayerId,
+      x: this.body.x,
+      y: this.body.y,
+      adminWorldEdit: this.adminWorldEdit,
+    };
+    const reach = this.adminWorldEdit
+      ? Math.max(12, this.gameConfig.mechanics.reachTiles)
+      : this.gameConfig.mechanics.reachTiles;
     const w = worldWidth(this.world);
     const h = worldHeight(this.world);
-    const selectedDef = getItemDef(this.selectedItemId);
-    const isBreakTool = this.selectedItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe';
+    const activeItemId = this.getEffectiveInteractItemId();
+    const selectedDef = getItemDef(activeItemId);
+    const isBreakTool = activeItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe';
     const strongVertical = Math.abs(dirY) > 0.78;
 
     const rayTiles: Array<{ tx: number; ty: number }> = [];
@@ -906,7 +1087,10 @@ export class BlockgroveEngine {
             fgId === ITEM_IDS.BFG_COLLECTOR ||
             fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
             fgId === ITEM_IDS.LANDLORD_NPC ||
-            fgId === ITEM_IDS.WORLD_CORE
+            fgId === ITEM_IDS.WORLD_CORE ||
+            fgId === ITEM_IDS.SEED_POT ||
+            fgId === ITEM_IDS.ATM_MACHINE ||
+            fgId === ITEM_IDS.VAULTBOX
           ) {
             return { tx, ty };
           }
@@ -925,7 +1109,7 @@ export class BlockgroveEngine {
       return firstFrontTile;
     }
 
-    if (this.selectedItemId === ITEM_IDS.WRENCH) {
+    if (activeItemId === ITEM_IDS.WRENCH) {
       for (const { tx, ty } of inFrontTiles) {
         const idx = tileIndexIn(this.world, tx, ty);
         if (this.world.fg[idx] !== ITEM_IDS.AIR) {
@@ -947,7 +1131,7 @@ export class BlockgroveEngine {
 
     // Placing blocks / seeds / backgrounds / locks / machines: prioritize tiles in front first
     for (const { tx, ty } of inFrontTiles) {
-      if (canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok) {
+      if (canPlaceTile(this.world, playerCtx, activeItemId, tx, ty, reach).ok) {
         return { tx, ty };
       }
       const idx = tileIndexIn(this.world, tx, ty);
@@ -962,12 +1146,31 @@ export class BlockgroveEngine {
     }
 
     for (const { tx, ty } of rayTiles) {
-      if (canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok) {
+      if (canPlaceTile(this.world, playerCtx, activeItemId, tx, ty, reach).ok) {
         return { tx, ty };
       }
     }
 
     return firstFrontTile;
+  }
+
+  private getEffectiveInteractItemId(): number {
+    if (
+      this.adminWorldEdit &&
+      this.adminBrushItemId &&
+      this.selectedItemId !== ITEM_IDS.FIST &&
+      this.selectedItemId !== ITEM_IDS.WRENCH
+    ) {
+      const selDef = getItemDef(this.selectedItemId);
+      if (
+        selDef?.toolKind !== 'pickaxe' &&
+        selDef?.toolKind !== 'rod' &&
+        selDef?.category !== 'consumable'
+      ) {
+        return this.adminBrushItemId;
+      }
+    }
+    return this.selectedItemId;
   }
 
   private tryInteractFacing() {
@@ -1028,17 +1231,31 @@ export class BlockgroveEngine {
       bfgCollector: fgId === ITEM_IDS.BFG_COLLECTOR ? (this.world.bfgCollectors?.[key] ?? null) : null,
       isExchangeTerminal: fgId === ITEM_IDS.EXCHANGE_TERMINAL,
       signText: !!CATALOG[fgId]?.key.includes('sign') ? (this.world.signs?.[key] ?? '') : null,
+      matteragenEngine:
+        fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC
+          ? (this.world.matteragenEngines?.[key] ?? null)
+          : null,
+      atmMachine: fgId === ITEM_IDS.ATM_MACHINE ? (this.world.atmMachines?.[key] ?? null) : null,
+      vaultbox: fgId === ITEM_IDS.VAULTBOX ? (this.world.vaultboxes?.[key] ?? null) : null,
     });
   }
 
   private performTileInteraction(tx: number, ty: number) {
     if (this.punchTimer > 0) return;
     if (!inBoundsWorld(this.world, tx, ty)) return;
-    const playerCtx = { id: this.localPlayerId, x: this.body.x, y: this.body.y };
-    const reach = this.gameConfig.mechanics.reachTiles;
-    const selectedDef = getItemDef(this.selectedItemId);
+    const playerCtx = {
+      id: this.localPlayerId,
+      x: this.body.x,
+      y: this.body.y,
+      adminWorldEdit: this.adminWorldEdit,
+    };
+    const reach = this.adminWorldEdit
+      ? Math.max(12, this.gameConfig.mechanics.reachTiles)
+      : this.gameConfig.mechanics.reachTiles;
+    const activeItemId = this.getEffectiveInteractItemId();
+    const selectedDef = getItemDef(activeItemId);
 
-    if (this.selectedItemId === ITEM_IDS.WRENCH) {
+    if (activeItemId === ITEM_IDS.WRENCH) {
       this.punchTimer = 0.25;
       this.emitInspectAt(tx, ty);
       return;
@@ -1047,7 +1264,7 @@ export class BlockgroveEngine {
     if (selectedDef?.category === 'consumable') {
       this.punchTimer = 0.4;
       soundEngine.uiClick();
-      this.callbacks.onUseConsumable?.(this.selectedItemId);
+      this.callbacks.onUseConsumable?.(activeItemId);
       return;
     }
 
@@ -1059,12 +1276,12 @@ export class BlockgroveEngine {
       } else {
         this.punchTimer = 0.45;
         soundEngine.castRod();
-        this.callbacks.onCastFishing?.(tx, ty, this.selectedItemId);
+        this.callbacks.onCastFishing?.(tx, ty, activeItemId);
       }
       return;
     }
 
-    if (this.selectedItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe') {
+    if (activeItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe') {
       const baseCd = this.gameConfig.mechanics.punchCooldownMs / 1000;
       const toolFactor =
         selectedDef?.toolKind === 'pickaxe'
@@ -1075,12 +1292,12 @@ export class BlockgroveEngine {
               : 0.90
           : 1;
       const buffFactor = this.getActiveBuffBonusPct('break_speed') > 0 ? 0.75 : 1;
-      this.punchTimer = Math.max(0.08, baseCd * toolFactor * buffFactor);
+      this.punchTimer = this.adminWorldEdit ? 0.08 : Math.max(0.08, baseCd * toolFactor * buffFactor);
       this.punchAnimTimer = PUNCH_ANIM_DURATION;
       const check = canBreakTile(this.world, playerCtx, tx, ty, reach);
-      soundEngine.swingTool(this.selectedItemId);
+      soundEngine.swingTool(activeItemId);
       if (check.ok) {
-        this.callbacks.onPunchTile?.(tx, ty, this.selectedItemId);
+        this.callbacks.onPunchTile?.(tx, ty, activeItemId, this.adminWorldEdit);
       } else {
         const fgId = this.world.fg[tileIndexIn(this.world, tx, ty)];
         if (
@@ -1091,7 +1308,10 @@ export class BlockgroveEngine {
           fgId === ITEM_IDS.BFG_COLLECTOR ||
           fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
           fgId === ITEM_IDS.LANDLORD_NPC ||
-          fgId === ITEM_IDS.WORLD_CORE
+          fgId === ITEM_IDS.WORLD_CORE ||
+          fgId === ITEM_IDS.ATM_MACHINE ||
+          fgId === ITEM_IDS.VAULTBOX ||
+          (fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC)
         ) {
           this.emitInspectAt(tx, ty);
         }
@@ -1100,32 +1320,153 @@ export class BlockgroveEngine {
     }
 
     // Placing block / background / seed / lock / fluid / machine
-    this.punchTimer = PLACE_COOLDOWN;
-    const check = canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach);
+    this.punchTimer = this.adminWorldEdit ? 0.09 : PLACE_COOLDOWN;
+    const check = canPlaceTile(this.world, playerCtx, activeItemId, tx, ty, reach);
     if (check.ok) {
       this.placeAnimTimer = PLACE_ANIM_DURATION;
       if (check.layer === 'seed') soundEngine.plant();
-      else soundEngine.placeBlock(this.selectedItemId);
-      this.callbacks.onPlaceTile?.(tx, ty, this.selectedItemId);
+      else soundEngine.placeBlock(activeItemId);
+      this.callbacks.onPlaceTile?.(tx, ty, activeItemId, this.adminWorldEdit);
     }
   }
 
-  private spawnParticles(x: number, y: number, count: number, color: string) {
+  private allocParticle(): Particle {
+    const p = this.particles[this.particleCursor];
+    this.particleCursor = (this.particleCursor + 1) % MAX_PARTICLES;
+    return p;
+  }
+
+  private spawnShards(
+    x: number,
+    y: number,
+    count: number,
+    primary: string,
+    secondary: string,
+    accent: string,
+    biasX: number
+  ) {
     for (let i = 0; i < count; i++) {
-      const p = this.particles[this.particleCursor];
-      this.particleCursor = (this.particleCursor + 1) % MAX_PARTICLES;
+      const p = this.allocParticle();
       p.active = true;
-      p.x = x;
-      p.y = y;
+      p.shape = 'shard';
+      p.x = x + (Math.random() - 0.5) * 16;
+      p.y = y + (Math.random() - 0.5) * 16;
       const ang = Math.random() * Math.PI * 2;
-      const spd = 40 + Math.random() * 140;
+      const spd = 55 + Math.random() * 165;
+      p.vx = Math.cos(ang) * spd + biasX * (35 + Math.random() * 45);
+      p.vy = Math.sin(ang) * spd - 95 - Math.random() * 60;
+      p.maxLife = 0.34 + Math.random() * 0.32;
+      p.life = p.maxLife;
+      p.size = 5 + Math.floor(Math.random() * 5);
+      p.endSize = 2;
+      p.gravity = 520;
+      p.drag = 0.965;
+      p.rot = Math.random() * Math.PI * 2;
+      p.vRot = (Math.random() - 0.5) * 18;
+      p.color = i % 3 === 0 ? secondary : primary;
+      p.accentColor = accent;
+    }
+  }
+
+  private spawnSparks(x: number, y: number, count: number, color: string) {
+    for (let i = 0; i < count; i++) {
+      const p = this.allocParticle();
+      p.active = true;
+      p.shape = 'spark';
+      p.x = x + (Math.random() - 0.5) * 12;
+      p.y = y + (Math.random() - 0.5) * 12;
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 70 + Math.random() * 180;
       p.vx = Math.cos(ang) * spd;
-      p.vy = Math.sin(ang) * spd - 60;
-      p.maxLife = 0.28 + Math.random() * 0.25;
+      p.vy = Math.sin(ang) * spd - 45;
+      p.maxLife = 0.18 + Math.random() * 0.22;
       p.life = p.maxLife;
       p.size = 3 + Math.floor(Math.random() * 3);
+      p.endSize = 1;
+      p.gravity = 160;
+      p.drag = 0.92;
+      p.rot = 0;
+      p.vRot = 0;
       p.color = color;
+      p.accentColor = '#ffffff';
     }
+  }
+
+  private spawnDust(x: number, y: number, count: number, color: string) {
+    for (let i = 0; i < count; i++) {
+      const p = this.allocParticle();
+      p.active = true;
+      p.shape = 'dust';
+      p.x = x + (Math.random() - 0.5) * 18;
+      p.y = y + (Math.random() - 0.5) * 8;
+      p.vx = (Math.random() - 0.5) * 75;
+      p.vy = -18 - Math.random() * 48;
+      p.maxLife = 0.28 + Math.random() * 0.22;
+      p.life = p.maxLife;
+      p.size = 5 + Math.floor(Math.random() * 4);
+      p.endSize = 8;
+      p.gravity = -18;
+      p.drag = 0.9;
+      p.rot = 0;
+      p.vRot = 0;
+      p.color = color;
+      p.accentColor = color;
+    }
+  }
+
+  private spawnRing(x: number, y: number, maxRadius: number, color: string, duration = 0.26) {
+    const p = this.allocParticle();
+    p.active = true;
+    p.shape = 'ring';
+    p.x = x;
+    p.y = y;
+    p.vx = 0;
+    p.vy = 0;
+    p.maxLife = duration;
+    p.life = duration;
+    p.size = 6;
+    p.endSize = maxRadius;
+    p.gravity = 0;
+    p.drag = 1;
+    p.rot = 0;
+    p.vRot = 0;
+    p.color = color;
+    p.accentColor = '#ffffff';
+  }
+
+  private spawnPlus(x: number, y: number, color: string) {
+    const p = this.allocParticle();
+    p.active = true;
+    p.shape = 'plus';
+    p.x = x + (Math.random() - 0.5) * 24;
+    p.y = y + (Math.random() - 0.5) * 16;
+    p.vx = (Math.random() - 0.5) * 14;
+    p.vy = -24 - Math.random() * 20;
+    p.maxLife = 0.48 + Math.random() * 0.25;
+    p.life = p.maxLife;
+    p.size = 5;
+    p.endSize = 5;
+    p.gravity = -10;
+    p.drag = 0.97;
+    p.rot = 0;
+    p.vRot = 0;
+    p.color = color;
+    p.accentColor = '#ffffff';
+  }
+
+  private spawnPopup(x: number, y: number, text: string, color: string) {
+    if (this.popups.length >= MAX_POPUPS) {
+      this.popups.shift();
+    }
+    this.popups.push({
+      x,
+      y,
+      vy: -34,
+      text,
+      color,
+      life: 1.05,
+      maxLife: 1.05,
+    });
   }
 
   private snapCameraToPlayer() {
@@ -1167,9 +1508,23 @@ export class BlockgroveEngine {
         p.active = false;
         continue;
       }
-      p.vy += 420 * dt;
+      p.vy += p.gravity * dt;
+      const damp = Math.pow(p.drag, dt * 60);
+      p.vx *= damp;
+      p.vy *= damp;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
+      p.rot += p.vRot * dt;
+    }
+    for (let i = this.popups.length - 1; i >= 0; i--) {
+      const pop = this.popups[i];
+      pop.life -= dt;
+      if (pop.life <= 0) {
+        this.popups.splice(i, 1);
+      } else {
+        pop.y += pop.vy * dt;
+        pop.vy *= Math.pow(0.95, dt * 60);
+      }
     }
     this.shakeTrauma = Math.max(0, this.shakeTrauma - dt * 2.4);
 
@@ -1198,6 +1553,7 @@ export class BlockgroveEngine {
     this.punchTimer = Math.max(0, this.punchTimer - dt);
     this.punchAnimTimer = Math.max(0, this.punchAnimTimer - dt);
     this.placeAnimTimer = Math.max(0, this.placeAnimTimer - dt);
+    this.landAnimTimer = Math.max(0, this.landAnimTimer - dt);
 
     if (this.punchStick.active && this.punchTimer <= 0) {
       if (Math.abs(this.punchStick.dx) > 0.12) {
@@ -1253,17 +1609,38 @@ export class BlockgroveEngine {
     if (result.bounced) {
       soundEngine.jump(true);
       this.stepDistanceAccum = 0;
+      this.landAnimTimer = 0;
+      this.spawnDust(this.body.x + PLAYER_WIDTH * 0.5, this.body.y + PLAYER_HEIGHT - 2, 6, '#a8f794');
+      this.spawnRing(this.body.x + PLAYER_WIDTH * 0.5, this.body.y + PLAYER_HEIGHT, 24, '#a8f794', 0.24);
     } else if (result.jumped) {
       soundEngine.jump(false);
       this.stepDistanceAccum = 0;
+      this.landAnimTimer = 0;
+      this.spawnDust(this.body.x + PLAYER_WIDTH * 0.5, this.body.y + PLAYER_HEIGHT - 2, 4, inFluid ? '#7ce2ff' : '#d6c6a8');
     } else if (result.landed) {
       soundEngine.land(groundFgId, inFluid);
       this.stepDistanceAccum = 0;
+      this.landAnimTimer = 0.13;
+      this.spawnDust(
+        this.body.x + PLAYER_WIDTH * 0.5,
+        this.body.y + PLAYER_HEIGHT - 2,
+        6,
+        inFluid ? '#7ce2ff' : '#d6c6a8'
+      );
+      if (inFluid) {
+        this.spawnSparks(this.body.x + PLAYER_WIDTH * 0.5, this.body.y + PLAYER_HEIGHT - 2, 6, '#9ce8ff');
+      }
     } else if (this.body.grounded && Math.abs(this.body.vx) > 28) {
       this.stepDistanceAccum += Math.abs(this.body.vx) * dt;
       if (this.stepDistanceAccum >= 34) {
         this.stepDistanceAccum %= 34;
         soundEngine.footstep(groundFgId, inFluid);
+        this.spawnDust(
+          this.body.x + PLAYER_WIDTH * 0.5 - this.body.facing * 6,
+          this.body.y + PLAYER_HEIGHT - 2,
+          2,
+          inFluid ? '#7ce2ff' : '#d6c6a8'
+        );
       }
     } else if (!this.body.grounded || Math.abs(this.body.vx) <= 10) {
       this.stepDistanceAccum = Math.min(this.stepDistanceAccum, 24);
@@ -1271,7 +1648,7 @@ export class BlockgroveEngine {
 
     if (result.hazardHit) {
       soundEngine.hazardHit(result.hazardHit);
-      this.spawnParticles(
+      this.spawnSparks(
         this.body.x + PLAYER_WIDTH * 0.5,
         this.body.y + PLAYER_HEIGHT * 0.5,
         14,
@@ -1329,8 +1706,14 @@ export class BlockgroveEngine {
       }
       if (dist <= DROP_PICKUP_RADIUS && !this.pickupAttempted.has(drop.id)) {
         this.pickupAttempted.add(drop.id);
-        if (drop.isGem) soundEngine.gem();
-        else soundEngine.pickup();
+        if (drop.isGem) {
+          soundEngine.gem();
+          this.spawnSparks(drop.x, drop.y, 7, '#fde047');
+          this.spawnPopup(drop.x, drop.y - 8, `+${drop.qty} G`, '#fde047');
+        } else {
+          soundEngine.pickup();
+          this.spawnSparks(drop.x, drop.y, 4, '#a8fff7');
+        }
         this.callbacks.onPickupDrop?.(drop.id);
       }
     }
@@ -1434,7 +1817,7 @@ export class BlockgroveEngine {
       ctx.fillStyle = 'rgba(255, 244, 184, 0.22)';
       ctx.fillRect(sunX - 42, sunY - 42, 84, 84);
       ctx.fillStyle = '#fff5bd';
-      ctx.fillRect(sunX - 24, sunY - 24, 48, 48);
+      ctx.fillRect(sunX - Math.round(TILE_SIZE * 0.5), sunY - Math.round(TILE_SIZE * 0.5), TILE_SIZE, TILE_SIZE);
 
       // Layered red-sandstone mesas
       ctx.fillStyle = 'rgba(156, 68, 42, 0.38)';
@@ -1577,6 +1960,44 @@ export class BlockgroveEngine {
       }
     }
 
+    // 3c. Per-tile impact hit flash / squash & placement spring-pop animations
+    for (const [key, anim] of this.tileAnims.entries()) {
+      const elapsed = nowMs - anim.startedAt;
+      if (elapsed >= anim.durationMs) {
+        this.tileAnims.delete(key);
+        continue;
+      }
+      const t = Math.max(0, Math.min(1, elapsed / anim.durationMs));
+      const [atxStr, atyStr] = key.split(',');
+      const sx = Number(atxStr) * TILE_SIZE - cx;
+      const sy = Number(atyStr) * TILE_SIZE - cy;
+      if (sx + TILE_SIZE < 0 || sy + TILE_SIZE < 0 || sx > viewW || sy > viewH) continue;
+
+      if (anim.kind === 'hit') {
+        const recoil = Math.sin(t * Math.PI) * 3.5;
+        const dx = anim.dirX * recoil;
+        const dy = anim.dirY * recoil * 0.6;
+        const flashAlpha = (1 - t) * 0.42;
+        ctx.save();
+        ctx.translate(sx + dx, sy + dy);
+        ctx.drawImage(getTileSprite(anim.itemId), 0, 0, TILE_SIZE, TILE_SIZE);
+        ctx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+        ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+        ctx.restore();
+      } else {
+        // Elastic pop from 1.24 -> 0.96 -> 1.0
+        const spring = 1 + Math.sin(t * Math.PI) * (1 - t) * 0.28;
+        const flashAlpha = (1 - t) * 0.35;
+        ctx.save();
+        ctx.translate(sx + TILE_SIZE * 0.5, sy + TILE_SIZE * 0.5);
+        ctx.scale(spring, 2 - spring * 0.95);
+        ctx.drawImage(getTileSprite(anim.itemId), -TILE_SIZE * 0.5, -TILE_SIZE * 0.5, TILE_SIZE, TILE_SIZE);
+        ctx.fillStyle = `rgba(255, 250, 224, ${flashAlpha})`;
+        ctx.fillRect(-TILE_SIZE * 0.5, -TILE_SIZE * 0.5, TILE_SIZE, TILE_SIZE);
+        ctx.restore();
+      }
+    }
+
     // 4. Dynamic planted trees, machine status cues, vending machine stock & damage cracks
     for (const key in this.world.plants) {
       const plant = this.world.plants[key];
@@ -1584,6 +2005,9 @@ export class BlockgroveEngine {
       const sy = plant.y * TILE_SIZE - cy;
       if (sx >= -TILE_SIZE && sx <= viewW && sy >= -TILE_SIZE && sy <= viewH) {
         this.drawPlantedTree(ctx, plant, sx, sy, nowMs);
+        if (nowMs >= plant.maturityAt && Math.random() < 0.03) {
+          this.spawnPlus(plant.x * TILE_SIZE + TILE_SIZE * 0.5, plant.y * TILE_SIZE + 12, '#b8f58c');
+        }
       }
     }
 
@@ -1641,43 +2065,43 @@ export class BlockgroveEngine {
       ctx.drawImage(getCrackOverlay(stage), sx, sy, TILE_SIZE, TILE_SIZE);
     }
 
-    // 5. Collectible Drops floating with compact frame & faceted pixel-art gem jewels
+    // 5. Collectible Drops floating with enlarged frame & faceted pixel-art gem jewels (~35% increased scale)
     for (const drop of this.drops.values()) {
-      const bob = Math.sin(nowMs * 0.0055 + drop.x * 0.35 + drop.y * 0.2) * 2.5;
+      const bob = Math.sin(nowMs * 0.0055 + drop.x * 0.35 + drop.y * 0.2) * 2.8;
       if (drop.isGem) {
         const qty = drop.qty || 1;
-        let sz = 10;
+        let sz = 14;
         let darkColor = '#713f12';
         let baseColor = '#ca8a04';
         let lightColor = '#fde047';
         let sparkColor = '#fef08a';
 
         if (qty >= 100) {
-          sz = 18;
+          sz = 26;
           darkColor = '#581c87';
           baseColor = '#9333ea';
           lightColor = '#c084fc';
           sparkColor = '#f3e8ff';
         } else if (qty >= 50) {
-          sz = 16;
+          sz = 23;
           darkColor = '#14532d';
           baseColor = '#16a34a';
           lightColor = '#4ade80';
           sparkColor = '#dcfce7';
         } else if (qty >= 10) {
-          sz = 14;
+          sz = 20;
           darkColor = '#991b1b';
           baseColor = '#dc2626';
           lightColor = '#f87171';
           sparkColor = '#fee2e2';
         } else if (qty >= 5) {
-          sz = 12;
+          sz = 17;
           darkColor = '#0369a1';
           baseColor = '#0284c7';
           lightColor = '#38bdf8';
           sparkColor = '#e0f2fe';
         } else {
-          sz = 10;
+          sz = 14;
           darkColor = '#713f12';
           baseColor = '#ca8a04';
           lightColor = '#fde047';
@@ -1689,8 +2113,8 @@ export class BlockgroveEngine {
         const gy = Math.floor(drop.y - cy - half + bob);
 
         // Ground shadow
-        ctx.fillStyle = 'rgba(4, 8, 14, 0.35)';
-        ctx.fillRect(gx + 1, Math.floor(drop.y - cy + half), sz - 2, 2);
+        ctx.fillStyle = 'rgba(4, 8, 14, 0.40)';
+        ctx.fillRect(gx + 1, Math.floor(drop.y - cy + half), sz - 2, 3);
 
         // Gem silhouette (brilliant octagon/diamond cut)
         ctx.fillStyle = '#090d16';
@@ -1700,8 +2124,8 @@ export class BlockgroveEngine {
 
         // Deep facet shadows (left & bottom)
         ctx.fillStyle = darkColor;
-        ctx.fillRect(gx + 1, gy + 2, Math.max(1, Math.floor(sz * 0.3)), sz - 4);
-        ctx.fillRect(gx + 2, gy + sz - 2, sz - 4, Math.max(1, Math.floor(sz * 0.3)));
+        ctx.fillRect(gx + 1, gy + 2, Math.max(2, Math.floor(sz * 0.3)), sz - 4);
+        ctx.fillRect(gx + 2, gy + sz - 2, sz - 4, Math.max(2, Math.floor(sz * 0.3)));
 
         // Mid base color facets
         ctx.fillStyle = baseColor;
@@ -1715,64 +2139,67 @@ export class BlockgroveEngine {
         const glintPhase = Math.sin(nowMs * 0.008 + drop.x * 1.5) > 0.2;
         if (glintPhase) {
           ctx.fillStyle = sparkColor;
-          ctx.fillRect(gx + Math.floor(sz * 0.4), gy + 1, 2, 2);
+          ctx.fillRect(gx + Math.floor(sz * 0.4), gy + 1, 3, 3);
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(gx + Math.floor(sz * 0.45), gy + 1, 1, 1);
+          ctx.fillRect(gx + Math.floor(sz * 0.45), gy + 1, 2, 2);
         }
       } else if (getItemDef(drop.itemId)?.category === 'seed') {
-        const dx = Math.floor(drop.x - cx - 7);
-        const dy = Math.floor(drop.y - cy - 7 + bob);
+        const dx = Math.floor(drop.x - cx - 9);
+        const dy = Math.floor(drop.y - cy - 9 + bob);
         // Subtle ground shadow
-        ctx.fillStyle = 'rgba(6, 12, 20, 0.25)';
-        ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 6), 11, 3);
+        ctx.fillStyle = 'rgba(6, 12, 20, 0.30)';
+        ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 8), 15, 3);
 
-        // Seeds only display their seed sprite (no background frame)
-        ctx.drawImage(getTileSprite(drop.itemId), dx + 2, dy + 2, 11, 11);
+        // Seeds display enlarged 16x16 seed sprite
+        ctx.drawImage(getTileSprite(drop.itemId), dx + 1, dy + 1, 16, 16);
 
         if (drop.qty > 1) {
           const label = drop.qty > 999 ? '999+' : String(drop.qty);
-          ctx.font = 'bold 7px monospace';
-          const badgeW = Math.max(10, Math.ceil(ctx.measureText(label).width) + 4);
-          const badgeX = dx + 15 - badgeW + 2;
-          const badgeY = dy + 9;
+          ctx.font = 'bold 8px monospace';
+          const badgeW = Math.max(12, Math.ceil(ctx.measureText(label).width) + 4);
+          const badgeX = dx + 18 - badgeW + 2;
+          const badgeY = dy + 11;
           ctx.fillStyle = '#0d1520';
-          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 9);
+          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 10);
           ctx.fillStyle = '#e8f2fa';
-          ctx.fillRect(badgeX, badgeY, badgeW, 7);
+          ctx.fillRect(badgeX, badgeY, badgeW, 8);
           ctx.fillStyle = '#142233';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 3.5);
+          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 4);
           ctx.textAlign = 'start';
           ctx.textBaseline = 'alphabetic';
         }
       } else {
-        // Compact 15x15 floating item frame (reduced from 23x23)
-        const dx = Math.floor(drop.x - cx - 7);
-        const dy = Math.floor(drop.y - cy - 7 + bob);
-        ctx.fillStyle = 'rgba(6, 12, 20, 0.30)';
-        ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 6), 11, 3);
+        // Enlarged 21x21 floating item frame (scaled up for high-visibility)
+        const dx = Math.floor(drop.x - cx - 10);
+        const dy = Math.floor(drop.y - cy - 10 + bob);
+        ctx.fillStyle = 'rgba(6, 12, 20, 0.35)';
+        ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 9), 17, 3);
 
-        ctx.fillStyle = '#111824';
-        ctx.fillRect(dx, dy, 15, 15);
-        ctx.fillStyle = '#2d4863';
-        ctx.fillRect(dx + 1, dy + 1, 13, 13);
-        ctx.drawImage(getTileSprite(drop.itemId), dx + 2, dy + 2, 11, 11);
+        ctx.fillStyle = '#090d16';
+        ctx.fillRect(dx, dy, 21, 21);
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(dx + 1, dy + 1, 19, 19);
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(dx + 2, dy + 2, 17, 1);
+        ctx.fillRect(dx + 2, dy + 2, 1, 17);
+        ctx.drawImage(getTileSprite(drop.itemId), dx + 2.5, dy + 2.5, 16, 16);
 
         if (drop.qty > 1) {
           const label = drop.qty > 999 ? '999+' : String(drop.qty);
-          ctx.font = 'bold 7px monospace';
-          const badgeW = Math.max(10, Math.ceil(ctx.measureText(label).width) + 4);
-          const badgeX = dx + 15 - badgeW + 2;
-          const badgeY = dy + 9;
+          ctx.font = 'bold 8px monospace';
+          const badgeW = Math.max(12, Math.ceil(ctx.measureText(label).width) + 4);
+          const badgeX = dx + 20 - badgeW + 2;
+          const badgeY = dy + 12;
           ctx.fillStyle = '#0d1520';
-          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 9);
+          ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 10);
           ctx.fillStyle = '#e8f2fa';
-          ctx.fillRect(badgeX, badgeY, badgeW, 7);
+          ctx.fillRect(badgeX, badgeY, badgeW, 8);
           ctx.fillStyle = '#142233';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 3.5);
+          ctx.fillText(label, badgeX + badgeW / 2, badgeY + 4);
           ctx.textAlign = 'start';
           ctx.textBaseline = 'alphabetic';
         }
@@ -1807,13 +2234,114 @@ export class BlockgroveEngine {
       const pulse = 0.35 + Math.sin(nowMs * 0.005) * 0.18;
       ctx.strokeStyle = `rgba(244, 196, 95, ${pulse})`;
       ctx.lineWidth = 2;
-      ctx.strokeRect(csx + 1, csy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+    }
+
+    // 5c. Matteragen Engine in-world status & readiness cues
+    if (this.world.matteragenEngines) {
+      for (const engine of Object.values(this.world.matteragenEngines)) {
+        const esx = engine.x * TILE_SIZE - cx;
+        const esy = engine.y * TILE_SIZE - cy;
+        if (esx + TILE_SIZE < 0 || esx > viewW || esy + TILE_SIZE < 0 || esy > viewH) continue;
+
+        const corePulse = 0.4 + 0.3 * Math.sin(nowMs * 0.006 + engine.x * 2 + engine.y);
+        if (engine.isReady) {
+          if (Math.random() < 0.05) {
+            this.spawnPlus(engine.x * TILE_SIZE + TILE_SIZE * 0.5, engine.y * TILE_SIZE + 8, '#6ee7b7');
+          }
+          ctx.fillStyle = `rgba(52, 211, 153, ${corePulse * 0.7})`;
+          ctx.fillRect(esx + 6, esy + 6, TILE_SIZE - 12, TILE_SIZE - 12);
+          ctx.strokeStyle = '#6ee7b7';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(esx + 2, esy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+
+          const bounce = Math.sin(nowMs * 0.007) * 3;
+          ctx.font = 'bold 9px monospace';
+          const text = 'PUNCH TO COLLECT!';
+          const tw = ctx.measureText(text).width;
+          const bx = Math.round(esx + TILE_SIZE / 2 - tw / 2 - 5);
+          const by = Math.round(esy - 13 + bounce);
+          ctx.fillStyle = '#064e3b';
+          ctx.fillRect(bx - 1, by - 1, tw + 10, 15);
+          ctx.fillStyle = '#10b981';
+          ctx.fillRect(bx, by, tw + 8, 13);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(text, bx + 4, by + 10);
+        } else {
+          ctx.fillStyle = `rgba(56, 189, 248, ${corePulse * 0.35})`;
+          ctx.fillRect(esx + 14, esy + 14, TILE_SIZE - 28, TILE_SIZE - 28);
+
+          ctx.font = 'bold 8px monospace';
+          const lvlText = `LV.${engine.level || 1}`;
+          const ltw = ctx.measureText(lvlText).width;
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+          ctx.fillRect(esx + 2, esy + 2, ltw + 6, 11);
+          ctx.fillStyle = '#38bdf8';
+          ctx.fillText(lvlText, esx + 5, esy + 10);
+        }
+      }
+    }
+
+    // 5d. ATM Machine & Vaultbox in-world cues
+    if (this.world.atmMachines) {
+      for (const atm of Object.values(this.world.atmMachines)) {
+        const asx = atm.x * TILE_SIZE - cx;
+        const asy = atm.y * TILE_SIZE - cy;
+        if (asx + TILE_SIZE < 0 || asx > viewW || asy + TILE_SIZE < 0 || asy > viewH) continue;
+
+        const ledPulse = 0.45 + 0.35 * Math.sin(nowMs * 0.007 + atm.x * 1.7);
+        if (atm.isReady) {
+          if (Math.random() < 0.06) {
+            this.spawnPlus(atm.x * TILE_SIZE + TILE_SIZE * 0.5, atm.y * TILE_SIZE + 8, '#fde047');
+          }
+          ctx.fillStyle = `rgba(250, 204, 21, ${ledPulse * 0.42})`;
+          ctx.fillRect(asx + 4, asy + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+          ctx.strokeStyle = '#fde047';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(asx + 1, asy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+
+          const bounce = Math.sin(nowMs * 0.0075) * 3;
+          ctx.font = 'bold 9px monospace';
+          const text = `PUNCH: +${atm.storedGems} G!`;
+          const tw = ctx.measureText(text).width;
+          const bx = Math.round(asx + TILE_SIZE / 2 - tw / 2 - 5);
+          const by = Math.round(asy - 14 + bounce);
+          ctx.fillStyle = '#422006';
+          ctx.fillRect(bx - 1, by - 1, tw + 10, 15);
+          ctx.fillStyle = '#eab308';
+          ctx.fillRect(bx, by, tw + 8, 13);
+          ctx.fillStyle = '#fefce8';
+          ctx.fillText(text, bx + 4, by + 10);
+        } else {
+          ctx.fillStyle = `rgba(56, 232, 216, ${ledPulse * 0.55})`;
+          ctx.fillRect(asx + 12, asy + 11, 24, 11);
+        }
+      }
+    }
+
+    if (this.world.vaultboxes) {
+      for (const vb of Object.values(this.world.vaultboxes)) {
+        const vsx = vb.x * TILE_SIZE - cx;
+        const vsy = vb.y * TILE_SIZE - cy;
+        if (vsx + TILE_SIZE < 0 || vsx > viewW || vsy + TILE_SIZE < 0 || vsy > viewH) continue;
+        const used = vb.slots.filter(Boolean).length;
+        if (used > 0) {
+          ctx.font = 'bold 8px monospace';
+          const tag = `${used}/10`;
+          const tw = ctx.measureText(tag).width;
+          ctx.fillStyle = 'rgba(9, 14, 23, 0.86)';
+          ctx.fillRect(vsx + 2, vsy + 2, tw + 6, 11);
+          ctx.fillStyle = '#fde047';
+          ctx.fillText(tag, vsx + 5, vsy + 10);
+        }
+      }
     }
 
     // 6. Remote players
     for (const rp of this.remotePlayers.values()) {
       ctx.fillStyle = 'rgba(6, 12, 20, 0.34)';
       ctx.fillRect(Math.round(rp.renderX - cx + 6), Math.round(rp.renderY - cy + PLAYER_HEIGHT - 3), PLAYER_WIDTH - 12, 5);
+      const rpCast = this.activeCasts.get(rp.id);
+      const rpFishState: 'none' | 'hold' | 'reel' = rpCast ? (rpCast.biting ? 'reel' : 'hold') : 'none';
       const topY = this.drawCharacter(
         ctx,
         rp.renderX - cx,
@@ -1825,10 +2353,13 @@ export class BlockgroveEngine {
         rp.punching,
         Boolean(rp.placing),
         rp.shirtColor,
-        nowMs * 0.007,
+        nowMs * 0.014,
         nowMs,
         rp.punching ? ((nowMs % 320) / 320) : 0,
-        rp.equipped
+        rp.equipped,
+        'punch',
+        false,
+        rpFishState
       );
       queuedNameplates.push({
         name: rp.name,
@@ -1851,6 +2382,15 @@ export class BlockgroveEngine {
         this.punchAnimTimer > 0
           ? Math.max(0, Math.min(1, 1 - this.punchAnimTimer / PUNCH_ANIM_DURATION))
           : 0;
+      const selDef = getItemDef(this.selectedItemId);
+      const actionKind: 'punch' | 'mine' =
+        selDef?.toolKind === 'pickaxe' || this.selectedItemId === ITEM_IDS.WRENCH ? 'mine' : 'punch';
+      const localCast = this.activeCasts.get(this.localPlayerId);
+      const localFishState: 'none' | 'hold' | 'reel' = localCast
+        ? localCast.biting
+          ? 'reel'
+          : 'hold'
+        : 'none';
       const localTopY = this.drawCharacter(
         ctx,
         this.body.x - cx,
@@ -1862,10 +2402,13 @@ export class BlockgroveEngine {
         this.punchAnimTimer > 0,
         this.placeAnimTimer > 0,
         this.localShirtColor,
-        this.body.walkDistance * 0.085,
+        this.body.walkDistance * 0.165,
         nowMs,
         punchProgress,
-        this.localEquipped
+        this.localEquipped,
+        actionKind,
+        this.landAnimTimer > 0,
+        localFishState
       );
       queuedNameplates.push({
         name: this.localPlayerName,
@@ -1897,14 +2440,16 @@ export class BlockgroveEngine {
       for (const cast of this.activeCasts.values()) {
         let rodX = 0;
         let rodY = 0;
+        const rodOffX = cast.biting ? 21 : 24;
+        const rodOffY = cast.biting ? 27 : 30;
         if (cast.playerId === this.localPlayerId) {
-          rodX = this.body.x + PLAYER_WIDTH * 0.5 + this.body.facing * 14 - cx;
-          rodY = this.body.y + 34 - cy;
+          rodX = this.body.x + PLAYER_WIDTH * 0.5 + this.body.facing * rodOffX - cx;
+          rodY = this.body.y + rodOffY - cy;
         } else {
           const rp = this.remotePlayers.get(cast.playerId);
           if (!rp) continue;
-          rodX = rp.renderX + PLAYER_WIDTH * 0.5 + rp.facing * 14 - cx;
-          rodY = rp.renderY + 34 - cy;
+          rodX = rp.renderX + PLAYER_WIDTH * 0.5 + rp.facing * rodOffX - cx;
+          rodY = rp.renderY + rodOffY - cy;
         }
         const bobX = cast.bobberTx * TILE_SIZE + TILE_SIZE * 0.5 - cx;
         const bobY =
@@ -1936,40 +2481,164 @@ export class BlockgroveEngine {
         }
       }
 
-      // Tile targeting reticle with corner brackets
+      // Tool swing slash arc when punching/mining
+      if (this.punchAnimTimer > 0) {
+        const pt = 1 - Math.max(0, Math.min(1, this.punchAnimTimer / PUNCH_ANIM_DURATION));
+        const arcCx = this.body.x + PLAYER_WIDTH * 0.5 + this.body.facing * 20 - cx;
+        const arcCy = this.body.y + PLAYER_HEIGHT * 0.45 - cy;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, (1 - pt) * 0.8);
+        ctx.strokeStyle = actionKind === 'mine' ? '#8cf7ee' : '#fef08a';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        if (this.body.facing === 1) {
+          ctx.arc(arcCx, arcCy, 16 + pt * 4, -0.95 + pt * 0.5, 0.75 + pt * 0.4);
+        } else {
+          ctx.arc(arcCx, arcCy, 16 + pt * 4, Math.PI - 0.75 - pt * 0.4, Math.PI + 0.95 - pt * 0.5);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Animated tile targeting reticle with pulsing corner brackets & placement ghost hint
       const { tx, ty } = this.punchStick.active
         ? this.getTargetTileFromJoystick()
         : this.getTargetTileFromCursor();
       if (inBoundsWorld(this.world, tx, ty)) {
-        const playerCtx = { id: this.localPlayerId, x: this.body.x, y: this.body.y };
-        const reach = this.gameConfig.mechanics.reachTiles;
-        const sDef = getItemDef(this.selectedItemId);
-        const canAct =
-          this.selectedItemId === ITEM_IDS.FIST || sDef?.toolKind === 'pickaxe'
-            ? canBreakTile(this.world, playerCtx, tx, ty, reach).ok
-            : this.selectedItemId === ITEM_IDS.WRENCH || sDef?.category === 'consumable' || sDef?.toolKind === 'rod'
-              ? true
-              : canPlaceTile(this.world, playerCtx, this.selectedItemId, tx, ty, reach).ok;
+        const playerCtx = {
+          id: this.localPlayerId,
+          x: this.body.x,
+          y: this.body.y,
+          adminWorldEdit: this.adminWorldEdit,
+        };
+        const reach = this.adminWorldEdit
+          ? Math.max(12, this.gameConfig.mechanics.reachTiles)
+          : this.gameConfig.mechanics.reachTiles;
+        const activeItemId = this.getEffectiveInteractItemId();
+        const sDef = getItemDef(activeItemId);
+        const isBreakTool = activeItemId === ITEM_IDS.FIST || sDef?.toolKind === 'pickaxe';
+        const isNonPlaceTool = activeItemId === ITEM_IDS.WRENCH || sDef?.category === 'consumable' || sDef?.toolKind === 'rod';
+        const canAct = isBreakTool
+          ? canBreakTile(this.world, playerCtx, tx, ty, reach).ok
+          : isNonPlaceTool
+            ? true
+            : canPlaceTile(this.world, playerCtx, activeItemId, tx, ty, reach).ok;
 
         const rx = tx * TILE_SIZE - cx;
         const ry = ty * TILE_SIZE - cy;
-        ctx.strokeStyle = canAct ? 'rgba(255, 240, 128, 0.92)' : 'rgba(255, 110, 110, 0.55)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(rx + 1, ry + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        const pulse = Math.sin(nowMs * 0.009) * 1.5;
+
+        // Faint placement ghost sprite when aiming a placeable block/machine/pot
+        if (canAct && !isBreakTool && !isNonPlaceTool && sDef?.placeable) {
+          ctx.save();
+          ctx.globalAlpha = 0.34;
+          ctx.drawImage(getTileSprite(activeItemId), rx, ry, TILE_SIZE, TILE_SIZE);
+          ctx.restore();
+        }
+
+        const bracketColor = canAct
+          ? this.adminWorldEdit
+            ? 'rgba(56, 232, 216, 0.96)'
+            : 'rgba(255, 240, 128, 0.96)'
+          : 'rgba(255, 110, 110, 0.65)';
         if (canAct) {
-          ctx.fillStyle = 'rgba(255, 245, 158, 0.08)';
+          ctx.fillStyle = this.adminWorldEdit
+            ? 'rgba(56, 232, 216, 0.12)'
+            : 'rgba(255, 245, 158, 0.09)';
           ctx.fillRect(rx + 2, ry + 2, TILE_SIZE - 4, TILE_SIZE - 4);
         }
+
+        const brk = 10;
+        const pad = 1 - pulse * 0.5;
+        ctx.strokeStyle = bracketColor;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        // Top-left
+        ctx.moveTo(rx + pad, ry + pad + brk);
+        ctx.lineTo(rx + pad, ry + pad);
+        ctx.lineTo(rx + pad + brk, ry + pad);
+        // Top-right
+        ctx.moveTo(rx + TILE_SIZE - pad - brk, ry + pad);
+        ctx.lineTo(rx + TILE_SIZE - pad, ry + pad);
+        ctx.lineTo(rx + TILE_SIZE - pad, ry + pad + brk);
+        // Bottom-right
+        ctx.moveTo(rx + TILE_SIZE - pad, ry + TILE_SIZE - pad - brk);
+        ctx.lineTo(rx + TILE_SIZE - pad, ry + TILE_SIZE - pad);
+        ctx.lineTo(rx + TILE_SIZE - pad - brk, ry + TILE_SIZE - pad);
+        // Bottom-left
+        ctx.moveTo(rx + pad + brk, ry + TILE_SIZE - pad);
+        ctx.lineTo(rx + pad, ry + TILE_SIZE - pad);
+        ctx.lineTo(rx + pad, ry + TILE_SIZE - pad - brk);
+        ctx.stroke();
       }
     }
 
-    // 8. Pooled particles
+    // 8. Pooled multi-shape VFX particles & floating world popups
     for (let i = 0; i < MAX_PARTICLES; i++) {
       const p = this.particles[i];
       if (!p.active) continue;
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(Math.floor(p.x - cx), Math.floor(p.y - cy), p.size, p.size);
+      const t = 1 - Math.max(0, Math.min(1, p.life / p.maxLife));
+      const alpha = Math.max(0, 1 - t);
+      const pxScreen = p.x - cx;
+      const pyScreen = p.y - cy;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (p.shape === 'ring') {
+        const radius = p.size + (p.endSize - p.size) * (1 - (1 - t) * (1 - t));
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = Math.max(1.2, 3 * (1 - t));
+        ctx.beginPath();
+        ctx.arc(pxScreen, pyScreen, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (p.shape === 'shard') {
+        const curSize = Math.max(2, p.size + (p.endSize - p.size) * t);
+        const half = curSize * 0.5;
+        ctx.translate(pxScreen, pyScreen);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = '#0d1520';
+        ctx.fillRect(-half - 1, -half - 1, curSize + 2, curSize + 2);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-half, -half, curSize, curSize);
+        ctx.fillStyle = p.accentColor;
+        ctx.fillRect(-half, -half, Math.max(1, curSize * 0.45), Math.max(1, curSize * 0.45));
+      } else if (p.shape === 'plus') {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.floor(pxScreen - 1), Math.floor(pyScreen - 3), 2, 6);
+        ctx.fillRect(Math.floor(pxScreen - 3), Math.floor(pyScreen - 1), 6, 2);
+      } else if (p.shape === 'dust') {
+        const curSize = p.size + (p.endSize - p.size) * t;
+        ctx.globalAlpha = alpha * 0.65;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.floor(pxScreen - curSize * 0.5), Math.floor(pyScreen - curSize * 0.5), curSize, curSize);
+      } else {
+        // spark
+        const curSize = Math.max(1.5, p.size * (1 - t * 0.5));
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.floor(pxScreen - curSize * 0.5), Math.floor(pyScreen - curSize * 0.5), curSize, curSize);
+        ctx.fillStyle = p.accentColor;
+        ctx.fillRect(Math.floor(pxScreen), Math.floor(pyScreen), 1.5, 1.5);
+      }
+      ctx.restore();
+    }
+
+    // Floating combat/gem/harvest world popups
+    if (this.popups.length > 0) {
+      ctx.save();
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const pop of this.popups) {
+        const alpha = Math.max(0, Math.min(1, pop.life / (pop.maxLife * 0.55)));
+        const sx = Math.round(pop.x - cx);
+        const sy = Math.round(pop.y - cy);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#090e17';
+        ctx.fillText(pop.text, sx + 1, sy + 1);
+        ctx.fillStyle = pop.color;
+        ctx.fillText(pop.text, sx, sy);
+      }
+      ctx.restore();
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -2012,24 +2681,33 @@ export class BlockgroveEngine {
     const shadeLeaf = def?.colorSecondary ?? '#286b35';
     const highlight = def?.colorAccent ?? '#b8f58c';
 
+    const scale = TILE_SIZE / 48;
     const sway = Math.round(Math.sin(nowMs * 0.0025 + plant.x * 0.7) * (stage === 'mature' ? 2 : 1));
     const growthScale = stage === 'planted' ? 0 : stage === 'sprout' ? 0.28 : stage === 'young' ? 0.48 : stage === 'developing' ? 0.76 : 1;
-    const canopyW = Math.round(14 + growthScale * 26);
-    const canopyH = Math.round(8 + growthScale * 20);
-    const canopyX = sx + Math.round((48 - canopyW) / 2) + sway;
-    const canopyY = sy + 38 - canopyH - Math.round(growthScale * 10);
+    const canopyW = Math.round((14 + growthScale * 26) * scale);
+    const canopyH = Math.round((8 + growthScale * 20) * scale);
+    const canopyX = sx + Math.round((TILE_SIZE - canopyW) / 2) + sway;
+    const canopyY = sy + Math.round(38 * scale) - canopyH - Math.round(growthScale * 10 * scale);
+    const potKey = `${plant.x},${plant.y}`;
+    const pIdx = tileIndexIn(this.world, plant.x, plant.y);
+    if (this.world.seedPots?.[potKey] || this.world.fg[pIdx] === ITEM_IDS.SEED_POT) {
+      ctx.drawImage(getTileSprite(ITEM_IDS.SEED_POT), sx, sy, TILE_SIZE, TILE_SIZE);
+    }
+
     if (stage === 'planted') {
-      ctx.fillStyle = '#151b26'; ctx.fillRect(sx + 14, sy + 36, 20, 12);
-      ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + 16, sy + 38, 16, 8);
-      ctx.fillStyle = leafColor; ctx.fillRect(sx + 20, sy + 28, 8, 10);
-      ctx.fillStyle = highlight; ctx.fillRect(sx + 20, sy + 28, 4, 6);
+      if (!this.world.seedPots?.[potKey] && this.world.fg[pIdx] !== ITEM_IDS.SEED_POT) {
+        ctx.fillStyle = '#151b26'; ctx.fillRect(sx + Math.round(14 * scale), sy + Math.round(36 * scale), Math.round(20 * scale), Math.round(12 * scale));
+        ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + Math.round(16 * scale), sy + Math.round(38 * scale), Math.round(16 * scale), Math.round(8 * scale));
+      }
+      ctx.fillStyle = leafColor; ctx.fillRect(sx + Math.round(20 * scale), sy + Math.round(26 * scale), Math.round(8 * scale), Math.round(10 * scale));
+      ctx.fillStyle = highlight; ctx.fillRect(sx + Math.round(20 * scale), sy + Math.round(26 * scale), Math.round(4 * scale), Math.round(6 * scale));
       return;
     }
-    const trunkH = Math.round(9 + growthScale * 25);
-    const trunkW = Math.round(3 + growthScale * 7);
-    ctx.fillStyle = '#151b26'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2), sy + 48 - trunkH, trunkW + 2, trunkH);
-    ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2) + 1, sy + 48 - trunkH + 1, trunkW, trunkH - 1);
-    ctx.fillStyle = '#a36836'; ctx.fillRect(sx + 24 - Math.floor(trunkW / 2) + 1, sy + 48 - trunkH + 2, 2, trunkH - 3);
+    const trunkH = Math.round((9 + growthScale * 25) * scale);
+    const trunkW = Math.round((3 + growthScale * 7) * scale);
+    ctx.fillStyle = '#151b26'; ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2), sy + TILE_SIZE - trunkH, trunkW + Math.round(2 * scale), trunkH);
+    ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2) + 1, sy + TILE_SIZE - trunkH + 1, trunkW, trunkH - 1);
+    ctx.fillStyle = '#a36836'; ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2) + 1, sy + TILE_SIZE - trunkH + 2, Math.round(2 * scale), trunkH - 3);
     // Seed IDs select a stable species silhouette while each species keeps its own palette.
     const species = Math.abs(plant.seedId) % 3;
     const layers = species === 0
@@ -2149,1041 +2827,39 @@ export class BlockgroveEngine {
     walkPhase: number,
     nowMs: number,
     punchProgress: number,
-    equipped?: EquippedWearables
+    equipped?: EquippedWearables,
+    actionKind: 'punch' | 'mine' = 'punch',
+    landing = false,
+    fishingState: 'none' | 'hold' | 'reel' = 'none'
   ): number {
-    let pose: PlayerPose = (`idle${Math.floor(nowMs / 280) % 4}` as PlayerPose) || 'idle0';
+    let pose: PlayerPose = (`idle${Math.floor(nowMs / 240) % 8}` as PlayerPose) || 'idle0';
     if (punching) {
       const pFrame = Math.min(3, Math.max(0, Math.floor(punchProgress * 4)));
-      pose = (`mine${pFrame}` as PlayerPose) || 'mine2';
+      pose = (`${actionKind}${pFrame}` as PlayerPose) || 'punch3';
     } else if (placing) {
       pose = 'place';
     } else if (!grounded) {
       pose = vy < 0 ? 'jump' : 'fall';
     } else if (Math.abs(vx) > 15) {
-      const step = Math.floor(walkPhase) % 4;
+      const step = Math.floor(walkPhase) % 8;
       pose = (`walk${step}` as PlayerPose) || 'walk0';
+    } else if (fishingState === 'reel') {
+      pose = 'fish_reel';
+    } else if (fishingState === 'hold') {
+      pose = 'fish_hold';
+    } else if (landing) {
+      pose = 'land';
     }
 
     const sprite = getPlayerSprite(pose, facing, shirtColor, equipped);
-    const drawX = Math.round(screenX + (PLAYER_WIDTH - sprite.width) * 0.5);
-    const drawY = Math.round(screenY + PLAYER_HEIGHT - sprite.height);
+    const drawX = Math.round(screenX + (PLAYER_WIDTH - PLAYER_LOGICAL_W) * 0.5);
+    const drawY = Math.round(screenY + PLAYER_HEIGHT - PLAYER_LOGICAL_H);
 
-    // 1:1 native pixel blit with zero fractional resampling or squash/stretch blur
-    ctx.drawImage(sprite, drawX, drawY);
-    return drawY;
+    // Draw crisp 1:1 nearest-neighbor 2D pixel-art character sprite matching world tile pixel density
+    const prevSmoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sprite, drawX, drawY, PLAYER_LOGICAL_W, PLAYER_LOGICAL_H);
+    ctx.imageSmoothingEnabled = prevSmoothing;
+    return drawY + 9;
   }
-
-  public renderDungeonFrame(
-    targetCtx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
-    snapshot: DungeonSnapshot | null,
-    playerId: string,
-    yaw: number,
-    opts?: DungeonRenderOptions
-  ) {
-    renderDungeonRaycaster(targetCtx, width, height, snapshot, playerId, yaw, opts);
-  }
-}
-
-export interface DungeonRenderOptions {
-  nowMs?: number;
-  bobPhase?: number;
-  slashTimer?: number;
-  hitFlash?: number;
-  fovRadians?: number;
-  previewTier?: number;
-  isMoving?: boolean;
-}
-
-interface DungeonTierPalette {
-  wallBase: string;
-  wallLight: string;
-  wallDark: string;
-  trim: string;
-  accent: string;
-  ceilTop: string;
-  ceilBot: string;
-  floorTop: string;
-  floorBot: string;
-  fogHex: string;
-}
-
-const DUNGEON_TIER_PALETTES: DungeonTierPalette[] = [
-  {
-    wallBase: '#3d4f66',
-    wallLight: '#566f8c',
-    wallDark: '#263242',
-    trim: '#d8824c',
-    accent: '#ffe18c',
-    ceilTop: '#08101a',
-    ceilBot: '#132030',
-    floorTop: '#161e29',
-    floorBot: '#293545',
-    fogHex: '#0a121c',
-  },
-  {
-    wallBase: '#4c5f73',
-    wallLight: '#6b839c',
-    wallDark: '#303d4b',
-    trim: '#a4d4ec',
-    accent: '#8cf7ee',
-    ceilTop: '#09121c',
-    ceilBot: '#152638',
-    floorTop: '#18212b',
-    floorBot: '#2c3a4a',
-    fogHex: '#0b141f',
-  },
-  {
-    wallBase: '#27473a',
-    wallLight: '#3c6b58',
-    wallDark: '#172b23',
-    trim: '#42e88a',
-    accent: '#b6ffcf',
-    ceilTop: '#07140f',
-    ceilBot: '#10261d',
-    floorTop: '#12211a',
-    floorBot: '#213d31',
-    fogHex: '#081610',
-  },
-  {
-    wallBase: '#2f2952',
-    wallLight: '#49407d',
-    wallDark: '#1c1833',
-    trim: '#f2b738',
-    accent: '#7df5ff',
-    ceilTop: '#0b091a',
-    ceilBot: '#181433',
-    floorTop: '#18142b',
-    floorBot: '#2d264f',
-    fogHex: '#0c0a1c',
-  },
-  {
-    wallBase: '#421d2b',
-    wallLight: '#632c41',
-    wallDark: '#261018',
-    trim: '#ff5e7e',
-    accent: '#ffd166',
-    ceilTop: '#14070c',
-    ceilBot: '#260d17',
-    floorTop: '#210d14',
-    floorBot: '#3d1926',
-    fogHex: '#16080e',
-  },
-];
-
-const dungeonTextureCache = new Map<string, HTMLCanvasElement>();
-let rayBufferCanvas: HTMLCanvasElement | null = null;
-let rayBufferCtx: CanvasRenderingContext2D | null = null;
-
-function getDungeonTexture(
-  kind: 'wall' | 'pillar' | 'entry' | 'exit_locked' | 'exit_open',
-  tier: number
-): HTMLCanvasElement {
-  const safeTier = Math.max(1, Math.min(5, tier));
-  const key = `${kind}_t${safeTier}`;
-  const cached = dungeonTextureCache.get(key);
-  if (cached) return cached;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 48;
-  canvas.height = 48;
-  const c = canvas.getContext('2d')!;
-  c.imageSmoothingEnabled = false;
-
-  const pal = DUNGEON_TIER_PALETTES[safeTier - 1];
-  const ink = BLOCKGROVE_ART_THEME.ink.outline;
-  const px = (vx: number, vy: number, vw: number, vh: number, color: string) => {
-    c.fillStyle = color;
-    c.fillRect(vx * 3, vy * 3, vw * 3, vh * 3);
-  };
-
-  // Base masonry block in Blockgrove's 16x16 @ 3px crisp pixel style
-  px(0, 0, 16, 16, pal.wallBase);
-  // Top-left bevel highlight & bottom-right occlusion
-  px(0, 0, 16, 1, pal.wallLight);
-  px(0, 0, 1, 16, pal.wallLight);
-  px(0, 15, 16, 1, pal.wallDark);
-  px(15, 0, 1, 16, pal.wallDark);
-
-  // Midnight-ink brick mortar seams
-  for (const row of [4, 8, 12]) {
-    px(0, row, 16, 1, ink);
-    px(0, row - 1, 16, 1, pal.wallDark);
-  }
-  px(8, 0, 1, 4, ink);
-  px(4, 4, 1, 4, ink);
-  px(12, 4, 1, 4, ink);
-  px(7, 8, 1, 4, ink);
-  px(3, 12, 1, 4, ink);
-  px(11, 12, 1, 4, ink);
-
-  // Warm pixel stone specular chips
-  px(2, 1, 3, 1, pal.wallLight);
-  px(10, 2, 2, 1, pal.wallLight);
-  px(6, 5, 3, 1, pal.wallLight);
-  px(1, 9, 3, 1, pal.wallLight);
-  px(9, 13, 3, 1, pal.wallLight);
-
-  if (kind === 'pillar') {
-    // Carved tier rune column with glowing ore veins & trim
-    px(2, 1, 12, 14, pal.wallDark);
-    px(3, 2, 10, 12, pal.wallBase);
-    px(3, 2, 10, 1, pal.trim);
-    px(3, 13, 10, 1, pal.trim);
-    px(5, 4, 6, 8, ink);
-    px(6, 5, 4, 6, pal.wallDark);
-    // Glowing diamond rune core
-    px(7, 6, 2, 4, pal.trim);
-    px(6, 7, 4, 2, pal.trim);
-    px(7, 7, 2, 2, pal.accent);
-  } else if (kind === 'entry' || kind === 'exit_locked' || kind === 'exit_open') {
-    const isEntry = kind === 'entry';
-    const isOpen = kind === 'exit_open';
-    const frameColor = isEntry ? '#78c8f5' : isOpen ? '#42e88a' : '#d96459';
-    const glowColor = isEntry ? '#c2edff' : isOpen ? '#ffe18c' : '#ff9b8f';
-    // Arch frame
-    px(1, 2, 14, 14, ink);
-    px(2, 3, 12, 13, frameColor);
-    px(3, 4, 10, 12, '#09131d');
-    // Inner portal energy
-    px(4, 6, 8, 9, isEntry ? '#1d4f7a' : isOpen ? '#1d6949' : '#42191e');
-    px(5, 7, 6, 7, isEntry ? '#3896d6' : isOpen ? '#37ba79' : '#73262e');
-    px(7, 8, 2, 5, glowColor);
-
-    // Top Silkscreen pixel banner nameplate matching Blockgrove's UI typography
-    c.fillStyle = ink;
-    c.fillRect(3, 1, 42, 12);
-    c.fillStyle = '#0f1d2c';
-    c.fillRect(4, 2, 40, 10);
-    c.font = 'bold 7px "Silkscreen", monospace';
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.fillStyle = glowColor;
-    c.fillText(isEntry ? 'ENTRY' : isOpen ? 'EXIT!' : 'LOCKED', 24, 7.5);
-  } else {
-    // Occasional tier crystal studding on outer perimeter wall
-    px(1, 5, 2, 2, pal.trim);
-    px(13, 10, 2, 2, pal.trim);
-  }
-
-  dungeonTextureCache.set(key, canvas);
-  return canvas;
-}
-
-function getDungeonSpriteCanvas(
-  kind: 'dweller' | 'drone' | 'boss' | 'portal_open' | 'portal_locked' | 'entry_pad',
-  tier: number
-): HTMLCanvasElement {
-  const safeTier = Math.max(1, Math.min(5, tier));
-  const key = `spr_${kind}_t${safeTier}`;
-  const cached = dungeonTextureCache.get(key);
-  if (cached) return cached;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 48;
-  canvas.height = 48;
-  const c = canvas.getContext('2d')!;
-  c.imageSmoothingEnabled = false;
-
-  const pal = DUNGEON_TIER_PALETTES[safeTier - 1];
-  const ink = BLOCKGROVE_ART_THEME.ink.outline;
-  const px = (vx: number, vy: number, vw: number, vh: number, color: string) => {
-    c.fillStyle = color;
-    c.fillRect(vx * 3, vy * 3, vw * 3, vh * 3);
-  };
-
-  if (kind === 'portal_open' || kind === 'portal_locked' || kind === 'entry_pad') {
-    const ring = kind === 'portal_open' ? '#42e88a' : kind === 'entry_pad' ? '#78c8f5' : '#e05b4f';
-    const core = kind === 'portal_open' ? '#ffe18c' : kind === 'entry_pad' ? '#c9f0ff' : '#ff9e8f';
-    // Floating pixel beacon pedestal
-    px(4, 13, 8, 2, ink);
-    px(5, 13, 6, 1, '#5a7087');
-    px(5, 2, 6, 11, ink);
-    px(6, 3, 4, 9, ring);
-    px(7, 4, 2, 7, core);
-    px(4, 5, 1, 5, ring);
-    px(11, 5, 1, 5, ring);
-  } else if (kind === 'drone') {
-    // Brass & cyan hover drone
-    px(3, 4, 10, 6, ink);
-    px(4, 5, 8, 4, '#b8763e');
-    px(4, 5, 8, 1, '#f5c07a');
-    px(6, 6, 4, 2, '#102233');
-    px(7, 6, 2, 2, '#38e8d8');
-    px(2, 6, 1, 2, '#d88c48');
-    px(13, 6, 1, 2, '#d88c48');
-    px(6, 10, 4, 2, '#f2b738');
-  } else if (kind === 'boss') {
-    // Crowned Armored Boss
-    px(2, 1, 2, 3, '#ffe18c');
-    px(12, 1, 2, 3, '#ffe18c');
-    px(6, 1, 4, 2, '#f2b738');
-    px(3, 3, 10, 12, ink);
-    px(4, 4, 8, 10, pal.wallLight);
-    px(4, 4, 8, 2, pal.trim);
-    px(5, 6, 2, 2, '#ff4d4d');
-    px(9, 6, 2, 2, '#ff4d4d');
-    px(6, 7, 1, 1, '#ffffff');
-    px(10, 7, 1, 1, '#ffffff');
-    px(5, 10, 6, 2, ink);
-    px(6, 10, 1, 1, '#fff3cf');
-    px(9, 10, 1, 1, '#fff3cf');
-    px(1, 6, 2, 6, ink);
-    px(13, 6, 2, 6, ink);
-    px(1, 7, 1, 4, pal.trim);
-    px(14, 7, 1, 4, pal.trim);
-  } else {
-    // Cavern Dweller / Slime / Golem
-    const bodyColors = ['#4ec46a', '#7c93ab', '#38c77f', '#6d5ec9', '#cf4462'];
-    const body = bodyColors[safeTier - 1];
-    px(3, 5, 10, 9, ink);
-    px(4, 6, 8, 7, body);
-    px(4, 6, 8, 2, pal.accent);
-    px(5, 8, 2, 2, ink);
-    px(9, 8, 2, 2, ink);
-    px(5, 8, 1, 1, '#fff8e8');
-    px(9, 8, 1, 1, '#fff8e8');
-    px(6, 11, 4, 1, ink);
-  }
-
-  dungeonTextureCache.set(key, canvas);
-  return canvas;
-}
-
-
-let dungeonRoomLayerCanvas: HTMLCanvasElement | null = null;
-let dungeonRoomLayerCtx: CanvasRenderingContext2D | null = null;
-let dungeonRoomLayerKey = '';
-
-/** Third-person 3/4 top-down dungeon renderer. Keeps the complete room readable
- * while showing the local adventurer, party members, enemies and portal in-world. */
-export function renderDungeonThirdPerson(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  snapshot: DungeonSnapshot | null,
-  playerId: string,
-  opts: DungeonRenderOptions = {}
-) {
-  if (width <= 0 || height <= 0) return;
-  const tier = Math.max(1, Math.min(5, snapshot?.tier ?? opts.previewTier ?? 1));
-  const pal = DUNGEON_TIER_PALETTES[tier - 1];
-  const map = snapshot?.map ?? createDungeonMap(tier, 0, tier * 911);
-  const mapH = map.length;
-  const mapW = map[0]?.length ?? 17;
-  const tileW = Math.max(12, Math.min((width - 36) / mapW, (height - 112) / (mapH * 0.78 + 1.2)));
-  const tileH = tileW * 0.72;
-  const wallH = tileH * 0.58;
-  const boardW = mapW * tileW;
-  const boardH = mapH * tileH + wallH;
-  const ox = Math.round((width - boardW) * 0.5);
-  const oy = Math.round((height - boardH) * 0.5 + 18);
-  const now = opts.nowMs ?? performance.now();
-  const phase = snapshot?.phase ?? 'active';
-
-  const entryTex = getDungeonTexture('entry', tier);
-  const exitTex = getDungeonTexture(phase === 'cleared' ? 'exit_open' : 'exit_locked', tier);
-  const pillarTex = getDungeonTexture('pillar', tier);
-
-  // Cache static room floor & 3D masonry walls into an offscreen canvas so 60fps frames do 1 blit
-  const roomKey = `${tier}:${width}x${height}:${phase === 'cleared' ? 1 : 0}:${map.join('|')}`;
-  if (!dungeonRoomLayerCanvas) {
-    dungeonRoomLayerCanvas = document.createElement('canvas');
-    dungeonRoomLayerCtx = dungeonRoomLayerCanvas.getContext('2d');
-  }
-  if (dungeonRoomLayerKey !== roomKey && dungeonRoomLayerCtx) {
-    dungeonRoomLayerKey = roomKey;
-    dungeonRoomLayerCanvas.width = width;
-    dungeonRoomLayerCanvas.height = height;
-    const lctx = dungeonRoomLayerCtx;
-    lctx.imageSmoothingEnabled = false;
-    lctx.fillStyle = pal.fogHex;
-    lctx.fillRect(0, 0, width, height);
-
-    const glow = lctx.createRadialGradient(
-      width * 0.5,
-      height * 0.48,
-      8,
-      width * 0.5,
-      height * 0.48,
-      Math.max(width, height) * 0.72
-    );
-    glow.addColorStop(0, pal.floorBot);
-    glow.addColorStop(1, pal.fogHex);
-    lctx.fillStyle = glow;
-    lctx.fillRect(0, 0, width, height);
-
-    for (let y = 0; y < mapH; y++) {
-      for (let x = 0; x < mapW; x++) {
-        const sx = ox + x * tileW;
-        const sy = oy + y * tileH;
-        const tile = map[y]?.[x] ?? '#';
-        const isHallwayRunner = y === 5 && x > 0 && x < mapW - 1 && tile !== '#';
-        lctx.fillStyle = (x + y) % 2 === 0 ? pal.floorTop : pal.floorBot;
-        lctx.fillRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
-        // Beveled stone flagstone highlight & mortar seam
-        lctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-        lctx.fillRect(Math.round(sx + 1), Math.round(sy + 1), Math.max(1, Math.ceil(tileW - 3)), 2);
-        if (isHallwayRunner) {
-          lctx.fillStyle = 'rgba(242, 183, 56, 0.14)';
-          lctx.fillRect(
-            Math.round(sx + 2),
-            Math.round(sy + tileH * 0.2),
-            Math.ceil(tileW - 4),
-            Math.ceil(tileH * 0.6)
-          );
-        }
-        lctx.strokeStyle = 'rgba(7, 13, 22, 0.52)';
-        lctx.lineWidth = 1;
-        lctx.strokeRect(Math.round(sx), Math.round(sy), Math.ceil(tileW), Math.ceil(tileH));
-
-        if (tile === '#') {
-          // Cast floor drop-shadow under 3D wall block
-          lctx.fillStyle = 'rgba(4, 8, 14, 0.42)';
-          lctx.fillRect(sx, sy + tileH, tileW + 3, 5);
-          lctx.fillStyle = pal.wallDark;
-          lctx.fillRect(sx, sy + tileH - 1, tileW, wallH);
-          lctx.fillStyle = pal.wallBase;
-          lctx.fillRect(sx, sy - wallH, tileW, wallH);
-          lctx.fillStyle = pal.wallLight;
-          lctx.fillRect(sx, sy - wallH, tileW, 4);
-          lctx.fillStyle = pal.wallDark;
-          lctx.fillRect(sx + tileW - 3, sy - wallH, 3, wallH + tileH);
-          const tex =
-            x === 0 && y === 5 ? entryTex : x === mapW - 1 && y === 5 ? exitTex : pillarTex;
-          lctx.drawImage(
-            tex,
-            Math.round(sx + 2),
-            Math.round(sy - wallH + 2),
-            Math.max(1, tileW - 4),
-            Math.max(1, wallH - 2)
-          );
-        }
-      }
-    }
-  }
-
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(dungeonRoomLayerCanvas, 0, 0);
-
-  // Pulsing entry & exit gate floor arches
-  const pulse = 0.88 + Math.sin(now * 0.004) * 0.08;
-  ctx.globalAlpha = pulse;
-  ctx.drawImage(
-    entryTex,
-    Math.round(ox + 1 * tileW + tileW * 0.12),
-    Math.round(oy + 5 * tileH - tileH * 0.52),
-    tileW * 0.76,
-    tileH * 1.25
-  );
-  ctx.drawImage(
-    exitTex,
-    Math.round(ox + (mapW - 2) * tileW + tileW * 0.12),
-    Math.round(oy + 5 * tileH - tileH * 0.52),
-    tileW * 0.76,
-    tileH * 1.25
-  );
-  ctx.globalAlpha = 1;
-
-  type Actor = {
-    x: number;
-    y: number;
-    kind: 'player' | 'enemy' | 'portal';
-    name?: string;
-    hpRatio?: number;
-    boss?: boolean;
-    local?: boolean;
-    facingX?: number;
-    facingY?: number;
-    tex?: HTMLCanvasElement;
-  };
-  const actors: Actor[] = [];
-  actors.push({
-    x: mapW - 1.5,
-    y: 5.5,
-    kind: 'portal',
-    name: phase === 'cleared' ? 'EXIT' : 'LOCKED',
-    tex: getDungeonSpriteCanvas(phase === 'cleared' ? 'portal_open' : 'portal_locked', tier),
-  });
-  if (snapshot) {
-    for (const enemy of snapshot.enemies) {
-      if (enemy.hp <= 0) continue;
-      actors.push({
-        x: enemy.x,
-        y: enemy.y,
-        kind: 'enemy',
-        name: enemy.name,
-        hpRatio: enemy.hp / Math.max(1, enemy.maxHp),
-        boss: enemy.boss,
-        tex: getDungeonSpriteCanvas(
-          enemy.boss ? 'boss' : enemy.kind === 'drone' ? 'drone' : 'dweller',
-          tier
-        ),
-      });
-    }
-    for (const member of snapshot.players) {
-      if (member.hp <= 0) continue;
-      actors.push({
-        x: member.x,
-        y: member.y,
-        kind: 'player',
-        name: member.name,
-        hpRatio: member.hp / Math.max(1, member.maxHp),
-        local: member.id === playerId,
-        facingX: member.facingX,
-        facingY: member.facingY,
-      });
-    }
-  } else {
-    actors.push({
-      x: 8.5,
-      y: 5.5,
-      kind: 'enemy',
-      name: getDungeonEnemyStats(tier, true).name,
-      boss: true,
-      hpRatio: 1,
-      tex: getDungeonSpriteCanvas('boss', tier),
-    });
-  }
-
-  actors.sort((a, b) => a.y - b.y || a.x - b.x);
-  const slashProgress = Math.max(0, Math.min(1, opts.slashTimer ?? 0));
-
-  for (const actor of actors) {
-    const cx = ox + actor.x * tileW;
-    const cy = oy + actor.y * tileH;
-    const shadowW = tileW * (actor.kind === 'player' ? 0.62 : 0.7);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + 2, shadowW * 0.5, tileH * 0.16, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    let sprite: HTMLCanvasElement;
-    let drawW: number;
-    let drawH: number;
-    if (actor.kind === 'player') {
-      let pose: PlayerPose = 'idle0';
-      if (actor.local && slashProgress > 0.05) {
-        const frame = Math.min(3, Math.max(0, Math.floor((1 - slashProgress) * 4)));
-        pose = (`mine${frame}` as PlayerPose) || 'mine2';
-      } else if (actor.local && opts.isMoving) {
-        const step = Math.floor(opts.bobPhase ?? 0) % 4;
-        pose = (`walk${step}` as PlayerPose) || 'walk0';
-      } else {
-        pose = (`idle${Math.floor(now / 320) % 4}` as PlayerPose) || 'idle0';
-      }
-      sprite = getPlayerSprite(
-        pose,
-        (actor.facingX ?? 1) < 0 ? -1 : 1,
-        actor.local ? '#3fa876' : '#6aa8d8'
-      );
-      drawH = tileH * 2.35;
-      drawW = drawH * (sprite.width / Math.max(1, sprite.height));
-    } else {
-      sprite = actor.tex!;
-      drawH = tileH * (actor.kind === 'portal' ? 1.55 : actor.boss ? 1.8 : 1.35);
-      drawW = drawH * (sprite.width / Math.max(1, sprite.height));
-    }
-    const bob =
-      actor.kind === 'enemy' && !actor.boss ? Math.sin(now * 0.004 + actor.x) * 1.5 : 0;
-    ctx.drawImage(
-      sprite,
-      Math.round(cx - drawW * 0.5),
-      Math.round(cy - drawH + tileH * 0.2 + bob),
-      Math.round(drawW),
-      Math.round(drawH)
-    );
-
-    // Draw crisp directional melee slash wave around the local player when striking
-    if (actor.kind === 'player' && actor.local && slashProgress > 0.05) {
-      const aimAngle = Math.atan2((actor.facingY ?? 0) * 0.72, actor.facingX ?? 1);
-      ctx.strokeStyle = pal.accent;
-      ctx.lineWidth = Math.max(3, tileW * 0.14);
-      ctx.beginPath();
-      ctx.arc(
-        cx,
-        cy - tileH * 0.45,
-        tileW * (0.95 + (1 - slashProgress) * 0.35),
-        aimAngle - 0.85,
-        aimAngle + 0.85
-      );
-      ctx.stroke();
-    }
-
-    if (actor.name && actor.kind !== 'portal') {
-      const labelY = cy - drawH - 7;
-      ctx.font = 'bold 10px "Silkscreen", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.fillStyle = '#09131d';
-      ctx.fillText(actor.name + (actor.local ? ' (YOU)' : ''), cx + 1, labelY + 1);
-      ctx.fillStyle = actor.boss ? '#ffe18c' : '#f4f1ea';
-      ctx.fillText(actor.name + (actor.local ? ' (YOU)' : ''), cx, labelY);
-      if (typeof actor.hpRatio === 'number') {
-        const bw = actor.boss ? tileW * 1.45 : tileW * 0.95;
-        ctx.fillStyle = '#09131d';
-        ctx.fillRect(cx - bw / 2, labelY - 7, bw, 4);
-        ctx.fillStyle = actor.kind === 'player' ? '#4ec46a' : '#e6482e';
-        ctx.fillRect(cx - bw / 2, labelY - 7, bw * Math.max(0, Math.min(1, actor.hpRatio)), 4);
-      }
-    }
-  }
-
-  ctx.fillStyle = 'rgba(7, 13, 22, 0.78)';
-  ctx.fillRect(12, 12, 160, 32);
-  ctx.strokeStyle = pal.trim;
-  ctx.strokeRect(12, 12, 160, 32);
-  ctx.font = 'bold 11px "Silkscreen", monospace';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = pal.accent;
-  ctx.fillText(
-    'ROOM ' + (snapshot ? snapshot.roomIndex + 1 : 1) + ' / ' + (snapshot?.roomCount ?? 5),
-    22,
-    28
-  );
-
-  if ((opts.hitFlash ?? 0) > 0.01) {
-    ctx.fillStyle = 'rgba(230, 72, 46, ' + (opts.hitFlash ?? 0) * 0.22 + ')';
-    ctx.fillRect(0, 0, width, height);
-  }
-  ctx.restore();
-}
-
-export function renderDungeonRaycaster(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  snapshot: DungeonSnapshot | null,
-  playerId: string,
-  yaw: number,
-  opts: DungeonRenderOptions = {}
-) {
-  if (width <= 0 || height <= 0) return;
-  const nowMs = opts.nowMs ?? (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  const previewTier = snapshot?.tier ?? Math.max(1, Math.min(5, opts.previewTier ?? 1));
-  const map = snapshot?.map ?? createDungeonMap(previewTier, 0, previewTier * 911);
-  const mapH = map.length;
-  const mapW = map[0]?.length ?? 17;
-  const localPlayer = snapshot?.players.find((p) => p.id === playerId);
-  const posX = localPlayer ? localPlayer.x : 3.5;
-  const posY = localPlayer ? localPlayer.y : 5.5;
-  const phase = snapshot?.phase ?? 'cleared';
-  const pal = DUNGEON_TIER_PALETTES[Math.max(0, Math.min(4, previewTier - 1))];
-
-  // Internal crisp pixel-art raycast buffer (~3x virtual pixel scale matching Blockgrove)
-  const rayW = Math.max(240, Math.min(360, Math.floor(width / 3)));
-  const rayH = Math.max(135, Math.round(rayW * (height / width)));
-
-  if (!rayBufferCanvas) {
-    rayBufferCanvas = document.createElement('canvas');
-    rayBufferCtx = rayBufferCanvas.getContext('2d');
-  }
-  if (rayBufferCanvas.width !== rayW || rayBufferCanvas.height !== rayH) {
-    rayBufferCanvas.width = rayW;
-    rayBufferCanvas.height = rayH;
-  }
-  const rctx = rayBufferCtx!;
-  rctx.imageSmoothingEnabled = false;
-
-  const bobOffset = Math.sin(opts.bobPhase ?? 0) * 2.2;
-  const horizon = Math.round(rayH * 0.5 + bobOffset);
-
-  // 1. Ceiling & Floor Perspective Gradients + Stone Slab Depth Strips
-  const ceilGrad = rctx.createLinearGradient(0, 0, 0, Math.max(1, horizon));
-  ceilGrad.addColorStop(0, pal.ceilTop);
-  ceilGrad.addColorStop(1, pal.ceilBot);
-  rctx.fillStyle = ceilGrad;
-  rctx.fillRect(0, 0, rayW, Math.max(0, horizon));
-
-  const floorGrad = rctx.createLinearGradient(0, horizon, 0, rayH);
-  floorGrad.addColorStop(0, pal.floorTop);
-  floorGrad.addColorStop(1, pal.floorBot);
-  rctx.fillStyle = floorGrad;
-  rctx.fillRect(0, horizon, rayW, Math.max(0, rayH - horizon));
-
-  // Perspective floor depth banding matching stone pavers
-  for (let y = horizon + 2; y < rayH; y += 2) {
-    const p = (y - horizon) / Math.max(1, rayH - horizon);
-    if (Math.floor(p * 14) % 3 === 0) {
-      rctx.fillStyle = 'rgba(255, 255, 255, 0.035)';
-      rctx.fillRect(0, y, rayW, 1);
-    }
-  }
-
-  // Horizon cavern haze
-  rctx.fillStyle = pal.fogHex;
-  rctx.fillRect(0, horizon - 2, rayW, 4);
-
-  // 2. DDA Raycasting Pass for Textured Walls
-  const dirX = Math.cos(yaw);
-  const dirY = Math.sin(yaw);
-  const fovScale = opts.fovRadians ? Math.tan(opts.fovRadians * 0.5) : 0.66;
-  const planeX = -dirY * fovScale;
-  const planeY = dirX * fovScale;
-  const zBuffer = new Float32Array(rayW);
-
-  const wallOuterTex = getDungeonTexture('wall', previewTier);
-  const pillarTex = getDungeonTexture('pillar', previewTier);
-  const entryTex = getDungeonTexture('entry', previewTier);
-  const exitTex = getDungeonTexture(phase === 'cleared' ? 'exit_open' : 'exit_locked', previewTier);
-
-  for (let x = 0; x < rayW; x++) {
-    const cameraX = (2 * x) / rayW - 1;
-    const rayDirX = dirX + planeX * cameraX;
-    const rayDirY = dirY + planeY * cameraX;
-
-    let mapX = Math.floor(posX);
-    let mapY = Math.floor(posY);
-
-    const deltaDistX = rayDirX === 0 ? 1e30 : Math.abs(1 / rayDirX);
-    const deltaDistY = rayDirY === 0 ? 1e30 : Math.abs(1 / rayDirY);
-
-    let stepX = 0;
-    let stepY = 0;
-    let sideDistX = 0;
-    let sideDistY = 0;
-
-    if (rayDirX < 0) {
-      stepX = -1;
-      sideDistX = (posX - mapX) * deltaDistX;
-    } else {
-      stepX = 1;
-      sideDistX = (mapX + 1.0 - posX) * deltaDistX;
-    }
-    if (rayDirY < 0) {
-      stepY = -1;
-      sideDistY = (posY - mapY) * deltaDistY;
-    } else {
-      stepY = 1;
-      sideDistY = (mapY + 1.0 - posY) * deltaDistY;
-    }
-
-    let hit = false;
-    let side = 0;
-    let steps = 0;
-    while (!hit && steps < 48) {
-      steps++;
-      if (sideDistX < sideDistY) {
-        sideDistX += deltaDistX;
-        mapX += stepX;
-        side = 0;
-      } else {
-        sideDistY += deltaDistY;
-        mapY += stepY;
-        side = 1;
-      }
-      if (mapX < 0 || mapY < 0 || mapX >= mapW || mapY >= mapH) {
-        hit = true;
-        break;
-      }
-      if (map[mapY][mapX] === '#') {
-        hit = true;
-      }
-    }
-
-    const rawDist = side === 0 ? sideDistX - deltaDistX : sideDistY - deltaDistY;
-    const perpWallDist = Math.max(0.18, rawDist);
-    zBuffer[x] = perpWallDist;
-
-    const lineHeight = Math.round(rayH / perpWallDist);
-    const drawStart = Math.round(horizon - lineHeight * 0.5);
-
-    let wallX = side === 0 ? posY + perpWallDist * rayDirY : posX + perpWallDist * rayDirX;
-    wallX -= Math.floor(wallX);
-
-    let texX = Math.floor(wallX * 48);
-    if (side === 0 && rayDirX > 0) texX = 48 - texX - 1;
-    if (side === 1 && rayDirY < 0) texX = 48 - texX - 1;
-    texX = Math.max(0, Math.min(47, texX));
-
-    // Pick textured wall face (gate banners at west/east portal walls, interior pillars, or outer masonry)
-    let tex = wallOuterTex;
-    if (mapX === 0 && mapY === 5) {
-      tex = entryTex;
-    } else if (mapX === mapW - 1 && mapY === 5) {
-      tex = exitTex;
-    } else if (mapX > 0 && mapX < mapW - 1 && mapY > 0 && mapY < mapH - 1) {
-      tex = pillarTex;
-    }
-
-    rctx.drawImage(tex, texX, 0, 1, 48, x, drawStart, 1, lineHeight);
-
-    // Directional N/S vs E/W lighting + depth fog
-    const fogAlpha = Math.min(0.72, Math.max(0, (perpWallDist - 2.2) / 14));
-    const sideShade = side === 1 ? 0.24 : 0;
-    const totalShade = Math.min(0.82, fogAlpha + sideShade);
-    if (totalShade > 0.02) {
-      rctx.fillStyle = `rgba(7, 13, 22, ${totalShade.toFixed(3)})`;
-      rctx.fillRect(x, drawStart, 1, lineHeight);
-    }
-  }
-
-  // 3. Collect & Sort 3D Billboard Sprites (Portals, Teammates, Enemies)
-  interface BillboardSprite {
-    x: number;
-    y: number;
-    distSq: number;
-    scale: number;
-    vShift: number;
-    tex: HTMLCanvasElement;
-    label?: string;
-    hpRatio?: number;
-    isBoss?: boolean;
-  }
-
-  const sprites: BillboardSprite[] = [];
-  const exitBeacon = getDungeonSpriteCanvas(phase === 'cleared' ? 'portal_open' : 'portal_locked', previewTier);
-  const entryBeacon = getDungeonSpriteCanvas('entry_pad', previewTier);
-
-  const exX = mapW - 1.5;
-  const exY = 5.5;
-  sprites.push({
-    x: exX,
-    y: exY,
-    distSq: (exX - posX) ** 2 + (exY - posY) ** 2,
-    scale: phase === 'cleared' ? 0.92 + Math.sin(nowMs * 0.006) * 0.05 : 0.78,
-    vShift: 0.08,
-    tex: exitBeacon,
-    label: phase === 'cleared' ? 'EXTRACT' : 'GATE LOCKED',
-  });
-
-  const enX = 1.5;
-  const enY = 5.5;
-  if (Math.hypot(enX - posX, enY - posY) > 0.65) {
-    sprites.push({
-      x: enX,
-      y: enY,
-      distSq: (enX - posX) ** 2 + (enY - posY) ** 2,
-      scale: 0.65,
-      vShift: 0.16,
-      tex: entryBeacon,
-    });
-  }
-
-  if (snapshot) {
-    for (const enemy of snapshot.enemies) {
-      if (enemy.hp <= 0) continue;
-      const eKind = enemy.boss ? 'boss' : enemy.kind === 'drone' ? 'drone' : 'dweller';
-      sprites.push({
-        x: enemy.x,
-        y: enemy.y,
-        distSq: (enemy.x - posX) ** 2 + (enemy.y - posY) ** 2,
-        scale: enemy.boss ? 1.18 : enemy.kind === 'drone' ? 0.72 : 0.85,
-        vShift: enemy.kind === 'drone' ? -0.05 + Math.sin(nowMs * 0.006 + enemy.x) * 0.04 : 0.06,
-        tex: getDungeonSpriteCanvas(eKind, previewTier),
-        label: enemy.name,
-        hpRatio: Math.max(0, enemy.hp / Math.max(1, enemy.maxHp)),
-        isBoss: enemy.boss,
-      });
-    }
-
-    for (const member of snapshot.players) {
-      if (member.id === playerId || member.hp <= 0) continue;
-      const pSprite = getPlayerSprite('idle0', 1, '#3fa876');
-      sprites.push({
-        x: member.x,
-        y: member.y,
-        distSq: (member.x - posX) ** 2 + (member.y - posY) ** 2,
-        scale: 0.85,
-        vShift: 0.05,
-        tex: pSprite,
-        label: member.name,
-        hpRatio: Math.max(0, member.hp / Math.max(1, member.maxHp)),
-      });
-    }
-  } else {
-    // Preview chamber guardian for the Gate Command Deck backdrop
-    const gx = 8.5;
-    const gy = 5.5 + Math.sin(nowMs * 0.0014) * 1.4;
-    sprites.push({
-      x: gx,
-      y: gy,
-      distSq: (gx - posX) ** 2 + (gy - posY) ** 2,
-      scale: 1.05,
-      vShift: 0.04,
-      tex: getDungeonSpriteCanvas('boss', previewTier),
-      label: getDungeonEnemyStats(previewTier, true).name,
-      hpRatio: 1,
-      isBoss: true,
-    });
-  }
-
-  sprites.sort((a, b) => b.distSq - a.distSq);
-
-  const invDet = 1.0 / (planeX * dirY - dirX * planeY || 1e-6);
-  const spriteLabels: Array<{
-    screenX: number;
-    screenY: number;
-    label: string;
-    hpRatio?: number;
-    isBoss?: boolean;
-  }> = [];
-
-  for (const sp of sprites) {
-    const relX = sp.x - posX;
-    const relY = sp.y - posY;
-    const transformX = invDet * (dirY * relX - dirX * relY);
-    const transformY = invDet * (-planeY * relX + planeX * relY);
-    if (transformY <= 0.2) continue;
-
-    const screenX = Math.round((rayW * 0.5) * (1 + transformX / transformY));
-    const sprH = Math.abs(Math.round((rayH / transformY) * sp.scale));
-    const sprW = Math.max(1, Math.round(sprH * (sp.tex.width / Math.max(1, sp.tex.height))));
-    const drawStartY = Math.round(horizon - sprH * 0.5 + (rayH / transformY) * sp.vShift);
-    const drawStartX = Math.round(screenX - sprW * 0.5);
-    const drawEndX = drawStartX + sprW;
-
-    let visibleStripes = 0;
-    for (let stripe = Math.max(0, drawStartX); stripe < Math.min(rayW, drawEndX); stripe++) {
-      if (transformY < zBuffer[stripe]) {
-        visibleStripes++;
-        const texX = Math.max(
-          0,
-          Math.min(sp.tex.width - 1, Math.floor(((stripe - drawStartX) * sp.tex.width) / sprW))
-        );
-        rctx.drawImage(sp.tex, texX, 0, 1, sp.tex.height, stripe, drawStartY, 1, sprH);
-      }
-    }
-
-    if (visibleStripes > 2 && transformY < 10.5 && sp.label) {
-      spriteLabels.push({
-        screenX: (screenX / rayW) * width,
-        screenY: (drawStartY / rayH) * height,
-        label: sp.label,
-        hpRatio: sp.hpRatio,
-        isBoss: sp.isBoss,
-      });
-    }
-  }
-
-  // Blit crisp low-res raycast buffer to target viewport canvas without blur
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, width, height);
-  ctx.drawImage(rayBufferCanvas, 0, 0, width, height);
-
-  // 4. First-Person Held Weapon & Slash Viewmodel (Bottom-Right Foreground)
-  const slashProgress = Math.max(0, Math.min(1, opts.slashTimer ?? 0));
-  const weaponSprite = getTileSprite(
-    previewTier >= 4 ? ITEM_IDS.CRYSTAL_PICKAXE : previewTier >= 2 ? ITEM_IDS.IRON_PICKAXE : ITEM_IDS.STONE_PICKAXE
-  );
-  const weaponScale = Math.max(2.5, Math.min(4.2, width / 260));
-  const swingAngle = slashProgress > 0 ? -0.95 + Math.sin(slashProgress * Math.PI) * 1.45 : -0.18;
-  const weaponX = width * 0.72 - slashProgress * width * 0.16;
-  const weaponY = height * 0.76 + Math.abs(Math.sin(opts.bobPhase ?? 0)) * 10 - slashProgress * 26;
-
-  ctx.save();
-  ctx.translate(Math.round(weaponX), Math.round(weaponY));
-  ctx.rotate(swingAngle);
-  ctx.drawImage(
-    weaponSprite,
-    -24 * weaponScale * 0.5,
-    -24 * weaponScale * 0.5,
-    48 * (weaponScale * 0.55),
-    48 * (weaponScale * 0.55)
-  );
-  ctx.restore();
-
-  if (slashProgress > 0.05) {
-    ctx.strokeStyle = pal.accent;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(width * 0.5, height * 0.52, Math.min(width, height) * 0.18, -0.75, 0.75);
-    ctx.stroke();
-  }
-
-  // Center 1P Crosshair
-  ctx.fillStyle = 'rgba(255, 248, 232, 0.75)';
-  const cxMid = Math.round(width * 0.5);
-  const cyMid = Math.round(height * 0.5);
-  ctx.fillRect(cxMid - 6, cyMid - 1, 4, 2);
-  ctx.fillRect(cxMid + 2, cyMid - 1, 4, 2);
-  ctx.fillRect(cxMid - 1, cyMid - 6, 2, 4);
-  ctx.fillRect(cxMid - 1, cyMid + 2, 2, 4);
-
-  // 5. Crisp Silkscreen Sprite Labels & Enemy HP Bars (Matching Blockgrove Font Style)
-  ctx.font = 'bold 11px "Silkscreen", monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  for (const lbl of spriteLabels) {
-    const yPos = Math.max(26, Math.round(lbl.screenY) - 6);
-    const xPos = Math.round(lbl.screenX);
-    if (typeof lbl.hpRatio === 'number') {
-      const barW = lbl.isBoss ? 86 : 56;
-      const barH = 6;
-      ctx.fillStyle = '#09131d';
-      ctx.fillRect(xPos - barW * 0.5 - 1, yPos - 1, barW + 2, barH + 2);
-      ctx.fillStyle = lbl.isBoss ? '#f59e0b' : '#e6482e';
-      ctx.fillRect(xPos - barW * 0.5, yPos, Math.round(barW * lbl.hpRatio), barH);
-    }
-    ctx.fillStyle = '#09131d';
-    ctx.fillText(lbl.label, xPos + 1, yPos - 4);
-    ctx.fillStyle = lbl.isBoss ? '#ffe18c' : '#f4f1ea';
-    ctx.fillText(lbl.label, xPos, yPos - 5);
-  }
-
-  // 6. Top-Right Pixel Minimap for Effortless 1P Orientation
-  if (snapshot) {
-    const cell = width < 640 ? 5 : 7;
-    const mmW = mapW * cell;
-    const mmH = mapH * cell;
-    const mmX = width - mmW - 12;
-    const mmY = 62;
-    ctx.fillStyle = 'rgba(9, 19, 29, 0.88)';
-    ctx.fillRect(mmX - 3, mmY - 3, mmW + 6, mmH + 6);
-    ctx.strokeStyle = '#c89d54';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(mmX - 3, mmY - 3, mmW + 6, mmH + 6);
-
-    for (let gy = 0; gy < mapH; gy++) {
-      for (let gx = 0; gx < mapW; gx++) {
-        const tile = map[gy][gx];
-        if (tile === '#') {
-          ctx.fillStyle = pal.wallBase;
-        } else if (tile === '>') {
-          ctx.fillStyle = phase === 'cleared' ? '#42e88a' : '#d96459';
-        } else if (tile === '<') {
-          ctx.fillStyle = '#78c8f5';
-        } else {
-          ctx.fillStyle = '#111c29';
-        }
-        ctx.fillRect(mmX + gx * cell, mmY + gy * cell, cell, cell);
-      }
-    }
-
-    for (const enemy of snapshot.enemies) {
-      if (enemy.hp <= 0) continue;
-      ctx.fillStyle = enemy.boss ? '#f2b738' : '#ff5555';
-      ctx.fillRect(
-        Math.round(mmX + enemy.x * cell - 2),
-        Math.round(mmY + enemy.y * cell - 2),
-        enemy.boss ? 5 : 4,
-        enemy.boss ? 5 : 4
-      );
-    }
-
-    const pxMm = mmX + posX * cell;
-    const pyMm = mmY + posY * cell;
-    ctx.strokeStyle = 'rgba(140, 247, 238, 0.65)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(pxMm, pyMm);
-    ctx.lineTo(pxMm + Math.cos(yaw - 0.5) * cell * 2.4, pyMm + Math.sin(yaw - 0.5) * cell * 2.4);
-    ctx.moveTo(pxMm, pyMm);
-    ctx.lineTo(pxMm + Math.cos(yaw + 0.5) * cell * 2.4, pyMm + Math.sin(yaw + 0.5) * cell * 2.4);
-    ctx.stroke();
-
-    ctx.fillStyle = '#8cf7ee';
-    ctx.fillRect(Math.round(pxMm - 2), Math.round(pyMm - 2), 4, 4);
-  }
-
-  // Hit vignette flash
-  if ((opts.hitFlash ?? 0) > 0.01) {
-    ctx.fillStyle = `rgba(230, 72, 46, ${(opts.hitFlash ?? 0) * 0.35})`;
-    ctx.fillRect(0, 0, width, height);
-  }
-  ctx.restore();
 }

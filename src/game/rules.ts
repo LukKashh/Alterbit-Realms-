@@ -8,7 +8,7 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from './constants.ts';
-import { getItemDef, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
+import { getItemDef, isFarmableSeed, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
 import type { AreaLockRecord, PlantedTree, WorldState, ShareLockRecord } from './worldGen.ts';
 import { getShareLockSpec, rectanglesOverlap, type ShareLockPermissionKey } from './shareLocks.ts';
 import { isSystemWorld } from './expansion.ts';
@@ -19,6 +19,7 @@ export interface PlayerContext {
   y: number;
   width?: number;
   height?: number;
+  adminWorldEdit?: boolean;
 }
 
 export function worldWidth(world?: Pick<WorldState, 'width'> | null): number {
@@ -156,11 +157,14 @@ export function canBreakTile(
   ty: number,
   reachTiles = MAX_REACH_TILES
 ): { ok: boolean; layer?: 'fg' | 'bg' | 'plant' | 'fluid'; reason?: string } {
-  if (isSystemWorld(world.name)) return { ok: false, reason: 'System worlds are indestructible.' };
+  const adminEdit = Boolean(player.adminWorldEdit);
+  if (isSystemWorld(world.name) && !adminEdit) return { ok: false, reason: 'System worlds are indestructible.' };
   if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of world bounds.' };
-  if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Bedrock is indestructible.' };
+  if (adminEdit ? ty >= worldHeight(world) - 1 : isBedrockRowWorld(world, ty)) {
+    return { ok: false, reason: 'Bedrock is indestructible.' };
+  }
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
-  if (!hasEditPermission(world, player.id, tx, ty, 'break')) {
+  if (!adminEdit && !hasEditPermission(world, player.id, tx, ty, 'break')) {
     return { ok: false, reason: 'Protected by Lock.' };
   }
 
@@ -172,41 +176,52 @@ export function canBreakTile(
   const idx = tileIndexIn(world, tx, ty);
   const fgId = world.fg[idx];
   if (fgId !== ITEM_IDS.AIR) {
-    if (fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.LANDLORD_NPC) {
-      return { ok: false, reason: 'This special world object cannot be broken.' };
-    }
-    if (fgId === ITEM_IDS.WORLD_LOCK || fgId === ITEM_IDS.SMALL_LOCK) {
-      return { ok: false, reason: 'Legacy lock items have been retired.' };
-    }
-    const def = getItemDef(fgId);
-    if (!def || !def.breakable) {
-      return { ok: false, reason: `${def?.name ?? 'Tile'} cannot be broken.` };
-    }
-    if (fgId === ITEM_IDS.WORLD_LOCK && world.worldLock && world.worldLock.ownerId !== player.id) {
-      return { ok: false, reason: 'Only the World Lock owner can remove this lock.' };
-    }
-    if (fgId === ITEM_IDS.SMALL_LOCK) {
-      const areaLock = world.areaLocks?.[key];
-      if (areaLock && areaLock.ownerId !== player.id) {
-        return { ok: false, reason: 'Only the Area Lock owner can remove this lock.' };
+    if (!adminEdit) {
+      if (fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.LANDLORD_NPC) {
+        return { ok: false, reason: 'This special world object cannot be broken.' };
       }
-    }
-    if (fgId === ITEM_IDS.VENDING_MACHINE) {
-      const vm = world.vendingMachines?.[key];
-      if (vm && vm.ownerId !== player.id && world.worldLock?.ownerId !== player.id) {
-        return { ok: false, reason: 'Only the Vending Machine owner can break it.' };
+      if (fgId === ITEM_IDS.WORLD_LOCK || fgId === ITEM_IDS.SMALL_LOCK) {
+        return { ok: false, reason: 'Legacy lock items have been retired.' };
       }
-      if (vm && (vm.stockQty > 0 || vm.earningsQty > 0)) {
-        return { ok: false, reason: 'Withdraw stock and earnings with Wrench before breaking.' };
+      const def = getItemDef(fgId);
+      if (!def || !def.breakable) {
+        return { ok: false, reason: `${def?.name ?? 'Tile'} cannot be broken.` };
       }
-    }
-    if (fgId === ITEM_IDS.BFG_COLLECTOR) {
-      const bfg = world.bfgCollectors?.[key];
-      if (bfg && bfg.ownerId !== player.id && world.worldLock?.ownerId !== player.id) {
-        return { ok: false, reason: 'Only the BFG Collector owner can break it.' };
+      if (fgId === ITEM_IDS.WORLD_LOCK && world.worldLock && world.worldLock.ownerId !== player.id) {
+        return { ok: false, reason: 'Only the World Lock owner can remove this lock.' };
       }
-      if (bfg && (bfg.storedGems > 0 || bfg.storedItems.length > 0)) {
-        return { ok: false, reason: 'Withdraw stored Gems & items with Wrench before breaking.' };
+      if (fgId === ITEM_IDS.SMALL_LOCK) {
+        const areaLock = world.areaLocks?.[key];
+        if (areaLock && areaLock.ownerId !== player.id) {
+          return { ok: false, reason: 'Only the Area Lock owner can remove this lock.' };
+        }
+      }
+      if (fgId === ITEM_IDS.VENDING_MACHINE) {
+        const vm = world.vendingMachines?.[key];
+        if (vm && vm.ownerId !== player.id && world.worldLock?.ownerId !== player.id) {
+          return { ok: false, reason: 'Only the Vending Machine owner can break it.' };
+        }
+        if (vm && (vm.stockQty > 0 || vm.earningsQty > 0)) {
+          return { ok: false, reason: 'Withdraw stock and earnings with Wrench before breaking.' };
+        }
+      }
+      if (fgId === ITEM_IDS.BFG_COLLECTOR) {
+        const bfg = world.bfgCollectors?.[key];
+        if (bfg && bfg.ownerId !== player.id && world.worldLock?.ownerId !== player.id) {
+          return { ok: false, reason: 'Only the BFG Collector owner can break it.' };
+        }
+        if (bfg && (bfg.storedGems > 0 || bfg.storedItems.length > 0)) {
+          return { ok: false, reason: 'Withdraw stored Gems & items with Wrench before breaking.' };
+        }
+      }
+      if (fgId === ITEM_IDS.VAULTBOX) {
+        const vault = world.vaultboxes?.[key];
+        if (vault && vault.ownerId !== player.id) {
+          return { ok: false, reason: 'Only the Vaultbox owner can break it.' };
+        }
+        if (vault && vault.slots.some((s) => s !== null && s.qty > 0)) {
+          return { ok: false, reason: 'Empty all Vaultbox storage slots with Wrench before breaking.' };
+        }
       }
     }
     return { ok: true, layer: 'fg' };
@@ -220,7 +235,7 @@ export function canBreakTile(
   const bgId = world.bg[idx];
   if (bgId !== ITEM_IDS.BG_SKY) {
     const bgDef = getItemDef(bgId);
-    if (!bgDef || !bgDef.breakable) {
+    if (!adminEdit && (!bgDef || !bgDef.breakable)) {
       return { ok: false, reason: 'Background cannot be broken.' };
     }
     return { ok: true, layer: 'bg' };
@@ -256,28 +271,45 @@ export function canPlaceTile(
   ty: number,
   reachTiles = MAX_REACH_TILES
 ): { ok: boolean; layer?: 'fg' | 'bg' | 'seed' | 'fluid'; reason?: string } {
-  if (isSystemWorld(world.name)) return { ok: false, reason: 'System worlds do not allow block placement.' };
+  const adminEdit = Boolean(player.adminWorldEdit);
+  if (isSystemWorld(world.name) && !adminEdit) return { ok: false, reason: 'System worlds do not allow block placement.' };
   if (!inBoundsWorld(world, tx, ty)) return { ok: false, reason: 'Out of bounds.' };
-  if (isBedrockRowWorld(world, ty)) return { ok: false, reason: 'Cannot build on bedrock.' };
+  if (adminEdit ? ty >= worldHeight(world) - 1 : isBedrockRowWorld(world, ty)) {
+    return { ok: false, reason: 'Cannot build on bedrock.' };
+  }
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
-  if (!hasEditPermission(world, player.id, tx, ty, 'build')) {
+  if (!adminEdit && !hasEditPermission(world, player.id, tx, ty, 'build')) {
     return { ok: false, reason: 'Protected by Lock.' };
   }
 
-  if (itemId === ITEM_IDS.WORLD_CORE || itemId === ITEM_IDS.LANDLORD_NPC) {
+  if (!adminEdit && (itemId === ITEM_IDS.WORLD_CORE || itemId === ITEM_IDS.LANDLORD_NPC)) {
     return { ok: false, reason: 'This special world object cannot be placed.' };
   }
   const def = getItemDef(itemId);
-  if (!def || !def.placeable) return { ok: false, reason: 'Item cannot be placed.' };
+  if (
+    !def ||
+    (!def.placeable &&
+      !(
+        adminEdit &&
+        itemId !== ITEM_IDS.AIR &&
+        (def.category === 'foreground' ||
+          def.category === 'background' ||
+          def.category === 'interactive' ||
+          def.category === 'seed' ||
+          def.category === 'fluid')
+      ))
+  ) {
+    return { ok: false, reason: 'Item cannot be placed.' };
+  }
 
   const idx = tileIndexIn(world, tx, ty);
   const isMine = world.worldKind === 'mine_shaft';
 
   if (def.category === 'background') {
-    if (world.bg[idx] !== ITEM_IDS.BG_SKY) {
+    if (world.bg[idx] !== ITEM_IDS.BG_SKY && !adminEdit) {
       return { ok: false, reason: 'Background tile already occupied.' };
     }
-    if (!hasPlacementSupport(world, tx, ty)) {
+    if (!adminEdit && !hasPlacementSupport(world, tx, ty)) {
       return { ok: false, reason: 'Needs adjacent tile or background support.' };
     }
     return { ok: true, layer: 'bg' };
@@ -287,28 +319,26 @@ export function canPlaceTile(
     if (isMine) {
       return { ok: false, reason: 'Trees cannot be planted inside Mining Shafts.' };
     }
-    if (world.fg[idx] !== ITEM_IDS.AIR) {
+    if (!adminEdit && !isFarmableSeed(itemId)) {
+      return { ok: false, reason: 'Only Farmable Seeds can be planted.' };
+    }
+    const potKey = `${tx},${ty}`;
+    const hasPot = world.fg[idx] === ITEM_IDS.SEED_POT || Boolean(world.seedPots?.[potKey]);
+    if (!adminEdit && !hasPot) {
+      return { ok: false, reason: 'Place a Seed Pot first before planting.' };
+    }
+    if (world.fg[idx] !== ITEM_IDS.AIR && world.fg[idx] !== ITEM_IDS.SEED_POT && !adminEdit) {
       return { ok: false, reason: 'Tile is occupied.' };
     }
-    const existingPlant = world.plants[`${tx},${ty}`];
+    const existingPlant = world.plants[potKey];
     if (existingPlant) {
-      if (Date.now() >= existingPlant.maturityAt) {
-        return { ok: false, reason: 'Tree is already mature! Harvest it before planting.' };
-      }
-      const splicedSeedId = resolveSplice(existingPlant.seedId, itemId);
-      if (!splicedSeedId) {
-        const existingDef = getItemDef(existingPlant.seedId);
-        return {
-          ok: false,
-          reason: `${existingDef?.name ?? 'Seed'} and ${def.name} do not mix into a hybrid tree.`,
-        };
-      }
-      return { ok: true, layer: 'seed' };
-    }
-    if (ty + 1 >= worldHeight(world)) return { ok: false, reason: 'Cannot plant here.' };
-    const belowId = world.fg[tileIndexIn(world, tx, ty + 1)];
-    if (!isForegroundSolid(belowId)) {
-      return { ok: false, reason: 'Seeds must be planted on solid ground.' };
+      return {
+        ok: false,
+        reason:
+          Date.now() >= existingPlant.maturityAt
+            ? 'Tree is already mature! Harvest it before planting.'
+            : 'This Seed Pot already has a seed planted (only one seed per Pot at a time).',
+      };
     }
     return { ok: true, layer: 'seed' };
   }
@@ -321,11 +351,14 @@ export function canPlaceTile(
   }
 
   // Foreground / Lock / Interactive
-  if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
+  if (!adminEdit && (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`])) {
     return { ok: false, reason: 'Foreground tile already occupied.' };
   }
+  if (adminEdit && world.fg[idx] === itemId) {
+    return { ok: false, reason: 'Tile already contains this block.' };
+  }
 
-  if (def.collision === 'solid' && playerOverlapsTile(player, tx, ty)) {
+  if (!adminEdit && def.collision === 'solid' && playerOverlapsTile(player, tx, ty)) {
     return { ok: false, reason: 'Cannot place solid block on yourself.' };
   }
 
@@ -333,12 +366,23 @@ export function canPlaceTile(
     return { ok: false, reason: 'Locks and machines cannot be placed inside Mining Shafts.' };
   }
 
+  const isMatteragen = itemId >= ITEM_IDS.MATTERAGEN_BOTANICAL && itemId <= ITEM_IDS.MATTERAGEN_COSMIC;
+  if (isMatteragen && !adminEdit) {
+    if (isMine || isSystemWorld(world.name)) {
+      return { ok: false, reason: 'Matteragen Engines can only be placed in personal realms.' };
+    }
+    const currentEngines = Object.keys(world.matteragenEngines || {}).length;
+    if (currentEngines >= 20) {
+      return { ok: false, reason: 'Maximum limit of 20 Matteragen Engines reached for this world.' };
+    }
+  }
+
   if (itemId === ITEM_IDS.WORLD_LOCK || itemId === ITEM_IDS.SMALL_LOCK) {
     return { ok: false, reason: 'Legacy locks have been retired. Use a Share Lock in a world you own.' };
   }
 
   const shareSpec = getShareLockSpec(itemId);
-  if (shareSpec) {
+  if (shareSpec && !adminEdit) {
     if (world.worldLock?.ownerId !== player.id) {
       return { ok: false, reason: 'Share Locks can only be placed in a world you own.' };
     }
@@ -350,14 +394,14 @@ export function canPlaceTile(
     }
   }
 
-  if (itemId === ITEM_IDS.BFG_COLLECTOR) {
+  if (itemId === ITEM_IDS.BFG_COLLECTOR && !adminEdit) {
     const hasProtection = Boolean(world.worldLock && hasEditPermission(world, player.id, tx, ty, 'interact'));
     if (!hasProtection) {
       return { ok: false, reason: 'BFG Collector must be placed inside an owned realm or Share Lock.' };
     }
   }
 
-  if (!hasPlacementSupport(world, tx, ty)) {
+  if (!adminEdit && !hasPlacementSupport(world, tx, ty)) {
     return { ok: false, reason: 'Needs adjacent block or wall support.' };
   }
 

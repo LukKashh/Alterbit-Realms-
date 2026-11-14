@@ -5,6 +5,7 @@ import {
   shadeHex,
 } from './artTheme.ts';
 import { CATALOG, ITEM_IDS } from './catalog.ts';
+import { renderHighDefPlayerSprite } from './playerSpriteHD.ts';
 
 export type PlayerPose =
   | 'idle'
@@ -12,12 +13,21 @@ export type PlayerPose =
   | 'idle1'
   | 'idle2'
   | 'idle3'
+  | 'idle4'
+  | 'idle5'
+  | 'idle6'
+  | 'idle7'
   | 'walk0'
   | 'walk1'
   | 'walk2'
   | 'walk3'
+  | 'walk4'
+  | 'walk5'
+  | 'walk6'
+  | 'walk7'
   | 'jump'
   | 'fall'
+  | 'land'
   | 'punch'
   | 'punch0'
   | 'punch1'
@@ -27,7 +37,10 @@ export type PlayerPose =
   | 'mine1'
   | 'mine2'
   | 'mine3'
-  | 'place';
+  | 'place'
+  | 'fish_cast'
+  | 'fish_hold'
+  | 'fish_reel';
 
 export interface EquippedWearables {
   head?: number;
@@ -36,8 +49,6 @@ export interface EquippedWearables {
 }
 
 const TILE_PX = THEME.tileTextureSize; // 48x48
-const PLAYER_CANVAS_W = THEME.playerSpriteSize.width; // 68
-const PLAYER_CANVAS_H = THEME.playerSpriteSize.height; // 84
 
 const tileCache = new Map<number, HTMLCanvasElement>();
 const iconDataUrls = new Map<number, string>();
@@ -1139,6 +1150,18 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       break;
     }
 
+    case ITEM_IDS.STARTER_BAIT: {
+      // Coiled wriggling earthworm with fleshy segments & gloss
+      p3(ctx, 3, 7, THEME.ink.outline, 10, 6);
+      p3(ctx, 4, 8, def.colorSecondary, 8, 4);
+      p3(ctx, 5, 8, def.colorPrimary, 6, 3);
+      p3(ctx, 5, 7, def.colorAccent, 4, 2);
+      p3(ctx, 10, 8, '#fca5a5', 2, 2);
+      p3(ctx, 3, 10, def.colorSecondary, 4, 2);
+      p3(ctx, 6, 8, '#ffffff', 1, 1);
+      break;
+    }
+
     // --- Fuel, Ore Fragments & Ingots ---
     case ITEM_IDS.COAL_FUEL: {
       p3(ctx, 3, 4, THEME.ink.outline, 10, 9);
@@ -1278,6 +1301,139 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       p3(ctx, 7, 5, '#ffffff', 2, 4);
       break;
     }
+    case ITEM_IDS.SEED_POT: {
+      // Terracotta planter pot (16x16 grid -> 48x48)
+      p3(ctx, 1, 9, THEME.ink.outline, 14, 7);
+      p3(ctx, 2, 10, '#b45309', 12, 5);
+      p3(ctx, 2, 9, '#78350f', 12, 1);
+      // Top pot rim
+      p3(ctx, 0, 7, THEME.ink.outline, 16, 3);
+      p3(ctx, 1, 8, '#d97706', 14, 1);
+      p3(ctx, 1, 7, '#f59e0b', 14, 1);
+      // Soil well inside rim
+      p3(ctx, 2, 6, '#451a03', 12, 2);
+      p3(ctx, 3, 6, '#290f04', 10, 1);
+      // Base rim shadow & specular
+      p3(ctx, 3, 14, '#78350f', 10, 1);
+      p3(ctx, 2, 8, '#fef3c7', 3, 1);
+      break;
+    }
+
+    case ITEM_IDS.MATTERAGEN_BOTANICAL:
+    case ITEM_IDS.MATTERAGEN_GEOMINERAL:
+    case ITEM_IDS.MATTERAGEN_LUMINESCENT:
+    case ITEM_IDS.MATTERAGEN_ARCANE:
+    case ITEM_IDS.MATTERAGEN_COSMIC: {
+      // Heavy industrial generator chassis with glowing elemental reactor
+      drawFramedPanel16(ctx, '#1e293b', { bolts: true });
+      p3(ctx, 3, 3, THEME.ink.outline, 10, 10);
+      p3(ctx, 4, 4, def.colorSecondary, 8, 8);
+      p3(ctx, 5, 5, def.colorPrimary, 6, 6);
+      p3(ctx, 6, 6, def.colorAccent, 4, 4);
+      p3(ctx, 7, 7, '#ffffff', 2, 2);
+      // Exhaust vents & corner brass rivets
+      p3(ctx, 1, 4, '#94a3b8', 2, 1);
+      p3(ctx, 1, 11, '#94a3b8', 2, 1);
+      p3(ctx, 13, 4, '#94a3b8', 2, 1);
+      p3(ctx, 13, 11, '#94a3b8', 2, 1);
+      break;
+    }
+
+    case ITEM_IDS.ATM_MACHINE: {
+      // Sleek cyber-brass ATM terminal with backlit emerald gem screen and dispenser slot
+      drawFramedPanel16(ctx, '#0c4a6e', { bolts: true });
+      // Metallic top marquee
+      p3(ctx, 2, 1, '#38bdf8', 12, 2);
+      p3(ctx, 3, 1, '#e0f2fe', 4, 1);
+      // Screen housing
+      p3(ctx, 3, 4, THEME.ink.outline, 10, 6);
+      p3(ctx, 4, 5, '#064e3b', 8, 4);
+      // Pixel gem icon inside screen
+      p3(ctx, 6, 5, '#fde047', 4, 4);
+      p3(ctx, 7, 6, '#fef9c3', 2, 2);
+      // Keypad & dispenser slot
+      p3(ctx, 3, 11, '#1e293b', 5, 3);
+      p3(ctx, 4, 12, '#94a3b8', 1, 1);
+      p3(ctx, 6, 12, '#94a3b8', 1, 1);
+      p3(ctx, 9, 11, '#090d16', 4, 3);
+      p3(ctx, 10, 12, '#fbbf24', 2, 1);
+      break;
+    }
+
+    case ITEM_IDS.VAULTBOX: {
+      // Reinforced steel & gold safe-chest storage vault with heavy keyhole & latches
+      drawFramedPanel16(ctx, '#334155', { bolts: true });
+      // Gold horizontal vault band & clasp
+      p3(ctx, 1, 6, THEME.ink.outline, 14, 4);
+      p3(ctx, 1, 7, '#d97706', 14, 2);
+      p3(ctx, 2, 7, '#fbbf24', 12, 1);
+      // Center dial & keyhole emblem
+      p3(ctx, 5, 4, THEME.ink.outline, 6, 8);
+      p3(ctx, 6, 5, '#f59e0b', 4, 6);
+      p3(ctx, 7, 6, '#fef3c7', 2, 2);
+      p3(ctx, 7, 8, '#090d16', 2, 2);
+      // Corner iron gussets
+      p3(ctx, 2, 2, '#94a3b8', 2, 2);
+      p3(ctx, 12, 2, '#94a3b8', 2, 2);
+      p3(ctx, 2, 12, '#64748b', 2, 2);
+      p3(ctx, 12, 12, '#64748b', 2, 2);
+      break;
+    }
+
+    case ITEM_IDS.FARM_CRYSTAL_BLOSSOM:
+    case ITEM_IDS.FARM_MAGMA_ROSE:
+    case ITEM_IDS.FARM_VOID_LILY:
+    case ITEM_IDS.FARM_SOLARIUM_BLOOM:
+    case ITEM_IDS.FARM_CHRONO_FERN:
+    case ITEM_IDS.FARM_GENESIS_SEEDLING:
+    case ITEM_IDS.FARM_INFINITY_LOTUS: {
+      // Blooming crystal and floral flora
+      p3(ctx, 6, 8, THEME.ink.outline, 4, 8);
+      p3(ctx, 7, 9, def.colorSecondary, 2, 6);
+      p3(ctx, 2, 2, THEME.ink.outline, 12, 8);
+      p3(ctx, 3, 3, def.colorPrimary, 10, 6);
+      p3(ctx, 5, 4, def.colorAccent, 6, 4);
+      p3(ctx, 7, 5, '#ffffff', 2, 2);
+      break;
+    }
+
+    case ITEM_IDS.FARM_PLASMA_ORCHID:
+    case ITEM_IDS.FARM_NEBULA_SPORE:
+    case ITEM_IDS.FARM_PULSAR_BLOSSOM: {
+      drawFramedPanel16(ctx, def.colorSecondary);
+      p3(ctx, 4, 3, THEME.ink.outline, 8, 10);
+      p3(ctx, 5, 4, def.colorPrimary, 6, 8);
+      p3(ctx, 6, 5, def.colorAccent, 4, 6);
+      p3(ctx, 7, 6, '#ffffff', 2, 3);
+      break;
+    }
+
+    case ITEM_IDS.FARM_PRISM_SHARD:
+    case ITEM_IDS.FARM_THUNDER_CACTUS:
+    case ITEM_IDS.FARM_TITAN_THORN: {
+      drawFramedPanel16(ctx, def.colorSecondary, { bolts: true });
+      for (const [sx, sy] of [[3, 2], [8, 4], [4, 9], [10, 8]]) {
+        p3(ctx, sx, sy, THEME.ink.outline, 4, 5);
+        p3(ctx, sx + 1, sy + 1, def.colorPrimary, 2, 3);
+        p3(ctx, sx + 1, sy + 1, def.colorAccent, 1, 1);
+      }
+      break;
+    }
+
+    case ITEM_IDS.FARM_HYPERION_BULB:
+    case ITEM_IDS.FARM_DARK_MATTER_CORE:
+    case ITEM_IDS.FARM_SUPERNOVA_FRUIT:
+    case ITEM_IDS.FARM_QUANTUM_VINE:
+    case ITEM_IDS.FARM_ASTRAL_CHRYSALIS:
+    case ITEM_IDS.FARM_OMEGA_MONOLITH:
+    case ITEM_IDS.FARM_SHADOW_TENDRIL: {
+      drawFramedPanel16(ctx, def.colorSecondary, { crystal: true, bolts: true });
+      p3(ctx, 3, 3, THEME.ink.outline, 10, 10);
+      p3(ctx, 4, 4, def.colorPrimary, 8, 8);
+      p3(ctx, 5, 5, def.colorAccent, 6, 6);
+      p3(ctx, 7, 7, '#ffffff', 2, 2);
+      break;
+    }
 
     default: {
       // Rich procedural pixel-art rendering by category & item key so every catalog item is distinct
@@ -1354,7 +1510,14 @@ function drawTile48(itemId: number): HTMLCanvasElement {
 export function getTileSprite(itemId: number): HTMLCanvasElement {
   let cached = tileCache.get(itemId);
   if (!cached) {
-    cached = drawTile48(itemId);
+    const raw48 = drawTile48(itemId);
+    const scaled = document.createElement('canvas');
+    scaled.width = TILE_PX;
+    scaled.height = TILE_PX;
+    const sCtx = scaled.getContext('2d')!;
+    sCtx.imageSmoothingEnabled = false;
+    sCtx.drawImage(raw48, 0, 0, 48, 48, 0, 0, TILE_PX, TILE_PX);
+    cached = scaled;
     tileCache.set(itemId, cached);
   }
   return cached;
@@ -1375,292 +1538,45 @@ export function getItemIconUrl(itemId: number): string {
 export function getCrackOverlay(stage: number): HTMLCanvasElement {
   if (crackFrames.length === 0) {
     for (let s = 1; s <= 4; s++) {
-      const [c, ctx] = makeCanvas(TILE_PX, TILE_PX);
-      p3(ctx, 7, 7, 'rgba(14, 19, 30, 0.85)', 2, 2);
+      const c48 = document.createElement('canvas');
+      c48.width = 48;
+      c48.height = 48;
+      const ctx48 = c48.getContext('2d')!;
+      ctx48.imageSmoothingEnabled = false;
+
+      p3(ctx48, 7, 7, 'rgba(14, 19, 30, 0.85)', 2, 2);
       if (s >= 1) {
-        p3(ctx, 6, 5, 'rgba(14, 19, 30, 0.8)', 1, 2);
-        p3(ctx, 9, 9, 'rgba(14, 19, 30, 0.8)', 1, 2);
+        p3(ctx48, 6, 5, 'rgba(14, 19, 30, 0.8)', 1, 2);
+        p3(ctx48, 9, 9, 'rgba(14, 19, 30, 0.8)', 1, 2);
       }
       if (s >= 2) {
-        p3(ctx, 4, 3, 'rgba(14, 19, 30, 0.82)', 2, 2);
-        p3(ctx, 10, 11, 'rgba(14, 19, 30, 0.82)', 2, 2);
-        p2(ctx, 7, 6, 'rgba(255, 255, 255, 0.22)', 1, 1);
+        p3(ctx48, 4, 3, 'rgba(14, 19, 30, 0.82)', 2, 2);
+        p3(ctx48, 10, 11, 'rgba(14, 19, 30, 0.82)', 2, 2);
+        p2(ctx48, 7, 6, 'rgba(255, 255, 255, 0.22)', 1, 1);
       }
       if (s >= 3) {
-        p3(ctx, 2, 2, 'rgba(14, 19, 30, 0.86)', 2, 1);
-        p3(ctx, 11, 3, 'rgba(14, 19, 30, 0.86)', 2, 2);
-        p3(ctx, 3, 11, 'rgba(14, 19, 30, 0.86)', 2, 2);
+        p3(ctx48, 2, 2, 'rgba(14, 19, 30, 0.86)', 2, 1);
+        p3(ctx48, 11, 3, 'rgba(14, 19, 30, 0.86)', 2, 2);
+        p3(ctx48, 3, 11, 'rgba(14, 19, 30, 0.86)', 2, 2);
       }
       if (s >= 4) {
-        p3(ctx, 1, 7, 'rgba(14, 19, 30, 0.9)', 3, 1);
-        p3(ctx, 12, 7, 'rgba(14, 19, 30, 0.9)', 3, 1);
-        p3(ctx, 7, 1, 'rgba(14, 19, 30, 0.9)', 2, 3);
-        p3(ctx, 7, 12, 'rgba(14, 19, 30, 0.9)', 2, 3);
+        p3(ctx48, 1, 7, 'rgba(14, 19, 30, 0.9)', 3, 1);
+        p3(ctx48, 12, 7, 'rgba(14, 19, 30, 0.9)', 3, 1);
+        p3(ctx48, 7, 1, 'rgba(14, 19, 30, 0.9)', 2, 3);
+        p3(ctx48, 7, 12, 'rgba(14, 19, 30, 0.9)', 2, 3);
       }
-      crackFrames.push(c);
+
+      const scaled = document.createElement('canvas');
+      scaled.width = TILE_PX;
+      scaled.height = TILE_PX;
+      const sCtx = scaled.getContext('2d')!;
+      sCtx.imageSmoothingEnabled = false;
+      sCtx.drawImage(c48, 0, 0, 48, 48, 0, 0, TILE_PX, TILE_PX);
+      crackFrames.push(scaled);
     }
   }
   const idx = Math.max(0, Math.min(3, stage - 1));
   return crackFrames[idx];
-}
-
-// Crisp Pixel-Art Character Palette (Unified 3x + 2x detail grid)
-const TEMPLATE_PAL = {
-  ink: '#161114',
-  hairLit: '#6e472b',
-  hairMid: '#4d301b',
-  hairDeep: '#2e1b0e',
-  skinRim: '#ffe5cc',
-  skinLit: '#f7cfa6',
-  skinMid: '#e6b083',
-  skinShade: '#c7895c',
-  skinDeep: '#996039',
-  mouth: '#6e3d24',
-  eyeDark: '#131924',
-  eyeWhite: '#ffffff',
-  beltLeather: '#3b2416',
-  beltBuckle: '#f2b738',
-  jeansLit: '#495a8f',
-  jeansMid: '#323f69',
-  jeansDeep: '#222b4a',
-  jeansDark: '#151b30',
-  shoeLit: '#d9483b',
-  shoeMid: '#9e2e24',
-  shoeDark: '#262b38',
-  soleWhite: '#eef2f7',
-} as const;
-
-interface ShirtPalette {
-  rim: string;
-  lit: string;
-  mid: string;
-  shade: string;
-}
-
-function getShirtPalette(shirtColor: string): ShirtPalette {
-  const ramp = deriveColorRamp(shirtColor || '#3f8fd9');
-  return {
-    rim: shadeHex(ramp.highlight, 0.16),
-    lit: ramp.highlight,
-    mid: ramp.base,
-    shade: ramp.shadow,
-  };
-}
-
-function drawTemplateHead(
-  ctx: CanvasRenderingContext2D,
-  hx: number,
-  hy: number,
-  profile: 'front' | 'side',
-  squint = false
-) {
-  const P = TEMPLATE_PAL;
-  // Outer outline
-  p3(ctx, hx + 1, hy, P.ink, 10, 1);
-  p3(ctx, hx + 1, hy + 10, P.ink, 10, 1);
-  p3(ctx, hx, hy + 1, P.ink, 1, 9);
-  p3(ctx, hx + 11, hy + 1, P.ink, 1, 9);
-
-  // Face skin & warm cheek shading
-  p3(ctx, hx + 1, hy + 1, P.skinLit, 10, 9);
-  p3(ctx, hx + 1, hy + 3, P.skinRim, 6, 2);
-  p3(ctx, hx + 10, hy + 2, P.skinMid, 1, 8);
-  p3(ctx, hx + 2, hy + 9, P.skinShade, 8, 1);
-
-  // Textured pixel hair cap & bangs across top of head
-  p3(ctx, hx + 1, hy + 1, P.hairMid, 10, 2);
-  p3(ctx, hx + 2, hy + 1, P.hairLit, 6, 1);
-  p3(ctx, hx + 1, hy + 3, P.hairDeep, 2, 1);
-  p3(ctx, hx + 9, hy + 3, P.hairDeep, 2, 1);
-
-  if (profile === 'front') {
-    p3(ctx, hx + 2, hy + 4, P.eyeWhite, 1, 2);
-    p3(ctx, hx + 3, hy + 4, P.eyeDark, 1, 2);
-    p3(ctx, hx + 8, hy + 4, P.eyeDark, 1, 2);
-    p3(ctx, hx + 9, hy + 4, P.eyeWhite, 1, 2);
-    p3(ctx, hx + 5, hy + 7, P.skinDeep, 2, 1);
-    p3(ctx, hx + 4, hy + 8, P.mouth, 4, 1);
-  } else {
-    const eyeH = squint ? 1 : 2;
-    const eyeY = squint ? hy + 5 : hy + 4;
-    p3(ctx, hx + 4, eyeY, P.eyeDark, 1, eyeH);
-    p3(ctx, hx + 5, eyeY, P.eyeWhite, 1, eyeH);
-    p3(ctx, hx + 8, eyeY, P.eyeDark, 1, eyeH);
-    p3(ctx, hx + 9, eyeY, P.eyeWhite, 1, eyeH);
-    if (squint) {
-      p3(ctx, hx + 4, hy + 4, P.skinDeep, 2, 1);
-      p3(ctx, hx + 8, hy + 4, P.skinDeep, 2, 1);
-    }
-    p3(ctx, hx + 7, hy + 7, P.skinDeep, 1, 1);
-    p3(ctx, hx + 6, hy + 8, P.mouth, 3, 1);
-  }
-}
-
-function drawTemplateArmDown(
-  ctx: CanvasRenderingContext2D,
-  ax: number,
-  ay: number,
-  shirt: ShirtPalette,
-  isBack = false
-) {
-  const P = TEMPLATE_PAL;
-  p3(ctx, ax, ay, P.ink, 3, 8);
-  p3(ctx, ax + 1, ay + 1, isBack ? shirt.mid : shirt.lit, 1, 3);
-  p3(ctx, ax + 1, ay + 4, isBack ? P.skinMid : P.skinLit, 1, 3);
-  p3(ctx, ax + 1, ay + 6, isBack ? P.skinShade : P.skinMid, 1, 1);
-}
-
-function drawTemplateArmAngled(
-  ctx: CanvasRenderingContext2D,
-  ax: number,
-  ay: number,
-  dx: number,
-  dy: number,
-  shirt: ShirtPalette,
-  isBack = false
-) {
-  const P = TEMPLATE_PAL;
-  const steps = Math.max(3, Math.ceil(Math.hypot(dx, dy)));
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const px = Math.round(ax + dx * t);
-    const py = Math.round(ay + dy * t);
-    p3(ctx, px - 1, py - 1, P.ink, 3, 3);
-  }
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const px = Math.round(ax + dx * t);
-    const py = Math.round(ay + dy * t);
-    const isSleeve = t < 0.45;
-    const col = isSleeve
-      ? isBack
-        ? shirt.shade
-        : shirt.lit
-      : isBack
-        ? P.skinMid
-        : P.skinLit;
-    p3(ctx, px, py, col, 1, 1);
-  }
-}
-
-function drawTemplateLegVertical(
-  ctx: CanvasRenderingContext2D,
-  lx: number,
-  ly: number,
-  isBack = false,
-  tucked = false
-) {
-  const P = TEMPLATE_PAL;
-  const h = tucked ? 6 : 8;
-  p3(ctx, lx, ly, P.ink, 4, h);
-  p3(ctx, lx + 1, ly + 1, isBack ? P.jeansDeep : P.jeansMid, 2, h - 4);
-  if (!isBack) {
-    p3(ctx, lx + 1, ly + 1, P.jeansLit, 1, Math.max(1, h - 5));
-  }
-  const sy = ly + h - 3;
-  p3(ctx, lx + 1, sy, isBack ? P.shoeDark : P.shoeMid, 2, 1);
-  if (!isBack) {
-    p3(ctx, lx + 1, sy, P.shoeLit, 1, 1);
-  }
-  p3(ctx, lx + 1, sy + 1, P.soleWhite, 2, 1);
-}
-
-function drawTemplateLegStride(
-  ctx: CanvasRenderingContext2D,
-  hipX: number,
-  hipY: number,
-  footX: number,
-  footY: number,
-  isBack = false
-) {
-  const P = TEMPLATE_PAL;
-  const steps = 4;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const px = Math.round(hipX + (footX - hipX) * t);
-    const py = Math.round(hipY + (footY - 3 - hipY) * t);
-    p3(ctx, px - 1, py - 1, P.ink, 4, 3);
-  }
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const px = Math.round(hipX + (footX - hipX) * t);
-    const py = Math.round(hipY + (footY - 3 - hipY) * t);
-    p3(ctx, px, py, isBack ? P.jeansDeep : P.jeansMid, 2, 2);
-    if (!isBack && i > 0 && i < steps) {
-      p3(ctx, px, py, P.jeansLit, 1, 1);
-    }
-  }
-  const sx = Math.round(footX);
-  const sy = Math.round(footY - 2);
-  p3(ctx, sx - 1, sy - 1, P.ink, 5, 4);
-  p3(ctx, sx, sy, isBack ? P.shoeDark : P.shoeMid, 3, 1);
-  if (!isBack) p3(ctx, sx + 1, sy, P.shoeLit, 1, 1);
-  p3(ctx, sx, sy + 1, P.soleWhite, 3, 1);
-}
-
-function drawTemplateTorso(
-  ctx: CanvasRenderingContext2D,
-  tx: number,
-  ty: number,
-  shirt: ShirtPalette,
-  widthVpx = 10
-) {
-  const P = TEMPLATE_PAL;
-  p3(ctx, tx, ty, P.ink, widthVpx, 8);
-  p3(ctx, tx + 1, ty + 1, shirt.mid, widthVpx - 2, 5);
-  p3(ctx, tx + 1, ty + 1, shirt.lit, Math.max(2, widthVpx - 4), 4);
-  p3(ctx, tx + 1, ty + 1, shirt.rim, Math.max(1, widthVpx - 6), 2);
-  p3(ctx, tx + widthVpx - 2, ty + 2, shirt.shade, 1, 4);
-  p3(ctx, tx + 1, ty + 5, shirt.shade, widthVpx - 2, 1);
-  const colX = tx + Math.floor((widthVpx - 2) * 0.5);
-  p3(ctx, colX, ty + 1, P.skinShade, 2, 1);
-  // Leather belt & golden buckle
-  p3(ctx, tx + 1, ty + 6, P.beltLeather, widthVpx - 2, 1);
-  p3(ctx, colX, ty + 6, P.beltBuckle, 2, 1);
-}
-
-function drawTemplateWearables(
-  ctx: CanvasRenderingContext2D,
-  equipped: EquippedWearables | undefined,
-  hx: number,
-  hy: number,
-  layer: 'back' | 'front'
-) {
-  if (!equipped) return;
-  const ink = TEMPLATE_PAL.ink;
-
-  if (layer === 'back' && equipped.back === ITEM_IDS.WEAR_SKY_WINGS) {
-    const wy = hy + 10;
-    p3(ctx, hx - 4, wy, ink, 5, 9);
-    p3(ctx, hx - 3, wy + 1, '#2b6cb0', 3, 7);
-    p3(ctx, hx - 2, wy + 2, THEME.arcane.aquaLit, 3, 5);
-    p3(ctx, hx - 1, wy + 3, '#ffffff', 1, 3);
-    return;
-  }
-
-  if (layer !== 'front') return;
-
-  if (equipped.face === ITEM_IDS.WEAR_CYBER_VISOR) {
-    p3(ctx, hx + 2, hy + 3, ink, 9, 4);
-    p3(ctx, hx + 3, hy + 4, THEME.arcane.aquaMid, 7, 2);
-    p3(ctx, hx + 4, hy + 4, THEME.arcane.aquaRim, 4, 1);
-  }
-
-  if (equipped.head === ITEM_IDS.WEAR_GOLD_CROWN) {
-    p3(ctx, hx + 1, hy - 1, ink, 10, 3);
-    p3(ctx, hx + 2, hy, THEME.metal.goldMid, 8, 1);
-    p3(ctx, hx + 2, hy - 2, THEME.metal.goldLit, 2, 2);
-    p3(ctx, hx + 5, hy - 2, THEME.metal.goldRim, 2, 2);
-    p3(ctx, hx + 8, hy - 2, THEME.metal.goldLit, 2, 2);
-    p3(ctx, hx + 5, hy, '#ff4f5e', 2, 1);
-  } else if (equipped.head === ITEM_IDS.WEAR_EXPLORER_HAT) {
-    p3(ctx, hx - 1, hy, ink, 14, 2);
-    p3(ctx, hx + 1, hy - 2, ink, 10, 3);
-    p3(ctx, hx, hy + 1, THEME.wood.deep, 12, 1);
-    p3(ctx, hx + 2, hy - 1, THEME.wood.mid, 8, 2);
-    p3(ctx, hx + 3, hy - 1, THEME.wood.lit, 5, 1);
-    p3(ctx, hx + 2, hy, THEME.metal.goldMid, 8, 1);
-  }
 }
 
 export function getPlayerSprite(
@@ -1670,173 +1586,11 @@ export function getPlayerSprite(
   equipped?: EquippedWearables
 ): HTMLCanvasElement {
   const eqKey = `${equipped?.head ?? 0}_${equipped?.face ?? 0}_${equipped?.back ?? 0}`;
-  const key = `tpl4:${pose}:${facing}:${shirtColor}:${eqKey}`;
+  const key = `px4:${pose}:${facing}:${shirtColor}:${eqKey}`;
   const cached = playerFrames.get(key);
   if (cached) return cached;
 
-  const [c, ctx] = makeCanvas(PLAYER_CANVAS_W, PLAYER_CANVAS_H);
-  const shirt = getShirtPalette(shirtColor);
-  const normPose: PlayerPose = pose === 'idle' ? 'idle0' : pose === 'punch' ? 'punch3' : pose;
-
-  ctx.save();
-  if (facing === -1) {
-    ctx.translate(PLAYER_CANVAS_W, 0);
-    ctx.scale(-1, 1);
-  }
-
-  const CX = 12;
-  const isIdle =
-    normPose === 'idle0' || normPose === 'idle1' || normPose === 'idle2' || normPose === 'idle3';
-
-  if (isIdle) {
-    const breath = normPose === 'idle1' || normPose === 'idle2' ? 1 : 0;
-    const hx = CX - 6;
-    const hy = 2 + breath;
-    const tx = CX - 5;
-    const ty = 13 + breath;
-
-    drawTemplateWearables(ctx, equipped, hx, hy, 'back');
-    drawTemplateLegVertical(ctx, CX - 5, 20, true);
-    drawTemplateLegVertical(ctx, CX + 1, 20, false);
-    drawTemplateArmDown(ctx, CX - 7, ty + 1, shirt, false);
-    drawTemplateArmDown(ctx, CX + 4, ty + 1, shirt, false);
-    drawTemplateTorso(ctx, tx, ty, shirt, 10);
-    drawTemplateHead(ctx, hx, hy, 'front');
-    drawTemplateWearables(ctx, equipped, hx, hy, 'front');
-  } else {
-    let bobY = 0;
-    let leanX = 0;
-    let squint = false;
-
-    if (normPose === 'walk1' || normPose === 'walk3') bobY = -1;
-    if (normPose === 'jump') bobY = -1;
-    if (normPose === 'fall') bobY = 1;
-    const attackPose = new Set<string>(['punch1', 'punch2', 'punch3', 'mine1', 'mine2', 'mine3']);
-    if (attackPose.has(normPose)) {
-      leanX = 1;
-      squint = normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3';
-    }
-    if (normPose === 'place') leanX = 1;
-
-    const hx = CX - 6 + leanX;
-    const hy = 2 + bobY;
-    const tx = CX - 4 + leanX;
-    const ty = 13 + bobY;
-
-    drawTemplateWearables(ctx, equipped, hx, hy, 'back');
-
-    // 1. Back Arm
-    if (normPose === 'walk0') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -2, 4, shirt, true);
-    } else if (normPose === 'walk1') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 3, 3, shirt, true);
-    } else if (normPose === 'walk2') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 1, 4, shirt, true);
-    } else if (normPose === 'walk3') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -3, 3, shirt, true);
-    } else if (normPose === 'jump') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -4, -3, shirt, true);
-    } else if (normPose === 'fall') {
-      drawTemplateArmAngled(ctx, tx + 1, ty + 1, -4, 0, shirt, true);
-    } else if (normPose === 'punch0' || normPose === 'mine0') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 1, 4, shirt, true);
-    } else if (normPose === 'punch1' || normPose === 'mine1') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 3, 1, shirt, true);
-    } else if (normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3') {
-      drawTemplateArmAngled(ctx, tx + 1, ty + 1, -2, 3, shirt, true);
-    } else if (normPose === 'place') {
-      drawTemplateArmAngled(ctx, tx + 1, ty + 1, -1, 4, shirt, true);
-    }
-
-    // 2. Legs & Sneakers
-    if (normPose === 'walk0') {
-      drawTemplateLegStride(ctx, CX - 2, 20, CX - 3, 27, true);
-      drawTemplateLegStride(ctx, CX + 1, 20, CX + 2, 27, false);
-    } else if (normPose === 'walk1') {
-      drawTemplateLegStride(ctx, CX - 1, 19, CX - 5, 27, true);
-      drawTemplateLegStride(ctx, CX + 1, 19, CX + 4, 27, false);
-    } else if (normPose === 'walk2') {
-      drawTemplateLegVertical(ctx, CX - 3, 20, true);
-      drawTemplateLegVertical(ctx, CX, 20, false);
-    } else if (normPose === 'walk3') {
-      drawTemplateLegStride(ctx, CX + 1, 19, CX + 4, 27, true);
-      drawTemplateLegStride(ctx, CX - 1, 19, CX - 5, 27, false);
-    } else if (normPose === 'jump') {
-      drawTemplateLegStride(ctx, CX - 1, 19, CX - 4, 26, true);
-      drawTemplateLegVertical(ctx, CX + 1, 19, false, true);
-    } else if (normPose === 'fall') {
-      drawTemplateLegStride(ctx, CX - 2, 20, CX - 4, 27, true);
-      drawTemplateLegStride(ctx, CX + 1, 20, CX + 4, 27, false);
-    } else if (normPose === 'punch0' || normPose === 'mine0' || normPose === 'punch1' || normPose === 'mine1') {
-      drawTemplateLegStride(ctx, CX - 2, 20, CX - 4, 27, true);
-      drawTemplateLegStride(ctx, CX + 2, 20, CX + 3, 27, false);
-    } else if (normPose === 'punch2' || normPose === 'punch3' || normPose === 'mine2' || normPose === 'mine3') {
-      drawTemplateLegStride(ctx, CX - 1, 20, CX - 4, 27, true);
-      drawTemplateLegStride(ctx, CX + 2, 20, CX + 5, 27, false);
-    } else {
-      drawTemplateLegStride(ctx, CX - 2, 20, CX - 3, 27, true);
-      drawTemplateLegStride(ctx, CX + 1, 20, CX + 3, 27, false);
-    }
-
-    // 3. Torso & Head
-    drawTemplateTorso(ctx, tx, ty, shirt, 8);
-    drawTemplateHead(ctx, hx, hy, 'side', squint);
-    drawTemplateWearables(ctx, equipped, hx, hy, 'front');
-
-    // 4. Front Arm + Action Impact/Placement FX
-    if (normPose === 'walk0') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 1, 4, shirt, false);
-    } else if (normPose === 'walk1') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -3, 3, shirt, false);
-    } else if (normPose === 'walk2') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -1, 4, shirt, false);
-    } else if (normPose === 'walk3') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, 3, 3, shirt, false);
-    } else if (normPose === 'jump') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 3, -3, shirt, false);
-    } else if (normPose === 'fall') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 4, 0, shirt, false);
-    } else if (normPose === 'punch0' || normPose === 'mine0') {
-      drawTemplateArmAngled(ctx, tx + 2, ty + 1, -1, 4, shirt, false);
-    } else if (normPose === 'punch1' || normPose === 'mine1') {
-      drawTemplateArmAngled(ctx, tx + 1, ty + 1, -2, 1, shirt, false);
-      p3(ctx, tx + 1, ty + 2, TEMPLATE_PAL.skinLit, 2, 2);
-    } else if (normPose === 'punch2') {
-      p3(ctx, tx + 2, ty + 1, TEMPLATE_PAL.ink, 8, 3);
-      p3(ctx, tx + 2, ty + 2, shirt.lit, 3, 1);
-      p3(ctx, tx + 5, ty + 2, TEMPLATE_PAL.skinLit, 4, 1);
-    } else if (normPose === 'punch3') {
-      p3(ctx, tx + 3, ty + 1, TEMPLATE_PAL.ink, 10, 3);
-      p3(ctx, tx + 3, ty + 2, shirt.lit, 4, 1);
-      p3(ctx, tx + 7, ty + 2, TEMPLATE_PAL.skinLit, 4, 1);
-      p3(ctx, tx + 11, ty + 2, TEMPLATE_PAL.skinRim, 1, 1);
-      p3(ctx, tx + 14, ty, TEMPLATE_PAL.eyeWhite, 1, 1);
-      p3(ctx, tx + 14, ty + 2, TEMPLATE_PAL.eyeWhite, 2, 1);
-      p3(ctx, tx + 14, ty + 4, TEMPLATE_PAL.eyeWhite, 1, 1);
-    } else if (normPose === 'mine2' || normPose === 'mine3') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 2, -5, shirt, false);
-      const toolX = tx + 6;
-      const toolY = ty - 6;
-      p3(ctx, toolX, toolY, TEMPLATE_PAL.ink, 2, 5);
-      p3(ctx, toolX - 2, toolY, '#a9c4d5', 6, 2);
-      p3(ctx, toolX - 1, toolY - 1, '#e7f4fa', 4, 1);
-      if (normPose === 'mine3') {
-        p3(ctx, toolX + 4, toolY - 2, '#fff1a6', 2, 1);
-        p3(ctx, toolX + 6, toolY, '#fff1a6', 1, 1);
-      }
-    } else if (normPose === 'place') {
-      drawTemplateArmAngled(ctx, tx + 3, ty + 1, 5, -2, shirt, false);
-      const gx = tx + 9;
-      const gy = ty - 3;
-      p3(ctx, gx, gy, 'rgba(255, 240, 148, 0.38)', 3, 3);
-      p3(ctx, gx, gy, '#fff3a8', 3, 1);
-      p3(ctx, gx, gy + 2, '#fff3a8', 3, 1);
-      p3(ctx, gx, gy, '#fff3a8', 1, 3);
-      p3(ctx, gx + 2, gy, '#fff3a8', 1, 3);
-    }
-  }
-
-  ctx.restore();
-  playerFrames.set(key, c);
-  return c;
+  const sprite = renderHighDefPlayerSprite(pose, facing, shirtColor, equipped);
+  playerFrames.set(key, sprite);
+  return sprite;
 }

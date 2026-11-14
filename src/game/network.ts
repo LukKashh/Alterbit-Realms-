@@ -1,9 +1,13 @@
 import type {
   AreaLockRecord,
+  AtmMachineRecord,
   ShareLockRecord,
   BfgCollectorRecord,
   FurnaceRecord,
+  MatteragenRecord,
   PlantedTree,
+  SeedPotRecord,
+  VaultboxRecord,
   VendingMachineRecord,
   WorldLockRecord,
   WorldState,
@@ -35,12 +39,7 @@ export interface ActiveBuff {
 
 export type FishFightPattern = 'darting' | 'surging' | 'deep_run' | 'erratic';
 
-export interface FiscoreProgress {
-  xp: number;
-  level: number;
-  catches: number;
-  deepestDepth: number;
-}
+
 
 export interface FishingCastState {
   playerId: string;
@@ -56,7 +55,7 @@ export interface FishingCastState {
   lineTension?: number;
   bobberOffset?: number;
   fightPattern?: FishFightPattern;
-  mode?: 'world' | 'fiscore';
+
   zoneId?: string;
 }
 
@@ -161,7 +160,6 @@ export interface AuthUserProfile {
   recentWorlds: string[];
   activeBuffs: ActiveBuff[];
   unclaimedWl: number;
-  fiscore: FiscoreProgress;
 }
 
 export interface ResumePosition {
@@ -179,11 +177,7 @@ export type ClientMessage =
   | { type: 'join_world'; worldName: string; resumePosition?: ResumePosition }
   | { type: 'create_world'; worldName: string; terraBlast?: boolean }
   | { type: 'leave_world' }
-  | { type: 'dungeon_buy_key'; tier: number; payment: 'gems' | 'world_locks'; txId: string }
-  | { type: 'dungeon_create'; tier: number; partyMode: 'solo' | 'cooperative' }
-  | { type: 'dungeon_join'; code: string }
-  | { type: 'dungeon_resume' }
-  | { type: 'dungeon_action'; action: 'move' | 'attack' | 'next_room' | 'extract' | 'leave'; dx?: number; dy?: number; attackId?: string }
+
   | {
       type: 'move';
       x: number;
@@ -195,8 +189,8 @@ export type ClientMessage =
       punching: boolean;
       placing?: boolean;
     }
-  | { type: 'punch_tile'; tx: number; ty: number; toolItemId?: number }
-  | { type: 'place_tile'; tx: number; ty: number; itemId: number }
+  | { type: 'punch_tile'; tx: number; ty: number; toolItemId?: number; adminEdit?: boolean }
+  | { type: 'place_tile'; tx: number; ty: number; itemId: number; adminEdit?: boolean }
   | { type: 'pickup_drop'; dropId: string }
   | { type: 'splice_seeds'; seedA: number; seedB: number }
   | { type: 'buy_gem_store'; listingId: string; txId: string }
@@ -241,10 +235,24 @@ export type ClientMessage =
   | { type: 'update_game_config'; config: GameConfig }
   | {
       type: 'admin_action';
-      action: 'grant_item' | 'grant_gems' | 'grow_all_trees' | 'reset_config';
+      action:
+        | 'grant_item'
+        | 'grant_gems'
+        | 'grow_all_trees'
+        | 'reset_config'
+        | 'sys_paint_tile'
+        | 'sys_clear_tile'
+        | 'sys_fill_rect'
+        | 'sys_set_spawn'
+        | 'sys_reset_world';
       itemId?: number;
       qty?: number;
       gems?: number;
+      tx?: number;
+      ty?: number;
+      tx2?: number;
+      ty2?: number;
+      layer?: 'fg' | 'bg' | 'both';
     }
   | { type: 'use_consumable'; itemId: number }
   | { type: 'exit_mine_shaft' }
@@ -263,11 +271,19 @@ export type ClientMessage =
       action: 'toggle' | 'withdraw';
     }
   | { type: 'cast_fishing'; tx: number; ty: number; rodItemId: number }
-  | { type: 'fiscore_enter' }
-  | { type: 'fiscore_cast'; rodInstanceId: string; depthLevel: number }
-  | { type: 'fiscore_reel' }
-  | { type: 'fiscore_cancel' }
+
   | { type: 'upgrade_fishing_rod'; rodInstanceId: string }
+  | { type: 'upgrade_matteragen'; tx: number; ty: number }
+  | {
+      type: 'configure_vaultbox';
+      tx: number;
+      ty: number;
+      action: 'deposit' | 'withdraw';
+      itemId?: number;
+      qty?: number;
+      slotIndex?: number;
+      invIndex?: number;
+    }
   | { type: 'reel_fishing' }
   | {
       type: 'exchange_action';
@@ -300,7 +316,6 @@ export type ServerMessage =
       recentWorlds: string[];
       activeBuffs: ActiveBuff[];
       unclaimedWl: number;
-      fiscore: FiscoreProgress;
       gameConfig: GameConfig;
       exchange: ExchangeSnapshot;
     }
@@ -356,6 +371,10 @@ export type ServerMessage =
       vendingMachine?: VendingMachineRecord | null;
       furnace?: FurnaceRecord | null;
       bfgCollector?: BfgCollectorRecord | null;
+      seedPot?: SeedPotRecord | null;
+      matteragenEngine?: MatteragenRecord | null;
+      atmMachine?: AtmMachineRecord | null;
+      vaultbox?: VaultboxRecord | null;
       signText?: string | null;
       revision: number;
     }
@@ -379,19 +398,17 @@ export type ServerMessage =
       recentWorlds: string[];
       activeBuffs: ActiveBuff[];
       unclaimedWl: number;
-      fiscore: FiscoreProgress;
       notice?: string;
     }
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'worlds_list'; worlds: WorldSummary[] }
   | { type: 'fishing_started'; cast: FishingCastState }
-  | { type: 'fishing_bite'; playerId: string; bobberTx: number; bobberTy: number; depthTier: LiquidPoolInfo['depthTier']; mode?: 'world' | 'fiscore' }
-  | { type: 'fishing_progress'; playerId: string; progress: number; lineTension: number; bobberOffset: number; fightPattern: FishFightPattern; mode?: 'world' | 'fiscore' }
-  | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier']; mode?: 'world' | 'fiscore' }
+  | { type: 'fishing_bite'; playerId: string; bobberTx: number; bobberTy: number; depthTier: LiquidPoolInfo['depthTier'] }
+  | { type: 'fishing_progress'; playerId: string; progress: number; lineTension: number; bobberOffset: number; fightPattern: FishFightPattern }
+  | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier'] }
   | { type: 'exchange_updated'; exchange: ExchangeSnapshot }
   | { type: 'mine_shaft_expired'; worldName: string; message: string }
-  | { type: 'dungeon_state'; snapshot: import('./dungeon.ts').DungeonSnapshot }
-  | { type: 'dungeon_error'; message: string };
+;
 
 interface QueuedClientMessage {
   msg: ClientMessage;

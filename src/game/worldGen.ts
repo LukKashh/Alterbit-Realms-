@@ -74,6 +74,54 @@ export interface BfgCollectorRecord {
   storedItems: { itemId: number; qty: number }[];
 }
 
+export interface SeedPotRecord {
+  x: number;
+  y: number;
+  hasPlant: boolean;
+  placedAt?: number;
+}
+
+export interface MatteragenRecord {
+  x: number;
+  y: number;
+  typeId: number; // 551..555
+  level: number; // 1..5
+  placedAtMs: number;
+  lastHarvestMs: number;
+  isReady: boolean;
+  storedDrops?: { itemId: number; count: number }[];
+}
+
+export interface AtmMachineRecord {
+  x: number;
+  y: number;
+  ownerId: string;
+  placedAtMs: number;
+  lastHarvestMs: number;
+  intervalMs: number; // 30m - 1.5h random interval per cycle
+  isReady: boolean;
+  storedGems: number; // 5 - 125 Gems when ready
+}
+
+export const VAULTBOX_SLOT_COUNT = 10;
+
+export interface VaultboxSlot {
+  itemId: number;
+  qty: number;
+  durability?: number;
+  maxDurability?: number;
+  rodInstanceId?: string;
+  rodUpgradeLevel?: 1 | 2 | 3;
+}
+
+export interface VaultboxRecord {
+  x: number;
+  y: number;
+  ownerId: string;
+  ownerName: string;
+  slots: (VaultboxSlot | null)[]; // Fixed 10-tile player storage
+}
+
 export interface WorldState {
   name: string;
   seed: number;
@@ -82,6 +130,7 @@ export interface WorldState {
   worldKind?: 'standard' | 'mine_shaft';
   worldFamily?: WorldFamily;
   terraBlasted?: boolean;
+  isPersonalRealm?: boolean;
   expiresAt?: number;
   spawnX: number;
   spawnY: number;
@@ -90,6 +139,10 @@ export interface WorldState {
   fluidType?: number[]; // 0 = dry, 1 = water, 2 = acid
   fluidLevel?: number[]; // 0..4
   plants: Record<string, PlantedTree>; // key: `${x},${y}`
+  seedPots?: Record<string, SeedPotRecord>; // key: `${x},${y}`
+  matteragenEngines?: Record<string, MatteragenRecord>; // key: `${x},${y}`
+  atmMachines?: Record<string, AtmMachineRecord>; // key: `${x},${y}`
+  vaultboxes?: Record<string, VaultboxRecord>; // key: `${x},${y}`
   worldLock: WorldLockRecord | null;
   /** New rectangular area-sharing claims. */
   shareLocks?: Record<string, ShareLockRecord>; // key: `${x},${y}`
@@ -131,10 +184,99 @@ export function classifyWorldFamily(worldName: string): WorldFamily {
   return 'temperate';
 }
 
-export function generateWorld(worldName: string, terraBlast = false): WorldState {
+export function generateWorld(
+  worldName: string,
+  terraBlast = false,
+  options?: { isPersonalWorld?: boolean }
+): WorldState {
   const normalized = worldName.trim().toUpperCase() || 'START';
   const seed = hashWorldSeed(normalized);
   const rand = createRng(seed);
+
+  // Personal World Generation: 30x50 compact plot with 20% underground block chance
+  if (options?.isPersonalWorld) {
+    const pWidth = 30;
+    const pHeight = 50;
+    const pTileCount = pWidth * pHeight;
+    const pFg = new Array<number>(pTileCount).fill(ITEM_IDS.AIR);
+    const pBg = new Array<number>(pTileCount).fill(ITEM_IDS.BG_SKY);
+    const pFluidType = new Array<number>(pTileCount).fill(0);
+    const pFluidLevel = new Array<number>(pTileCount).fill(0);
+
+    const pSpawnX = 15;
+    const pSurfaceY = 20;
+    const pPlayableRows = pHeight - BEDROCK_ROWS; // 44 (bottom 6 rows are bedrock)
+
+    for (let x = 0; x < pWidth; x++) {
+      for (let y = 0; y < pHeight; y++) {
+        const idx = y * pWidth + x;
+        if (y >= pPlayableRows) {
+          // Bottom 6 rows unbreakable bedrock
+          pFg[idx] = ITEM_IDS.BEDROCK;
+          pBg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
+        } else if (y === pSurfaceY) {
+          // Flat surface walking platform
+          pFg[idx] = ITEM_IDS.DESERT_SAND;
+          pBg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
+        } else if (y > pSurfaceY) {
+          // Underground: 20% basic block chance, 80% air
+          pBg[idx] = ITEM_IDS.GP_CAVE_BACKGROUND;
+          if (rand() < 0.20) {
+            const blockRoll = rand();
+            if (blockRoll < 0.35) pFg[idx] = ITEM_IDS.GP_DIRT;
+            else if (blockRoll < 0.60) pFg[idx] = ITEM_IDS.GP_ROCK;
+            else if (blockRoll < 0.80) pFg[idx] = ITEM_IDS.CAVE_LIMESTONE;
+            else pFg[idx] = ITEM_IDS.GRANITE;
+          } else {
+            pFg[idx] = ITEM_IDS.AIR;
+          }
+        } else {
+          // Sky above surface
+          pFg[idx] = ITEM_IDS.AIR;
+          pBg[idx] = ITEM_IDS.BG_SKY;
+        }
+      }
+    }
+
+    const pSpawnY = pSurfaceY - 1;
+    pFg[pSpawnY * pWidth + pSpawnX] = ITEM_IDS.ENTRANCE_PORTAL;
+
+    const signX = pSpawnX - 2;
+    const signY = pSurfaceY - 1;
+    pFg[signY * pWidth + signX] = ITEM_IDS.GP_SIGN;
+
+    return {
+      name: normalized,
+      seed,
+      width: pWidth,
+      height: pHeight,
+      worldKind: 'standard',
+      worldFamily: 'temperate',
+      terraBlasted: terraBlast,
+      isPersonalRealm: true,
+      spawnX: pSpawnX,
+      spawnY: pSpawnY,
+      fg: pFg,
+      bg: pBg,
+      fluidType: pFluidType,
+      fluidLevel: pFluidLevel,
+      plants: {},
+      seedPots: {},
+      matteragenEngines: {},
+      atmMachines: {},
+      vaultboxes: {},
+      worldLock: null,
+      areaLocks: {},
+      shareLocks: {},
+      vendingMachines: {},
+      furnaces: {},
+      bfgCollectors: {},
+      signs: {
+        [`${signX},${signY}`]: `Personal Sanctuary of ${normalized}. Build your farm, place Seed Pots (500 Gems in Store), and install Matteragen Engines (max 20)!`,
+      },
+      revision: 1,
+    };
+  }
 
   const fg = new Array<number>(WORLD_TILE_COUNT).fill(ITEM_IDS.AIR);
   const bg = new Array<number>(WORLD_TILE_COUNT).fill(ITEM_IDS.BG_SKY);
@@ -345,6 +487,10 @@ export function generateWorld(worldName: string, terraBlast = false): WorldState
     fluidType,
     fluidLevel,
     plants: {},
+    seedPots: {},
+    matteragenEngines: {},
+    atmMachines: {},
+    vaultboxes: {},
     worldLock: null,
     areaLocks: {},
     shareLocks: {},

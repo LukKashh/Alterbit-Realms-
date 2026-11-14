@@ -46,8 +46,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   const displayError = localError || errorMessage;
 
   return (
-    <div className="fixed inset-0 z-20 flex flex-col justify-between px-6 py-3 pointer-events-none overflow-y-auto">
-      <div className="flex flex-col items-center gap-3 pt-2 my-auto">
+    <div className="fixed inset-0 z-20 flex flex-col justify-between px-3 sm:px-6 py-3 pointer-events-none overflow-y-auto">
+      <div className="flex flex-col items-center gap-3 pt-1 sm:pt-2 my-auto w-full">
         <svg
           viewBox="0 0 520 100"
           className="w-full max-w-[420px] h-auto drop-shadow-[0_4px_0_rgba(12,24,38,0.85)]"
@@ -95,23 +95,23 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
         <form
           onSubmit={handleSubmit}
-          className="pointer-events-auto w-full max-w-[440px] bg-[#101e2e]/94 border-2 border-[#3b5978] shadow-[0_8px_0_rgba(8,15,24,0.85)] rounded-lg p-4 flex flex-col gap-3"
+          className="pointer-events-auto w-full max-w-[440px] pixel-wood-box p-4 flex flex-col gap-3"
         >
           {/* Existing User Login vs New Profile Creation Tabs */}
-          <div className="grid grid-cols-2 gap-1.5 bg-[#09131d] p-1 rounded border border-[#243c54]">
+          <div className="grid grid-cols-2 gap-1.5 bg-[#090e17] p-1 border-2 border-[#1c2b3d]">
             <button
               type="button"
               onClick={() => {
                 setAuthTab('login');
                 setLocalError(null);
               }}
-              className={`py-1.5 rounded text-xs font-bold cursor-pointer transition-colors ${
+              className={`py-1.5 text-[11px] font-pixel cursor-pointer transition-colors border-2 ${
                 authTab === 'login'
-                  ? 'bg-[#214463] border border-[#78c8f5] text-[#fff8e8]'
-                  : 'text-[#9cb5cc] hover:text-white'
+                  ? 'bg-[#17334a] border-[#78c8f5] text-[#fff8e8]'
+                  : 'border-transparent text-[#9cb5cc] hover:text-white'
               }`}
             >
-              Existing User Login
+              User Login
             </button>
             <button
               type="button"
@@ -119,19 +119,19 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 setAuthTab('register');
                 setLocalError(null);
               }}
-              className={`py-1.5 rounded text-xs font-bold cursor-pointer transition-colors ${
+              className={`py-1.5 text-[11px] font-pixel cursor-pointer transition-colors border-2 ${
                 authTab === 'register'
-                  ? 'bg-[#214463] border border-[#82e068] text-[#fff8e8]'
-                  : 'text-[#9cb5cc] hover:text-white'
+                  ? 'bg-[#143322] border-[#82e068] text-[#fff8e8]'
+                  : 'border-transparent text-[#9cb5cc] hover:text-white'
               }`}
             >
-              Create New Profile
+              New Profile
             </button>
           </div>
 
           {authTab === 'login' ? (
             <div className="flex flex-col gap-2.5">
-              <label className="flex flex-col gap-1 text-xs font-semibold text-[#b9d2e8]">
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[#fef3c7]">
                 <span>Email or Username</span>
                 <input
                   type="text"
@@ -139,10 +139,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   placeholder="Enter email or username"
-                  className="px-2.5 py-2 rounded bg-[#0a141f] border border-[#2d4863] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#f2b738]"
+                  className="px-2.5 py-2 bg-[#05080e] border-2 border-[#1c2b3d] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#facc15]"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs font-semibold text-[#b9d2e8]">
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[#fef3c7]">
                 <span>Password</span>
                 <input
                   type="password"
@@ -150,14 +150,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter password"
-                  className="px-2.5 py-2 rounded bg-[#0a141f] border border-[#2d4863] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#f2b738]"
+                  className="px-2.5 py-2 bg-[#05080e] border-2 border-[#1c2b3d] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#facc15]"
                 />
               </label>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
               <div className="grid grid-cols-2 gap-2.5">
-                <label className="flex flex-col gap-1 text-xs font-semibold text-[#b9d2e8]">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-[#fef3c7]">
                   <span>Email</span>
                   <input
                     type="email"
@@ -165,10 +165,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="px-2.5 py-1.5 rounded bg-[#0a141f] border border-[#2d4863] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#82e068]"
+                    className="px-2.5 py-1.5 bg-[#05080e] border-2 border-[#1c2b3d] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#82e068]"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold text-[#b9d2e8]">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-[#fef3c7]">
                   <span>Username</span>
                   <input
                     type="text"
@@ -177,12 +177,12 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="Explorer"
-                    className="px-2.5 py-1.5 rounded bg-[#0a141f] border border-[#2d4863] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#82e068]"
+                    className="px-2.5 py-1.5 bg-[#05080e] border-2 border-[#1c2b3d] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#82e068]"
                   />
                 </label>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
-                <label className="flex flex-col gap-1 text-xs font-semibold text-[#b9d2e8]">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-[#fef3c7]">
                   <span>Password</span>
                   <input
                     type="password"
@@ -190,10 +190,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Min 6 chars"
-                    className="px-2.5 py-1.5 rounded bg-[#0a141f] border border-[#2d4863] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#82e068]"
+                    className="px-2.5 py-1.5 bg-[#05080e] border-2 border-[#1c2b3d] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#82e068]"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold text-[#b9d2e8]">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-[#fef3c7]">
                   <span>Confirm Password</span>
                   <input
                     type="password"
@@ -201,11 +201,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repeat password"
-                    className="px-2.5 py-1.5 rounded bg-[#0a141f] border border-[#2d4863] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#82e068]"
+                    className="px-2.5 py-1.5 bg-[#05080e] border-2 border-[#1c2b3d] text-sm font-semibold text-[#f8f5ec] focus:outline-none focus:border-[#82e068]"
                   />
                 </label>
               </div>
-              <p className="text-[11px] text-[#9cb5cc]">
+              <p className="text-[11px] text-[#e7d4b5]">
                 New explorers begin with Builder Fist &amp; Tinker Wrench in their backpack.
               </p>
             </div>
@@ -214,7 +214,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           {displayError && (
             <div
               role="alert"
-              className="text-xs font-semibold text-[#ff9b9b] bg-[#3b151a] border border-[#7a2e38] rounded px-2.5 py-1.5"
+              className="text-xs font-semibold text-[#ff9b9b] bg-[#3b151a] border-2 border-[#7a2e38] px-2.5 py-1.5"
             >
               {displayError}
             </div>
@@ -224,7 +224,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             type="submit"
             disabled={submitting}
             data-start="true"
-            className="w-full py-2.5 px-4 rounded bg-[#4aa64d] hover:bg-[#57ba5a] disabled:bg-[#2a4a2c] disabled:text-[#86a888] active:translate-y-0.5 border-2 border-[#82e068] text-[#081709] font-pixel text-sm tracking-wide shadow-[0_3px_0_#245926] transition-transform cursor-pointer whitespace-nowrap"
+            className="pixel-btn pixel-btn-emerald w-full !py-2.5 !text-sm disabled:opacity-50 whitespace-nowrap"
           >
             {submitting
               ? 'Authenticating...'
@@ -235,9 +235,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         </form>
       </div>
 
-      <div className="flex justify-center pt-1">
-        <p className="text-xs font-semibold text-[#0d1c2b] bg-[#e6f5ff]/88 px-3 py-1 rounded whitespace-nowrap">
-          A/D or Arrows Move · W/Space Jump · Tap &amp; Hold Drag to Break/Place (3-Block Reach) · 1–6 Hotbar
+      <div className="flex justify-center pt-2">
+        <p className="text-[11px] sm:text-xs font-semibold text-[#0d1c2b] bg-[#e6f5ff]/88 px-3 py-1 rounded text-center max-w-full">
+          A/D or Arrows Move · W/Space Jump · Tap &amp; Hold Drag to Break/Place · 1–6 Hotbar
         </p>
       </div>
     </div>

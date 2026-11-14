@@ -1,0 +1,2040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Fiscore 3D — Blockgrove Pixel-Voxel Ocean & Island</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0b1622;
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      color: #f4f1ea;
+    }
+    .font-pixel { font-family: 'Silkscreen', monospace; letter-spacing: 0.04em; }
+    .font-mono-num { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+    .pixelated {
+      image-rendering: -moz-crisp-edges;
+      image-rendering: crisp-edges;
+      image-rendering: pixelated;
+    }
+    #game-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      image-rendering: pixelated;
+    }
+    /* Blockgrove beveled UI panel style */
+    .bg-panel {
+      background-color: rgba(15, 29, 44, 0.94);
+      border: 2px solid #3b5978;
+      box-shadow: 0 5px 0 rgba(6, 12, 20, 0.88);
+    }
+    .bg-panel-gold {
+      background-color: rgba(15, 29, 44, 0.96);
+      border: 2px solid #f2b738;
+      box-shadow: 0 6px 0 rgba(6, 12, 20, 0.92);
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #09131d; }
+    ::-webkit-scrollbar-thumb { background: #3b5978; border-radius: 4px; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body class="relative w-screen h-screen overflow-hidden">
+
+  <!-- 3D Pixel-Art Voxel Canvas -->
+  <canvas id="game-canvas"></canvas>
+
+  <!-- TOP HUD BAR (Blockgrove Dark Slate + Gold + Emerald Pixel HUD) -->
+  <header class="fixed top-0 inset-x-0 z-20 p-2 sm:p-3 pointer-events-none flex flex-wrap items-start justify-between gap-2">
+    <!-- Left: Isolated Fiscore Level, XP, Gems & Dedicated Fish Storage -->
+    <div class="pointer-events-auto flex items-center gap-2.5 bg-panel rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2">
+      <div class="w-10 h-10 rounded-md border-2 border-[#82e068] bg-[#193829] flex flex-col items-center justify-center text-[#a8f794] font-pixel shrink-0">
+        <span class="text-[8px] leading-none">LVL</span>
+        <span id="hud-level" class="text-sm leading-tight font-bold">1</span>
+      </div>
+      <div class="min-w-[115px] sm:min-w-[145px]">
+        <div class="flex items-center justify-between">
+          <span class="font-pixel text-[10px] sm:text-[11px] text-[#ffe18c]">FISCORE 3D</span>
+          <span id="hud-xp-text" class="font-mono-num text-[10px] text-[#89d6ff]">0/100 XP</span>
+        </div>
+        <div class="w-full h-2 bg-[#08101a] rounded-sm overflow-hidden mt-1 border border-[#243c54]">
+          <div id="hud-xp-bar" class="h-full bg-[#4ec46a] transition-all duration-150" style="width: 0%"></div>
+        </div>
+        <div class="flex items-center gap-2.5 mt-1 text-[11px] font-mono-num font-bold">
+          <span class="text-[#8cf7ee] flex items-center gap-1">◆ <span id="hud-gems">180</span></span>
+          <span class="text-[#ffe18c] flex items-center gap-1">📦 <span id="hud-storage">0/12</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: Current Depth Zone, Weather & Camera Zoom Preset -->
+    <div class="pointer-events-auto flex items-center gap-1.5 sm:gap-2 bg-panel rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2">
+      <div class="flex flex-col">
+        <span class="font-pixel text-[8px] text-[#8aa4bd] uppercase">OCEAN ZONE</span>
+        <span id="hud-zone" class="text-xs sm:text-sm font-bold text-[#8cf7ee]">Island Harbor (Safe)</span>
+      </div>
+      <div class="h-7 w-px bg-[#2a4057] mx-0.5"></div>
+      <button id="btn-weather-cycle" type="button" title="Toggle Weather" class="flex items-center gap-1 px-2 py-1.5 rounded bg-[#09131d] hover:bg-[#162a3f] border border-[#314e6b] text-xs font-bold text-[#ffe18c] cursor-pointer">
+        <span id="hud-weather-icon">☀️</span>
+        <span id="hud-weather-label" class="hidden md:inline">Clear</span>
+      </button>
+      <button id="btn-cam-zoom" type="button" title="Toggle Camera Zoom" class="flex items-center gap-1 px-2 py-1.5 rounded bg-[#09131d] hover:bg-[#162a3f] border border-[#314e6b] font-pixel text-[9px] text-[#89d6ff] cursor-pointer">
+        <span>🔭</span>
+        <span id="hud-zoom-label">STD</span>
+      </button>
+      <button id="btn-discoveries" type="button" title="Charted Depth Zones" class="flex items-center gap-1 px-2 py-1.5 rounded bg-[#142538] hover:bg-[#1e3752] border border-[#46678a] font-mono-num text-xs font-bold text-[#f4f1ea] cursor-pointer">
+        <span>🧭</span>
+        <span id="hud-disc-count">1/6</span>
+      </button>
+    </div>
+
+    <!-- Right: Equipped Rod, Bait Charges & Harbor Town Menu -->
+    <div class="pointer-events-auto flex items-center gap-2 bg-panel rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2">
+      <img id="hud-rod-icon" src="" alt="Rod" class="w-8 h-8 pixelated bg-[#09131d] rounded border border-[#2d4863] p-0.5 hidden sm:block" />
+      <div class="text-right">
+        <div id="hud-rod-name" class="text-xs font-bold text-[#ffe18c]">Bamboo Rod (Lv.1)</div>
+        <div class="text-[10px] font-mono-num text-[#b5cde3] flex items-center justify-end gap-1.5 mt-0.5">
+          <span>Cap: <strong id="hud-rod-cap" class="text-[#8cf7ee]">Z1</strong></span>
+          <span>•</span>
+          <span>Bait: <strong id="hud-bait" class="text-[#82e068]">15</strong></span>
+        </div>
+      </div>
+      <button id="btn-open-town" type="button" class="px-3 py-2 rounded-md bg-[#f2b738] hover:bg-[#ffd262] border border-[#fff0a8] text-[#1a1204] font-pixel text-[10px] font-bold shadow cursor-pointer">
+        TOWN
+      </button>
+    </div>
+  </header>
+
+  <!-- TOAST NOTIFICATION BANNER -->
+  <div id="toast-banner" class="fixed top-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none opacity-0 transition-opacity duration-200">
+    <div id="toast-text" class="px-3.5 py-1.5 rounded-md bg-[#101f2e]/96 border-2 border-[#f2b738] text-xs font-bold text-[#fff3cf] shadow-xl whitespace-nowrap">
+      Welcome to Fiscore Harbor!
+    </div>
+  </div>
+
+  <!-- HYBRID FISHING ENCOUNTER MINI-GAME HUD -->
+  <div id="fishing-hud" class="fixed top-24 left-1/2 -translate-x-1/2 z-20 hidden w-[92vw] max-w-md pointer-events-none">
+    <div class="bg-panel-gold rounded-lg p-3 flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <span id="fish-fight-title" class="font-pixel text-[11px] text-[#ffe18c]">WAITING FOR BITE...</span>
+        <span id="fish-tension-badge" class="px-2 py-0.5 rounded text-[10px] font-pixel bg-[#193829] text-[#a8f794] border border-[#82e068]">
+          STEADY
+        </span>
+      </div>
+
+      <!-- Line Tension Gauge -->
+      <div>
+        <div class="flex justify-between text-[10px] font-semibold text-[#b5cde3] mb-1">
+          <span id="fish-align-label">Current Alignment (Counter-Tug into Sweet Channel)</span>
+          <span id="fish-tension-pct" class="font-mono-num font-bold text-white">50%</span>
+        </div>
+        <div class="relative w-full h-3.5 rounded-sm bg-[#08101a] border border-[#2d4863] overflow-hidden">
+          <div class="absolute inset-y-0 left-[29%] right-[29%] bg-[#4ec46a]/30 border-x-2 border-[#82e068]"></div>
+          <div id="fish-tension-fill" class="h-full bg-[#4ec46a] transition-all duration-75" style="width: 50%"></div>
+        </div>
+      </div>
+
+      <!-- Landing Progress Gauge -->
+      <div>
+        <div class="flex justify-between text-[10px] font-semibold text-[#b5cde3] mb-1">
+          <span>Distance to Land &amp; Line Integrity</span>
+          <span id="fish-progress-pct" class="font-mono-num font-bold text-[#8cf7ee]">0%</span>
+        </div>
+        <div class="w-full h-2.5 rounded-sm bg-[#08101a] border border-[#2d4863] overflow-hidden">
+          <div id="fish-progress-fill" class="h-full bg-[#38e8d8] transition-all duration-75" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM PERIPHERAL CONTROLS (Blockgrove Touch Joystick + Boosters + Action Buttons) -->
+  <footer class="fixed bottom-0 inset-x-0 z-20 p-3 sm:p-5 pointer-events-none flex items-end justify-between gap-2">
+    <!-- Left: Standardized Pixel-Styled Touch Joystick -->
+    <div class="pointer-events-auto flex flex-col items-center gap-1.5">
+      <div id="joystick-base" class="relative w-22 h-22 sm:w-24 sm:h-24 rounded-full border-2 border-[#78c8f5] bg-[#0f1d2c]/92 shadow-[0_6px_0_rgba(6,12,20,0.85)] touch-none cursor-grab active:cursor-grabbing" style="width: 88px; height: 88px;">
+        <span class="pointer-events-none absolute top-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">▲</span>
+        <span class="pointer-events-none absolute bottom-1.5 left-1/2 -translate-x-1/2 font-pixel text-[8px] text-[#89d6ff]">▼</span>
+        <span class="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 font-pixel text-[8px] text-[#ffe18c]">◀</span>
+        <span class="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-pixel text-[8px] text-[#ffe18c]">▶</span>
+        <div id="joystick-knob" class="pointer-events-none absolute left-1/2 top-1/2 w-10 h-10 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#f2b738] bg-[#214463] shadow-lg"></div>
+      </div>
+      <span class="font-pixel text-[8px] text-[#b9d2e8] bg-[#09131d]/90 px-2 py-0.5 rounded border border-[#314e6b]">WASD / STICK</span>
+    </div>
+
+    <!-- Center: Context Prompt & Consumable Booster Quick-Access Slots -->
+    <div class="pointer-events-auto flex flex-col items-center gap-2 max-w-sm">
+      <div id="context-prompt" class="px-3 py-1 rounded-md bg-[#0f1d2c]/92 border border-[#46678a] text-[11px] sm:text-xs font-bold text-[#ffe18c] shadow-md text-center">
+        Walk to a Town Shop, Board Boat at Pier, or Cast in Water
+      </div>
+      <div class="flex items-center gap-1.5 bg-panel rounded-lg p-1.5">
+        <button id="booster-chum" type="button" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#09131d] hover:bg-[#193829] border border-[#3d7a4f] text-xs font-bold cursor-pointer">
+          <span class="text-sm">🧪</span>
+          <div class="text-left leading-tight">
+            <div class="text-[10px] text-[#82e068]">Chum Lure</div>
+            <div id="booster-chum-qty" class="font-mono-num text-[9px] text-[#9cb5cc]">x2 (Fast Bite)</div>
+          </div>
+        </button>
+        <button id="booster-tension" type="button" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-[#09131d] hover:bg-[#153447] border border-[#32689e] text-xs font-bold cursor-pointer">
+          <span class="text-sm">🪢</span>
+          <div class="text-left leading-tight">
+            <div class="text-[10px] text-[#8cf7ee]">Grip Wax</div>
+            <div id="booster-wax-qty" class="font-mono-num text-[9px] text-[#9cb5cc]">x2 (+30% Pull)</div>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Right: Boat Boarding / Facility Interact + Primary Cast / Reel Button -->
+    <div class="pointer-events-auto flex items-end gap-2">
+      <!-- On-Screen Directional Tug Buttons for Mobile/Touch Tug-of-War -->
+      <div id="tug-controls-row" class="hidden flex items-center gap-1.5">
+        <button id="btn-tug-left" type="button" class="w-14 h-16 sm:w-16 sm:h-20 rounded-xl bg-[#0f1d2c]/94 active:bg-[#214463] border-2 border-[#38e8d8] text-[#8cf7ee] font-pixel text-xs shadow-[0_5px_0_rgba(6,12,20,0.85)] flex flex-col items-center justify-center gap-1 cursor-pointer">
+          <span>◀</span>
+          <span class="text-[8px]">TUG L</span>
+        </button>
+        <button id="btn-tug-right" type="button" class="w-14 h-16 sm:w-16 sm:h-20 rounded-xl bg-[#0f1d2c]/94 active:bg-[#214463] border-2 border-[#f2b738] text-[#ffe18c] font-pixel text-xs shadow-[0_5px_0_rgba(6,12,20,0.85)] flex flex-col items-center justify-center gap-1 cursor-pointer">
+          <span>▶</span>
+          <span class="text-[8px]">TUG R</span>
+        </button>
+      </div>
+
+      <button id="btn-secondary-action" type="button" class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-[#0f1d2c]/92 hover:bg-[#192f47] border-2 border-[#f2b738] text-[#ffe18c] font-pixel text-[9px] sm:text-[10px] shadow-[0_5px_0_rgba(6,12,20,0.85)] flex flex-col items-center justify-center gap-1 active:scale-95 transition cursor-pointer">
+        <span id="sec-action-icon" class="text-base">⛵</span>
+        <span id="sec-action-label" class="leading-tight text-center px-1">BOARD</span>
+      </button>
+
+      <button id="btn-primary-action" type="button" class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-[#214463] hover:bg-[#2d5b82] border-4 border-[#38e8d8] text-[#fff8e8] font-pixel text-[11px] sm:text-xs shadow-[0_6px_0_rgba(6,12,20,0.85)] flex flex-col items-center justify-center gap-0.5 active:scale-95 transition cursor-pointer">
+        <span id="pri-action-label">CAST</span>
+        <span id="pri-action-sub" class="font-mono-num text-[9px] font-bold text-[#8cf7ee]">SPACE</span>
+      </button>
+    </div>
+  </footer>
+
+  <!-- HARBOR TOWN FACILITY MODAL -->
+  <div id="town-modal" class="fixed inset-0 z-40 hidden bg-[#060c14]/80 flex items-center justify-center p-3 sm:p-5">
+    <div class="w-full max-w-2xl max-h-[86vh] bg-panel-gold rounded-xl flex flex-col overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 bg-[#09131d] border-b border-[#28425e]">
+        <div>
+          <h2 class="font-pixel text-xs sm:text-sm text-[#ffe18c]">FISCORE HARBOR TOWN</h2>
+          <p class="text-[11px] text-[#9cb5cc]">Sell catches, upgrade all 6 rods, buy specialized boats & expand Fish Storage</p>
+        </div>
+        <button id="btn-close-town" type="button" class="px-3 py-1.5 rounded bg-[#192b3d] hover:bg-[#243d57] border border-[#3a597a] font-pixel text-[10px] text-[#eaf2fa] cursor-pointer">
+          CLOSE [ESC]
+        </button>
+      </div>
+
+      <!-- 5 Town Facility Tabs -->
+      <div class="grid grid-cols-5 gap-1 p-2 bg-[#09131d]/90 border-b border-[#28425e] text-[10px] sm:text-xs font-bold">
+        <button data-tab="market" class="town-tab py-2 px-1 rounded cursor-pointer">🐟 Market</button>
+        <button data-tab="rods" class="town-tab py-2 px-1 rounded cursor-pointer">🎣 Rods</button>
+        <button data-tab="boats" class="town-tab py-2 px-1 rounded cursor-pointer">⛵ Boats</button>
+        <button data-tab="bait" class="town-tab py-2 px-1 rounded cursor-pointer">🪱 Bait</button>
+        <button data-tab="storage" class="town-tab py-2 px-1 rounded cursor-pointer">📦 Storage</button>
+      </div>
+
+      <div id="town-tab-content" class="p-3.5 overflow-y-auto flex-1 space-y-2.5"></div>
+    </div>
+  </div>
+
+  <!-- CATCH CELEBRATION MODAL (With Crisp 16x16 Pixel-Art Fish Sprite) -->
+  <div id="catch-modal" class="fixed inset-0 z-50 hidden bg-[#060c14]/82 flex items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-panel-gold rounded-xl p-5 text-center space-y-3">
+      <div class="font-pixel text-xs text-[#ffe18c] tracking-wider">CATCH SECURED!</div>
+      <div class="w-24 h-24 mx-auto rounded-lg bg-[#09131d] border-2 border-[#38e8d8] flex items-center justify-center p-2 shadow-inner">
+        <img id="catch-sprite-img" src="" alt="Caught Fish" class="w-20 h-20 pixelated object-contain" />
+      </div>
+      <div>
+        <h3 id="catch-name" class="font-pixel text-sm text-[#fff8e8]">Stream Minnow</h3>
+        <p id="catch-desc" class="text-[11px] text-[#9cb5cc] mt-1">Transferred to Fish Storage</p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-xs font-mono-num">
+        <div class="bg-[#09131d] border border-[#263c52] rounded-lg p-2">
+          <div class="text-[10px] text-[#8aa4bd]">Weight</div>
+          <div id="catch-weight" class="font-bold text-[#8cf7ee]">0.8 kg</div>
+        </div>
+        <div class="bg-[#09131d] border border-[#263c52] rounded-lg p-2">
+          <div class="text-[10px] text-[#8aa4bd]">Value</div>
+          <div id="catch-value" class="font-bold text-[#ffe18c]">14 Gems</div>
+        </div>
+        <div class="bg-[#09131d] border border-[#263c52] rounded-lg p-2">
+          <div class="text-[10px] text-[#8aa4bd]">Fiscore XP</div>
+          <div id="catch-xp" class="font-bold text-[#82e068]">+15 XP</div>
+        </div>
+      </div>
+      <button id="btn-claim-catch" type="button" class="w-full py-2.5 rounded-lg bg-[#4aa64d] hover:bg-[#57ba5a] border-2 border-[#82e068] text-[#081709] font-pixel text-xs font-bold cursor-pointer">
+        STORE & CONTINUE
+      </button>
+    </div>
+  </div>
+
+  <!-- CHARTED OCEAN DEPTH ZONES MODAL -->
+  <div id="discovery-modal" class="fixed inset-0 z-40 hidden bg-[#060c14]/80 flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-panel rounded-xl p-4 space-y-3">
+      <div class="flex items-center justify-between border-b border-[#28425e] pb-2">
+        <h3 class="font-pixel text-xs text-[#89d6ff]">CHARTED OCEAN DEPTH ZONES</h3>
+        <button id="btn-close-disc" type="button" class="text-xs font-bold text-[#9cb5cc] hover:text-white cursor-pointer">✕</button>
+      </div>
+      <div id="discovery-list" class="space-y-2 max-h-[60vh] overflow-y-auto"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // =========================================================================
+    // 1. BLOCKGROVE CRISP 16x16 PIXEL-ART TEXTURE & SPRITE GENERATOR
+    //    Replicates Blockgrove's exact Warm-Pixel Storybook palette & NearestFilter
+    // =========================================================================
+    const PALETTE = {
+      ink: '#151b26',
+      grassRim: '#b8f58c',
+      grassLit: '#7be05f',
+      grassMid: '#4ea84e',
+      grassDeep: '#286b35',
+      dirtLit: '#bd895c',
+      dirtMid: '#8b5a35',
+      dirtDeep: '#5c3820',
+      sandLit: '#f5e6b3',
+      sandMid: '#d9c17b',
+      sandDeep: '#a88d4d',
+      stoneLit: '#9aa4b2',
+      stoneMid: '#67707d',
+      stoneShadow: '#3b424d',
+      woodHi: '#e2b784',
+      woodLit: '#c99057',
+      woodMid: '#a36836',
+      woodDeep: '#452915',
+      goldLit: '#ffd966',
+      goldMid: '#f2b738',
+      goldDeep: '#8f5f14',
+      aquaLit: '#9ce5ff',
+      aquaMid: '#38e8d8',
+      aquaDeep: '#186e75',
+      skinLit: '#ffe0c7',
+      skinMid: '#f2c199',
+      hairMid: '#543119',
+      shirtMid: '#3f8fd9',
+      shirtLit: '#78c8f5',
+      jeansMid: '#323f69',
+    };
+
+    function createPixelTexture(size, drawFn, repeatX = 1, repeatY = 1) {
+      const c = document.createElement('canvas');
+      c.width = size;
+      c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      const px = (x, y, w, h, col) => {
+        ctx.fillStyle = col;
+        ctx.fillRect(x, y, w, h);
+      };
+      drawFn(ctx, px);
+      const tex = new THREE.CanvasTexture(c);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      if (repeatX !== 1 || repeatY !== 1) {
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(repeatX, repeatY);
+      }
+      return { tex, dataUrl: c.toDataURL() };
+    }
+
+    // 16x16 Blockgrove Grass Turf Texture
+    const grassTexObj = createPixelTexture(16, (_ctx, px) => {
+      px(0, 0, 16, 16, PALETTE.grassMid);
+      px(0, 0, 16, 2, PALETTE.grassRim);
+      px(0, 2, 16, 2, PALETTE.grassLit);
+      px(2, 5, 3, 2, PALETTE.grassLit);
+      px(10, 4, 4, 2, PALETTE.grassLit);
+      px(5, 10, 3, 2, PALETTE.grassDeep);
+      px(12, 12, 3, 2, PALETTE.grassDeep);
+      px(1, 13, 2, 2, PALETTE.grassLit);
+    }, 10, 10);
+
+    // 16x16 Blockgrove Grass Side-Edge (Grass Overhang + Dirt Body)
+    const grassSideTexObj = createPixelTexture(16, (_ctx, px) => {
+      px(0, 0, 16, 16, PALETTE.dirtMid);
+      px(0, 0, 16, 1, PALETTE.grassRim);
+      px(0, 1, 16, 3, PALETTE.grassLit);
+      px(0, 4, 16, 1, PALETTE.grassMid);
+      for (let x = 0; x < 16; x += 3) {
+        px(x, 5, 2, (x % 2) + 1, PALETTE.grassDeep);
+      }
+      px(2, 8, 3, 2, PALETTE.dirtDeep);
+      px(10, 9, 4, 2, PALETTE.dirtDeep);
+      px(5, 12, 3, 2, PALETTE.dirtLit);
+      px(0, 15, 16, 1, PALETTE.dirtDeep);
+    }, 14, 1);
+
+    // 16x16 Blockgrove Sand Texture
+    const sandTexObj = createPixelTexture(16, (_ctx, px) => {
+      px(0, 0, 16, 16, PALETTE.sandMid);
+      px(0, 0, 16, 2, PALETTE.sandLit);
+      px(2, 4, 6, 1, PALETTE.sandLit);
+      px(3, 5, 5, 1, PALETTE.sandDeep);
+      px(8, 9, 6, 1, PALETTE.sandLit);
+      px(9, 10, 5, 1, PALETTE.sandDeep);
+      px(0, 15, 16, 1, PALETTE.sandDeep);
+    }, 12, 12);
+
+    // 16x16 Blockgrove Cobblestone / Rock Masonry Texture
+    const stoneTexObj = createPixelTexture(16, (_ctx, px) => {
+      px(0, 0, 16, 16, PALETTE.stoneShadow);
+      const blocks = [[1,1,6,6], [8,1,7,5], [1,8,5,7], [7,7,8,8]];
+      for (const [bx, by, bw, bh] of blocks) {
+        px(bx, by, bw, bh, PALETTE.stoneMid);
+        px(bx, by, bw - 1, 1, PALETTE.stoneLit);
+        px(bx, by, 1, bh - 1, PALETTE.stoneLit);
+      }
+    }, 4, 4);
+
+    // 16x16 Blockgrove Wood Planks Texture (Pier & Boats)
+    const woodTexObj = createPixelTexture(16, (_ctx, px) => {
+      px(0, 0, 16, 16, PALETTE.woodMid);
+      for (let y = 0; y < 16; y += 5) {
+        px(0, y, 16, 1, PALETTE.woodDeep);
+        px(0, y + 1, 16, 1, PALETTE.woodHi);
+        px(2, y + 2, 11, 1, PALETTE.woodLit);
+      }
+      px(2, 2, 1, 1, PALETTE.ink);
+      px(13, 2, 1, 1, PALETTE.ink);
+      px(2, 7, 1, 1, PALETTE.ink);
+      px(13, 7, 1, 1, PALETTE.ink);
+    }, 3, 2);
+
+    // 16x16 Pixel-Art Water Tile Texture (Animated UV scroll + pixel foam)
+    const waterTexObj = createPixelTexture(16, (_ctx, px) => {
+      px(0, 0, 16, 16, '#ffffff');
+      px(0, 0, 16, 16, 'rgba(255,255,255,0.92)');
+      // Pixel wave crests & highlights
+      px(1, 2, 5, 1, '#e0faff');
+      px(2, 3, 3, 1, '#bceeff');
+      px(9, 7, 6, 1, '#e0faff');
+      px(10, 8, 4, 1, '#bceeff');
+      px(3, 12, 5, 1, '#e0faff');
+      px(0, 15, 16, 1, 'rgba(15, 23, 42, 0.14)');
+      px(15, 0, 1, 16, 'rgba(15, 23, 42, 0.14)');
+    }, 48, 48);
+
+    // Crisp 16x16 Pixel-Art Sprites for All Fish Species & Rods (used in 3D & Modals!)
+    function buildFishSprite(primary, secondary, accent, eye = '#151b26') {
+      return createPixelTexture(16, (_ctx, px) => {
+        // Tail fin
+        px(12, 5, 3, 6, PALETTE.ink);
+        px(12, 6, 2, 4, secondary);
+        px(13, 6, 1, 2, accent);
+        // Body outline
+        px(2, 4, 10, 8, PALETTE.ink);
+        px(1, 6, 12, 4, PALETTE.ink);
+        // Body fill & shading
+        px(3, 5, 8, 6, primary);
+        px(2, 6, 10, 4, primary);
+        px(4, 5, 6, 2, accent);
+        px(4, 9, 6, 2, secondary);
+        // Dorsal fin
+        px(6, 2, 4, 2, PALETTE.ink);
+        px(7, 3, 2, 1, accent);
+        // Eye
+        px(3, 6, 2, 2, '#ffffff');
+        px(3, 6, 1, 1, eye);
+      });
+    }
+
+    const FISH_SPRITES = {
+      minnow: buildFishSprite('#8cd4e8', '#407f99', '#e8fbff'),
+      carp: buildFishSprite('#e39b49', '#8c4e1c', '#ffe0a3'),
+      slimefin: buildFishSprite('#7be849', '#2d781c', '#e2ff99'),
+      trout: buildFishSprite('#4fc7e8', '#1c638c', '#d9fbff'),
+      sunfin: buildFishSprite('#f2b738', '#b45309', '#fef08a'),
+    };
+
+    const ROD_ICON = createPixelTexture(16, (_ctx, px) => {
+      for (let i = 0; i < 9; i++) {
+        px(2 + i, 13 - i, 2, 2, PALETTE.ink);
+        px(2 + i, 12 - i, 2, 2, '#86bf52');
+      }
+      px(4, 10, 2, 2, '#e8f7b8');
+      px(11, 3, 1, 7, '#d9eef7');
+      px(10, 10, 3, 3, PALETTE.ink);
+      px(11, 10, 2, 2, '#ff5242');
+    });
+    document.getElementById('hud-rod-icon').src = ROD_ICON.dataUrl;
+
+    // =========================================================================
+    // 2. FISCORE GAME DATA (Preserving all 6 Rod Types, 3 Upgrades, Fish Species)
+    // =========================================================================
+    const RODS = [
+      { type: 1, name: 'Bamboo Rod', maxZone: 1, basePrice: 0, upgradeCosts: [0, 60, 140], pullMult: [1.0, 1.3, 1.65], color: 0x84cc16 },
+      { type: 2, name: 'Deep Angler Rod', maxZone: 2, basePrice: 120, upgradeCosts: [0, 110, 240], pullMult: [1.25, 1.6, 2.0], color: 0x38bdf8 },
+      { type: 3, name: 'Coral Caster III', maxZone: 3, basePrice: 280, upgradeCosts: [0, 180, 380], pullMult: [1.55, 1.95, 2.4], color: 0x2dd4bf },
+      { type: 4, name: 'Pelagic Striker IV', maxZone: 4, basePrice: 540, upgradeCosts: [0, 280, 580], pullMult: [1.9, 2.35, 2.9], color: 0xa78bfa },
+      { type: 5, name: 'Abyssal Winch V', maxZone: 5, basePrice: 950, upgradeCosts: [0, 420, 860], pullMult: [2.3, 2.85, 3.5], color: 0xf59e0b },
+      { type: 6, name: 'Leviathan Sovereign VI', maxZone: 6, basePrice: 1600, upgradeCosts: [0, 650, 1300], pullMult: [2.8, 3.45, 4.2], color: 0xf43f5e },
+    ];
+
+    const BOATS = [
+      {
+        id: 'skiff',
+        name: 'Coastal Skiff',
+        role: 'Agile Shallow Runner',
+        maxZone: 2,
+        speed: 9.8,
+        turnSpeed: 3.3,
+        price: 0,
+        upgradable: true,
+        hullColor: 0xd97706,
+        trimColor: 0xfef3c7,
+        desc: 'Starter voxel wooden skiff. Nimble turning across Zones 1–2.'
+      },
+      {
+        id: 'outrigger',
+        name: 'Reef Outrigger',
+        role: 'High-Speed Twin Hull',
+        maxZone: 4,
+        speed: 14.2,
+        turnSpeed: 2.6,
+        price: 260,
+        upgradable: true,
+        hullColor: 0x0284c7,
+        trimColor: 0xbae6fd,
+        desc: 'Twin-pontoon catamaran engineered for rapid runs into Zones 3–4.'
+      },
+      {
+        id: 'trawler',
+        name: 'Abyssal Trawler',
+        role: 'Heavy Deep-Trench Vessel',
+        maxZone: 6,
+        speed: 11.8,
+        turnSpeed: 2.0,
+        price: 680,
+        upgradable: false,
+        hullColor: 0x334155,
+        trimColor: 0xf59e0b,
+        desc: 'Reinforced steel hull built to conquer Zones 5–6 abyssal trenches.'
+      }
+    ];
+
+    const FISH_SPECIES = [
+      { id: 'minnow', name: 'Stream Minnow', minZone: 1, maxZone: 2, prefZone: 1, resistance: 0.7, gemValue: 14, xp: 15, weight: [0.3, 1.2], desc: 'Agile silver minnow schooling in turquoise coastal shallows.' },
+      { id: 'carp', name: 'Cavern Carp', minZone: 2, maxZone: 4, prefZone: 3, resistance: 1.0, gemValue: 32, xp: 30, weight: [1.8, 5.4], desc: 'Golden-scaled reef dweller thriving along drop-off ledges.' },
+      { id: 'slimefin', name: 'Toxic Slimefin', minZone: 3, maxZone: 5, prefZone: 4, resistance: 1.25, gemValue: 58, xp: 52, weight: [3.0, 8.2], desc: 'Bioluminescent trench mutant attracted to deep thermal vents.' },
+      { id: 'trout', name: 'Glacier Trout', minZone: 4, maxZone: 6, prefZone: 6, resistance: 1.45, gemValue: 95, xp: 85, weight: [5.2, 14.5], desc: 'Apex deep-water predator patrolling the cold abyssal trench.' },
+      { id: 'sunfin', name: 'Astral Sunfin', minZone: 5, maxZone: 6, prefZone: 6, resistance: 1.65, gemValue: 155, xp: 130, weight: [8.0, 21.0], desc: 'Rare pelagic marvel drawn to shimmering ocean hotspots.' }
+    ];
+
+    const DEPTH_ZONES = [
+      { zone: 1, name: 'Zone 1: Turquoise Shallows', minR: 13, maxR: 24 },
+      { zone: 2, name: 'Zone 2: Coral Shelf', minR: 24, maxR: 36 },
+      { zone: 3, name: 'Zone 3: Azure Drop-Off', minR: 36, maxR: 48 },
+      { zone: 4, name: 'Zone 4: Sapphire Pelagic', minR: 48, maxR: 60 },
+      { zone: 5, name: 'Zone 5: Twilight Basin', minR: 60, maxR: 72 },
+      { zone: 6, name: 'Zone 6: Abyssal Glacier Trench', minR: 72, maxR: 120 },
+    ];
+
+    const WEATHERS = [
+      { id: 'clear', name: 'Clear', icon: '☀️', waveAmp: 0.18, fogDensity: 0.0035, biteMult: 1.0, skyColor: 0x3f95db, sunIntensity: 1.55 },
+      { id: 'mist', name: 'Mist', icon: '🌫️', waveAmp: 0.28, fogDensity: 0.010, biteMult: 1.25, skyColor: 0x7a99b5, sunIntensity: 1.1 },
+      { id: 'squall', name: 'Squall', icon: '⛈️', waveAmp: 0.48, fogDensity: 0.013, biteMult: 1.45, skyColor: 0x1b2b3d, sunIntensity: 0.8 },
+    ];
+
+    const CAMERA_PRESETS = [
+      { label: 'CLOSE', y: 16, z: 13 },
+      { label: 'STD', y: 23, z: 18 },
+      { label: 'WIDE', y: 34, z: 26 },
+    ];
+
+    const FACILITIES = [
+      { id: 'market', name: 'Fish Market', icon: '🐟', x: -5.5, z: -3.5, color: 0xd95b43, roof: 0x7c2d12, npcShirt: 0xf97316 },
+      { id: 'rods', name: 'Tackle & Rod Shop', icon: '🎣', x: 5.5, z: -3.5, color: 0x3b82c4, roof: 0x1e3a8a, npcShirt: 0x38bdf8 },
+      { id: 'boats', name: 'Boat Dockyard', icon: '⛵', x: 6.5, z: 4.5, color: 0xf2b738, roof: 0x854d0e, npcShirt: 0xeab308 },
+      { id: 'bait', name: 'Bait & Supplies', icon: '🪱', x: -5.5, z: 4.0, color: 0x4aa64d, roof: 0x14532d, npcShirt: 0x4ade80 },
+      { id: 'storage', name: 'Fish Storage', icon: '📦', x: 0.0, z: -6.5, color: 0x8e63c9, roof: 0x4c1d95, npcShirt: 0xc084fc },
+    ];
+
+    // =========================================================================
+    // 3. ISOLATED FISCORE PLAYER STATE
+    // =========================================================================
+    const state = {
+      fiscoreLevel: 1,
+      fiscoreXp: 0,
+      gems: 180,
+      equippedRodType: 1,
+      rodUpgrades: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 },
+      ownedBoats: ['skiff'],
+      selectedBoatId: 'skiff',
+      boatUpgrades: { skiff: 1, outrigger: 1, trawler: 1 },
+      baitCharges: 15,
+      boosters: { chum: 2, wax: 2 },
+      activeBuffs: { chumUntil: 0, waxUntil: 0 },
+      fishStorage: [],
+      storageCapacity: 12,
+      discoveredZones: new Set([1]),
+      weatherIndex: 0,
+      camPresetIndex: 1,
+
+      mode: 'walking', // 'walking' | 'boating'
+      playerPos: new THREE.Vector3(0, 1.05, 5.5),
+      playerYaw: 0,
+      walkPhase: 0,
+      boatPos: new THREE.Vector3(15.2, 0.16, 0),
+      boatYaw: Math.PI * 0.5,
+      boatSpeed: 0,
+
+      fishing: {
+        phase: 'idle', // 'idle' | 'waiting' | 'biting' | 'reeling'
+        bobberPos: new THREE.Vector3(),
+        targetZone: 1,
+        biteAt: 0,
+        expiresAt: 0,
+        tension: 0.35,
+        progress: 0,
+        reelingInput: false,
+        fightPhase: 0,
+        currentFish: null,
+        isHotspotCast: false,
+      },
+      nearFacility: null,
+      nearDock: false,
+    };
+
+    // =========================================================================
+    // 4. THREE.JS SCENE, VOXEL ISLAND TOWN & PIXEL-TEXTURED OCEAN
+    // =========================================================================
+    const canvas = document.getElementById('game-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.BasicShadowMap; // Crisp pixel-aligned shadow edges
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x3f95db);
+    scene.fog = new THREE.FogExp2(0x3f95db, 0.0035);
+
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.5, 240);
+    camera.position.set(0, 23, 18);
+    camera.lookAt(0, 0, 0);
+
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x151b26, 1.05);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.55);
+    sunLight.position.set(22, 36, 16);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(2048, 2048);
+    sunLight.shadow.camera.near = 5;
+    sunLight.shadow.camera.far = 110;
+    const shadowBound = 32;
+    sunLight.shadow.camera.left = -shadowBound;
+    sunLight.shadow.camera.right = shadowBound;
+    sunLight.shadow.camera.top = shadowBound;
+    sunLight.shadow.camera.bottom = -shadowBound;
+    scene.add(sunLight);
+
+    // --- PIXEL-TEXTURED CONTINUOUS WAVE OCEAN WITH 6 DEPTH ZONES ---
+    const oceanGeo = new THREE.PlaneGeometry(240, 240, 128, 128);
+    oceanGeo.rotateX(-Math.PI / 2);
+    const posAttr = oceanGeo.attributes.position;
+    const colors = new Float32Array(posAttr.count * 3);
+    const cZone1 = new THREE.Color(0x2dd4bf);
+    const cZone2 = new THREE.Color(0x06b6d4);
+    const cZone3 = new THREE.Color(0x0284c7);
+    const cZone4 = new THREE.Color(0x1d4ed8);
+    const cZone5 = new THREE.Color(0x1e1b4b);
+    const cZone6 = new THREE.Color(0x090d16);
+    const tmpCol = new THREE.Color();
+
+    for (let i = 0; i < posAttr.count; i++) {
+      const vx = posAttr.getX(i);
+      const vz = posAttr.getZ(i);
+      const dist = Math.hypot(vx, vz);
+      if (dist < 24) tmpCol.copy(cZone1).lerp(cZone2, Math.max(0, (dist - 12) / 12));
+      else if (dist < 36) tmpCol.copy(cZone2).lerp(cZone3, (dist - 24) / 12);
+      else if (dist < 48) tmpCol.copy(cZone3).lerp(cZone4, (dist - 36) / 12);
+      else if (dist < 60) tmpCol.copy(cZone4).lerp(cZone5, (dist - 48) / 12);
+      else if (dist < 74) tmpCol.copy(cZone5).lerp(cZone6, (dist - 60) / 14);
+      else tmpCol.copy(cZone6);
+
+      colors[i * 3] = tmpCol.r;
+      colors[i * 3 + 1] = tmpCol.g;
+      colors[i * 3 + 2] = tmpCol.b;
+    }
+    oceanGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const oceanMat = new THREE.MeshStandardMaterial({
+      map: waterTexObj.tex,
+      vertexColors: true,
+      roughness: 0.35,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.86,
+    });
+    const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+    oceanMesh.receiveShadow = true;
+    scene.add(oceanMesh);
+
+    // Translucent Seabed Under-Plane for Depth Parallax
+    const seabedGeo = new THREE.CircleGeometry(110, 48);
+    seabedGeo.rotateX(-Math.PI / 2);
+    const seabedMesh = new THREE.Mesh(seabedGeo, new THREE.MeshBasicMaterial({ color: 0x062336 }));
+    seabedMesh.position.y = -1.5;
+    scene.add(seabedMesh);
+
+    // Subtle Voxel Zone Marker Buoys along Zone Borders
+    DEPTH_ZONES.slice(1).forEach((z) => {
+      const ringGeo = new THREE.RingGeometry(z.minR - 0.14, z.minR + 0.14, 64);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x9ce5ff, transparent: true, opacity: 0.22, side: THREE.DoubleSide }));
+      ring.position.y = 0.07;
+      scene.add(ring);
+    });
+
+    // --- STEPPED VOXEL ISLAND TOWN & WOODEN PIER ---
+    const islandGroup = new THREE.Group();
+    scene.add(islandGroup);
+
+    // Step 1: Sandy Beach Tier (Pixel Sand Texture)
+    const beachMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(12.2, 13.4, 1.3, 24),
+      new THREE.MeshStandardMaterial({ map: sandTexObj.tex, roughness: 0.9 })
+    );
+    beachMesh.position.y = 0.15;
+    beachMesh.receiveShadow = true;
+    islandGroup.add(beachMesh);
+
+    // Shoreline Pixel Foam Ring
+    const foamRing = new THREE.Mesh(
+      new THREE.RingGeometry(12.9, 13.65, 32),
+      new THREE.MeshBasicMaterial({ color: 0xf0fbff, transparent: true, opacity: 0.65, side: THREE.DoubleSide })
+    );
+    foamRing.rotation.x = -Math.PI / 2;
+    foamRing.position.y = 0.09;
+    islandGroup.add(foamRing);
+
+    // Step 2: Blockgrove Grass Turf Plateau (Pixel Grass Top + Grass Overhang Dirt Sides)
+    const grassTopMat = new THREE.MeshStandardMaterial({ map: grassTexObj.tex, roughness: 0.85 });
+    const grassSideMat = new THREE.MeshStandardMaterial({ map: grassSideTexObj.tex, roughness: 0.85 });
+    const grassMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(10.0, 10.2, 0.7, 24),
+      [grassSideMat, grassTopMat, grassSideMat]
+    );
+    grassMesh.position.y = 0.75;
+    grassMesh.receiveShadow = true;
+    islandGroup.add(grassMesh);
+
+    // Step 3: Cobblestone Town Plaza & Crosswalks
+    const plazaMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(4.0, 4.1, 0.12, 16),
+      new THREE.MeshStandardMaterial({ map: stoneTexObj.tex, roughness: 0.9 })
+    );
+    plazaMesh.position.y = 1.12;
+    plazaMesh.receiveShadow = true;
+    islandGroup.add(plazaMesh);
+
+    // Eastern Wooden Plank Pier (Pixel Wood Texture)
+    const pierGroup = new THREE.Group();
+    pierGroup.position.set(11.6, 0.88, 0);
+    const woodMat = new THREE.MeshStandardMaterial({ map: woodTexObj.tex, roughness: 0.8 });
+    const deckMesh = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.32, 2.6), woodMat);
+    deckMesh.castShadow = true;
+    deckMesh.receiveShadow = true;
+    pierGroup.add(deckMesh);
+
+    // Pier Timber Posts & Lantern Bollards
+    for (const px of [-2.8, 0, 2.8]) {
+      for (const pz of [-1.05, 1.05]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.32, 2.3, 0.32), woodMat);
+        post.position.set(px, -0.65, pz);
+        pierGroup.add(post);
+      }
+    }
+    const pierLantern = new THREE.Mesh(
+      new THREE.BoxGeometry(0.38, 0.38, 0.38),
+      new THREE.MeshStandardMaterial({ color: 0xfef08a, emissive: 0xf59e0b, emissiveIntensity: 0.8 })
+    );
+    pierLantern.position.set(3.0, 0.65, 1.05);
+    pierGroup.add(pierLantern);
+    islandGroup.add(pierGroup);
+
+    // Helper: Build Blockgrove-Proportioned Voxel Character (Player & Town NPCs)
+    function createVoxelExplorer(shirtHex, hasHat = true, hasRod = false) {
+      const group = new THREE.Group();
+      const inkMat = new THREE.MeshStandardMaterial({ color: 0x151b26, roughness: 0.9 });
+      const skinMat = new THREE.MeshStandardMaterial({ color: 0xf2c199, roughness: 0.7 });
+      const hairMat = new THREE.MeshStandardMaterial({ color: 0x543119, roughness: 0.8 });
+      const shirtMat = new THREE.MeshStandardMaterial({ color: shirtHex, roughness: 0.6 });
+      const jeansMat = new THREE.MeshStandardMaterial({ color: 0x323f69, roughness: 0.8 });
+      const shoeMat = new THREE.MeshStandardMaterial({ color: 0xd9483b, roughness: 0.7 });
+
+      // Legs
+      const legL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.45, 0.26), jeansMat);
+      legL.position.set(-0.15, 0.26, 0);
+      legL.castShadow = true;
+      group.add(legL);
+
+      const legR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.45, 0.26), jeansMat);
+      legR.position.set(0.15, 0.26, 0);
+      legR.castShadow = true;
+      group.add(legR);
+
+      // Boots
+      const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.32), shoeMat);
+      bootL.position.set(-0.15, 0.07, 0.03);
+      group.add(bootL);
+      const bootR = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.32), shoeMat);
+      bootR.position.set(0.15, 0.07, 0.03);
+      group.add(bootR);
+
+      // Torso + Gold Belt Buckle
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.56, 0.36), shirtMat);
+      torso.position.y = 0.74;
+      torso.castShadow = true;
+      group.add(torso);
+
+      const belt = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.1, 0.38), inkMat);
+      belt.position.y = 0.5;
+      group.add(belt);
+
+      // Arms
+      const armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.22), skinMat);
+      armL.position.set(-0.42, 0.74, 0);
+      group.add(armL);
+
+      const armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.22), skinMat);
+      armR.position.set(0.42, 0.74, 0.12);
+      armR.rotation.x = -0.35;
+      group.add(armR);
+
+      // Oversized Blockgrove Pixel-Art Head + Hair + Eyes
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.64, 0.64), skinMat);
+      head.position.y = 1.35;
+      head.castShadow = true;
+      group.add(head);
+
+      const hair = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.22, 0.68), hairMat);
+      hair.position.y = 1.62;
+      group.add(hair);
+
+      const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.06), inkMat);
+      eyeL.position.set(-0.16, 1.34, 0.32);
+      group.add(eyeL);
+      const eyeR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.06), inkMat);
+      eyeR.position.set(0.16, 1.34, 0.32);
+      group.add(eyeR);
+
+      if (hasHat) {
+        const brim = new THREE.Mesh(
+          new THREE.BoxGeometry(1.02, 0.1, 0.98),
+          new THREE.MeshStandardMaterial({ color: 0x8c5630 })
+        );
+        brim.position.y = 1.72;
+        group.add(brim);
+        const crown = new THREE.Mesh(
+          new THREE.BoxGeometry(0.66, 0.24, 0.64),
+          new THREE.MeshStandardMaterial({ color: 0xf2b738 })
+        );
+        crown.position.y = 1.86;
+        group.add(crown);
+      }
+
+      let rodMesh = null;
+      if (hasRod) {
+        rodMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 2.2, 0.08),
+          new THREE.MeshStandardMaterial({ color: 0x84cc16 })
+        );
+        rodMesh.position.set(0.45, 1.35, 0.85);
+        rodMesh.rotation.x = Math.PI * 0.34;
+        group.add(rodMesh);
+      }
+
+      return { group, legL, legR, armL, armR, rodMesh };
+    }
+
+    // Build 5 Functional Pixel-Art Town Buildings + Shopkeeper NPCs
+    const facilityMeshes = [];
+    FACILITIES.forEach((f) => {
+      const bGroup = new THREE.Group();
+      bGroup.position.set(f.x, 1.08, f.z);
+
+      // Stone Foundation
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(2.8, 0.3, 2.4),
+        new THREE.MeshStandardMaterial({ map: stoneTexObj.tex })
+      );
+      base.position.y = 0.15;
+      bGroup.add(base);
+
+      // Timber/Painted Walls
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(2.6, 1.7, 2.2),
+        new THREE.MeshStandardMaterial({ color: f.color, roughness: 0.7 })
+      );
+      body.position.y = 1.1;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      bGroup.add(body);
+
+      // Stepped Voxel Pyramid Roof
+      const roof1 = new THREE.Mesh(
+        new THREE.BoxGeometry(3.0, 0.45, 2.6),
+        new THREE.MeshStandardMaterial({ color: f.roof, roughness: 0.75 })
+      );
+      roof1.position.y = 2.15;
+      roof1.castShadow = true;
+      bGroup.add(roof1);
+
+      const roof2 = new THREE.Mesh(
+        new THREE.BoxGeometry(2.1, 0.45, 1.7),
+        new THREE.MeshStandardMaterial({ color: f.roof, roughness: 0.75 })
+      );
+      roof2.position.y = 2.58;
+      roof2.castShadow = true;
+      bGroup.add(roof2);
+
+      // Doorway & Signboard
+      const door = new THREE.Mesh(
+        new THREE.BoxGeometry(0.75, 1.15, 0.14),
+        new THREE.MeshStandardMaterial({ color: 0x151b26 })
+      );
+      door.position.set(0, 0.82, 1.1);
+      bGroup.add(door);
+
+      // Shopkeeper Voxel NPC standing beside doorway
+      const npc = createVoxelExplorer(f.npcShirt, false, false);
+      npc.group.position.set(1.05, 0.0, 1.35);
+      npc.group.scale.set(0.85, 0.85, 0.85);
+      bGroup.add(npc.group);
+
+      // Glowing Pixel Interaction Ring
+      const pad = new THREE.Mesh(
+        new THREE.RingGeometry(1.4, 1.75, 16),
+        new THREE.MeshBasicMaterial({ color: 0xf2b738, side: THREE.DoubleSide, transparent: true, opacity: 0.5 })
+      );
+      pad.rotation.x = -Math.PI / 2;
+      pad.position.set(0, 0.04, 1.5);
+      bGroup.add(pad);
+
+      islandGroup.add(bGroup);
+      facilityMeshes.push({ ...f, group: bGroup, pad });
+    });
+
+    // Blocky Voxel Palm Trees around Island Perimeter
+    function addVoxelPalmTree(x, z, scale = 1) {
+      const tGroup = new THREE.Group();
+      tGroup.position.set(x, 1.05, z);
+      const trunkMat = new THREE.MeshStandardMaterial({ map: woodTexObj.tex });
+      for (let seg = 0; seg < 4; seg++) {
+        const block = new THREE.Mesh(new THREE.BoxGeometry(0.45 * scale, 0.65 * scale, 0.45 * scale), trunkMat);
+        block.position.set(seg * 0.08 * scale, (0.32 + seg * 0.62) * scale, 0);
+        block.castShadow = true;
+        tGroup.add(block);
+      }
+      const leafMat = new THREE.MeshStandardMaterial({ color: 0x4ea84e, roughness: 0.7 });
+      const topY = 2.65 * scale;
+      const topX = 0.25 * scale;
+      for (const [fx, fz] of [[1.1, 0], [-1.1, 0], [0, 1.1], [0, -1.1]]) {
+        const frond = new THREE.Mesh(new THREE.BoxGeometry(1.3 * scale, 0.22 * scale, 0.65 * scale), leafMat);
+        frond.position.set(topX + fx * scale, topY, fz * scale);
+        if (fz !== 0) frond.rotation.y = Math.PI * 0.5;
+        frond.castShadow = true;
+        tGroup.add(frond);
+      }
+      islandGroup.add(tGroup);
+    }
+    [[-8.5, -1.5, 1.0], [-2.5, 7.8, 0.9], [2.8, 7.6, 1.1], [8.2, -1.0, 0.95], [-1.8, -8.5, 1.0]].forEach(([x, z, s]) => addVoxelPalmTree(x, z, s));
+
+    // Local Player Voxel Explorer
+    const playerRig = createVoxelExplorer(0x3f8fd9, true, true);
+    const playerGroup = playerRig.group;
+    scene.add(playerGroup);
+
+    // Specialized Voxel Boat Group
+    const boatGroup = new THREE.Group();
+    const hullMat = new THREE.MeshStandardMaterial({ map: woodTexObj.tex, color: 0xd97706, roughness: 0.65 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.5 });
+
+    const hullMain = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 3.0), hullMat);
+    hullMain.position.y = 0.28;
+    hullMain.castShadow = true;
+    boatGroup.add(hullMain);
+
+    const hullBow = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.55, 0.9), hullMat);
+    hullBow.position.set(0, 0.28, 1.9);
+    hullBow.castShadow = true;
+    boatGroup.add(hullBow);
+
+    const deckBench = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 2.5), trimMat);
+    deckBench.position.y = 0.58;
+    boatGroup.add(deckBench);
+    scene.add(boatGroup);
+
+    function syncBoatVisuals() {
+      const b = BOATS.find((x) => x.id === state.selectedBoatId) || BOATS[0];
+      hullMat.color.setHex(b.hullColor);
+      trimMat.color.setHex(b.trimColor);
+      const scale = b.id === 'trawler' ? 1.28 : b.id === 'outrigger' ? 1.12 : 1.0;
+      boatGroup.scale.set(scale, scale, scale);
+      const rDef = RODS.find((r) => r.type === state.equippedRodType) || RODS[0];
+      if (playerRig.rodMesh) playerRig.rodMesh.material.color.setHex(rDef.color);
+    }
+    syncBoatVisuals();
+
+    // --- 3D PIXEL BOBBER, FISHING LINE & RIPPLE RING ---
+    const bobberGroup = new THREE.Group();
+    const bobberCube = new THREE.Mesh(
+      new THREE.BoxGeometry(0.36, 0.36, 0.36),
+      new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0x7f1d1d })
+    );
+    bobberGroup.add(bobberCube);
+
+    const rippleRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.32, 0.48, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
+    );
+    rippleRing.rotation.x = -Math.PI / 2;
+    bobberGroup.add(rippleRing);
+    bobberGroup.visible = false;
+    scene.add(bobberGroup);
+
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xf8fafc });
+    const fishingLine = new THREE.Line(lineGeo, lineMat);
+    fishingLine.visible = false;
+    scene.add(fishingLine);
+
+    // --- BOAT WAKE & SPLASH PARTICLE POOL ---
+    const wakeParticles = [];
+    const wakeGeo = new THREE.BoxGeometry(0.28, 0.1, 0.28);
+    const wakeMat = new THREE.MeshBasicMaterial({ color: 0xe0faff, transparent: true, opacity: 0.75 });
+    for (let i = 0; i < 40; i++) {
+      const m = new THREE.Mesh(wakeGeo, wakeMat.clone());
+      m.visible = false;
+      scene.add(m);
+      wakeParticles.push({ mesh: m, life: 0, maxLife: 0.7, vx: 0, vy: 0, vz: 0 });
+    }
+    let wakeCursor = 0;
+    function spawnWakeParticle(x, y, z, vx = 0, vy = 0, vz = 0, life = 0.65) {
+      const p = wakeParticles[wakeCursor];
+      wakeCursor = (wakeCursor + 1) % wakeParticles.length;
+      p.mesh.position.set(x, y, z);
+      p.mesh.visible = true;
+      p.mesh.material.opacity = 0.85;
+      p.life = life;
+      p.maxLife = life;
+      p.vx = vx;
+      p.vy = vy;
+      p.vz = vz;
+    }
+
+    // --- SELECTIVE UNDERWATER VISIBILITY (PIXEL FISH SILHOUETTES & HOTSPOT) ---
+    const underwaterFish = [];
+    const silhouetteMat = new THREE.MeshBasicMaterial({ color: 0x042f2e, transparent: true, opacity: 0.58 });
+    const rareSilhouetteMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.75 });
+
+    for (let i = 0; i < 36; i++) {
+      const isRare = i % 6 === 0;
+      const fMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(isRare ? 0.55 : 0.32, 0.15, isRare ? 1.35 : 0.82),
+        isRare ? rareSilhouetteMat : silhouetteMat
+      );
+      const radius = isRare ? 42 + Math.random() * 34 : 15 + Math.random() * 45;
+      const angle = Math.random() * Math.PI * 2;
+      fMesh.position.set(Math.cos(angle) * radius, -0.5, Math.sin(angle) * radius);
+      scene.add(fMesh);
+      underwaterFish.push({
+        mesh: fMesh,
+        radius,
+        angle,
+        speed: (0.12 + Math.random() * 0.18) * (i % 2 === 0 ? 1 : -1),
+      });
+    }
+
+    // Dynamic Rare Hotspot Beacon
+    const hotspotGroup = new THREE.Group();
+    const hotspotRing = new THREE.Mesh(
+      new THREE.RingGeometry(1.4, 2.1, 16),
+      new THREE.MeshBasicMaterial({ color: 0xf2b738, transparent: true, opacity: 0.78, side: THREE.DoubleSide })
+    );
+    hotspotRing.rotation.x = -Math.PI / 2;
+    hotspotGroup.add(hotspotRing);
+    scene.add(hotspotGroup);
+
+    let hotspotState = { active: true, x: 38, z: -26, expiresAt: performance.now() + 38000 };
+    hotspotGroup.position.set(hotspotState.x, 0.16, hotspotState.z);
+
+    function respawnHotspot(now) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 28 + Math.random() * 46;
+      hotspotState = {
+        active: true,
+        x: Math.cos(angle) * dist,
+        z: Math.sin(angle) * dist,
+        expiresAt: now + 38000
+      };
+      hotspotGroup.position.set(hotspotState.x, 0.16, hotspotState.z);
+      hotspotGroup.visible = true;
+      showToast('✨ A shimmering Rare Fishing Hotspot surfaced offshore!');
+    }
+
+    // =========================================================================
+    // 5. INPUT CONTROLS (KEYBOARD + VIRTUAL JOYSTICK + CAMERA ZOOM)
+    // =========================================================================
+    const keys = new Set();
+    const joyVec = { x: 0, y: 0 };
+    let joyPointerId = null;
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape') {
+        closeAllModals();
+        return;
+      }
+      keys.add(e.code);
+      if (e.code === 'Space') {
+        e.preventDefault();
+        triggerPrimaryAction(true);
+      } else if (e.code === 'KeyE') {
+        triggerSecondaryAction();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      keys.delete(e.code);
+      if (e.code === 'Space') {
+        state.fishing.reelingInput = false;
+      }
+    });
+
+    const joyBase = document.getElementById('joystick-base');
+    const joyKnob = document.getElementById('joystick-knob');
+
+    function updateJoy(clientX, clientY) {
+      const rect = joyBase.getBoundingClientRect();
+      const maxR = rect.width * 0.34;
+      let dx = (clientX - (rect.left + rect.width / 2)) / maxR;
+      let dy = (clientY - (rect.top + rect.height / 2)) / maxR;
+      const mag = Math.hypot(dx, dy);
+      if (mag > 1) { dx /= mag; dy /= mag; }
+      joyVec.x = dx;
+      joyVec.y = dy;
+      joyKnob.style.transform = `translate(calc(-50% + ${dx * maxR}px), calc(-50% + ${dy * maxR}px))`;
+    }
+
+    joyBase.addEventListener('pointerdown', (e) => {
+      joyPointerId = e.pointerId;
+      joyBase.setPointerCapture(e.pointerId);
+      updateJoy(e.clientX, e.clientY);
+    });
+    joyBase.addEventListener('pointermove', (e) => {
+      if (e.pointerId === joyPointerId) updateJoy(e.clientX, e.clientY);
+    });
+    const resetJoy = () => {
+      joyPointerId = null;
+      joyVec.x = 0;
+      joyVec.y = 0;
+      joyKnob.style.transform = 'translate(-50%, -50%)';
+    };
+    joyBase.addEventListener('pointerup', resetJoy);
+    joyBase.addEventListener('pointercancel', resetJoy);
+
+    const priBtn = document.getElementById('btn-primary-action');
+    priBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      triggerPrimaryAction(true);
+    });
+    priBtn.addEventListener('pointerup', () => { state.fishing.reelingInput = false; });
+    priBtn.addEventListener('pointerleave', () => { state.fishing.reelingInput = false; });
+
+    document.getElementById('btn-secondary-action').addEventListener('click', () => triggerSecondaryAction());
+
+    // Camera Zoom Preset Cycle
+    document.getElementById('btn-cam-zoom').addEventListener('click', () => {
+      state.camPresetIndex = (state.camPresetIndex + 1) % CAMERA_PRESETS.length;
+      const preset = CAMERA_PRESETS[state.camPresetIndex];
+      document.getElementById('hud-zoom-label').textContent = preset.label;
+      showToast(`🔭 Camera View: ${preset.label}`);
+    });
+
+    // Boosters
+    document.getElementById('booster-chum').addEventListener('click', () => {
+      if (state.boosters.chum <= 0) return showToast('No Chum Lures left! Buy more at Bait & Supplies.');
+      state.boosters.chum--;
+      state.activeBuffs.chumUntil = performance.now() + 60000;
+      showToast('🧪 Chum Lure active! Faster bites for 60s.');
+      updateHud();
+    });
+    document.getElementById('booster-tension').addEventListener('click', () => {
+      if (state.boosters.wax <= 0) return showToast('No Grip Wax left! Buy more at Bait & Supplies.');
+      state.boosters.wax--;
+      state.activeBuffs.waxUntil = performance.now() + 60000;
+      showToast('🪢 Grip Wax active! +30% Reel Pull Power for 60s.');
+      updateHud();
+    });
+
+    // Weather Toggle
+    document.getElementById('btn-weather-cycle').addEventListener('click', () => {
+      state.weatherIndex = (state.weatherIndex + 1) % WEATHERS.length;
+      const w = WEATHERS[state.weatherIndex];
+      scene.background.setHex(w.skyColor);
+      scene.fog.color.setHex(w.skyColor);
+      scene.fog.density = w.fogDensity;
+      sunLight.intensity = w.sunIntensity;
+      showToast(`${w.icon} Weather shifted to ${w.name}`);
+      updateHud();
+    });
+
+    // =========================================================================
+    // 6. CORE GAMEPLAY LOGIC: ZONES, BOARDING, CASTING & REELING MINI-GAME
+    // =========================================================================
+    function getZoneAtPos(x, z) {
+      const r = Math.hypot(x, z);
+      if (r <= 13.0) return 0;
+      for (const zObj of DEPTH_ZONES) {
+        if (r >= zObj.minR && r < zObj.maxR) return zObj.zone;
+      }
+      return 6;
+    }
+
+    function showToast(msg) {
+      const banner = document.getElementById('toast-banner');
+      document.getElementById('toast-text').textContent = msg;
+      banner.style.opacity = '1';
+      clearTimeout(banner._t);
+      banner._t = setTimeout(() => { banner.style.opacity = '0'; }, 2800);
+    }
+
+    function triggerSecondaryAction() {
+      if (state.fishing.phase !== 'idle') return showToast('Reel in your line before moving!');
+      if (state.mode === 'walking') {
+        if (state.nearFacility) {
+          openTownModal(state.nearFacility.id);
+          return;
+        }
+        if (state.nearDock) {
+          state.mode = 'boating';
+          state.boatSpeed = 0;
+          const boat = BOATS.find((b) => b.id === state.selectedBoatId) || BOATS[0];
+          showToast(`⛵ Boarded ${boat.name} (Access up to Zone ${boat.maxZone})`);
+          updateHud();
+          return;
+        }
+        showToast('Walk near a Town Shop or the Eastern Pier to interact.');
+      } else if (state.mode === 'boating') {
+        if (state.nearDock) {
+          state.mode = 'walking';
+          state.playerPos.set(12.2, 1.05, 0);
+          state.boatSpeed = 0;
+          showToast('🏝️ Disembarked onto Harbor Pier.');
+          updateHud();
+        } else {
+          showToast('Steer back alongside the Eastern Pier to disembark.');
+        }
+      }
+    }
+
+    function triggerPrimaryAction(isPressDown) {
+      const f = state.fishing;
+      if (f.phase === 'idle') {
+        if (state.fishStorage.length >= state.storageCapacity) {
+          showToast('📦 Fish Storage is FULL! Sell catches at the Fish Market.');
+          return;
+        }
+        const origin = state.mode === 'boating' ? state.boatPos : state.playerPos;
+        const yaw = state.mode === 'boating' ? state.boatYaw : state.playerYaw;
+        const castDist = state.mode === 'boating' ? 5.2 : 4.2;
+        const bx = origin.x + Math.sin(yaw) * castDist;
+        const bz = origin.z + Math.cos(yaw) * castDist;
+        const targetZone = getZoneAtPos(bx, bz);
+
+        if (targetZone === 0) {
+          showToast('Face the ocean water or steer offshore to cast!');
+          return;
+        }
+        const rod = RODS.find((r) => r.type === state.equippedRodType) || RODS[0];
+        if (targetZone > rod.maxZone) {
+          showToast(`🎣 ${rod.name} max depth is Zone ${rod.maxZone}! Upgrade rod for Zone ${targetZone}.`);
+          return;
+        }
+
+        const now = performance.now();
+        const weather = WEATHERS[state.weatherIndex];
+        const hasBait = state.baitCharges > 0;
+        if (hasBait) state.baitCharges--;
+        const chumActive = now < state.activeBuffs.chumUntil;
+        const baseWait = (hasBait ? 1500 : 2700) / weather.biteMult / (chumActive ? 1.45 : 1.0);
+        const isHotspotCast = hotspotState.active && Math.hypot(bx - hotspotState.x, bz - hotspotState.z) <= 3.6;
+
+        f.phase = 'waiting';
+        f.bobberPos.set(bx, 0.14, bz);
+        f.targetZone = targetZone;
+        f.biteAt = now + baseWait + Math.random() * 1100;
+        f.expiresAt = f.biteAt + 5000;
+        f.tension = 0.35;
+        f.progress = 0;
+        f.reelingInput = false;
+        f.isHotspotCast = isHotspotCast;
+
+        bobberGroup.position.copy(f.bobberPos);
+        bobberGroup.visible = true;
+        fishingLine.visible = true;
+        for (let s = 0; s < 6; s++) {
+          spawnWakeParticle(bx, 0.25, bz, (Math.random() - 0.5) * 2.5, 2.2 + Math.random() * 1.5, (Math.random() - 0.5) * 2.5, 0.45);
+        }
+
+        document.getElementById('fishing-hud').classList.remove('hidden');
+        document.getElementById('fish-fight-title').textContent = isHotspotCast
+          ? '✨ CAST IN RARE HOTSPOT!'
+          : `CAST IN ZONE ${targetZone}...`;
+        updateHud();
+      } else if (f.phase === 'waiting') {
+        resetFishing();
+        showToast('Reeled in early — wait for the splash bite!');
+      } else if (f.phase === 'biting' || f.phase === 'reeling') {
+        f.phase = 'reeling';
+        if (isPressDown) f.reelingInput = true;
+      }
+    }
+
+    function resetFishing() {
+      state.fishing.phase = 'idle';
+      state.fishing.reelingInput = false;
+      bobberGroup.visible = false;
+      fishingLine.visible = false;
+      document.getElementById('fishing-hud').classList.add('hidden');
+      updateHud();
+    }
+
+    function selectCatchForZone(zone, isHotspot) {
+      const eligible = FISH_SPECIES.filter((s) => zone >= s.minZone && zone <= s.maxZone);
+      const pool = eligible.length ? eligible : [FISH_SPECIES[0]];
+      const weighted = pool.map((s) => ({
+        species: s,
+        weight: (s.prefZone === zone ? 3.0 : 1.0) * (isHotspot && s.gemValue >= 50 ? 2.5 : 1.0)
+      }));
+      const total = weighted.reduce((acc, w) => acc + w.weight, 0);
+      let roll = Math.random() * total;
+      for (const w of weighted) {
+        if (roll < w.weight) return w.species;
+        roll -= w.weight;
+      }
+      return pool[0];
+    }
+
+    function completeCatch() {
+      const f = state.fishing;
+      const species = f.currentFish || selectCatchForZone(f.targetZone, f.isHotspotCast);
+      const weight = +(species.weight[0] + Math.random() * (species.weight[1] - species.weight[0])).toFixed(2);
+      const bonusMult = f.isHotspotCast ? 1.5 : 1.0;
+      const gemVal = Math.round(species.gemValue * bonusMult);
+      const xpGain = Math.round(species.xp * bonusMult);
+
+      state.fishStorage.push({
+        speciesId: species.id,
+        name: species.name,
+        weight,
+        gemValue: gemVal
+      });
+
+      state.fiscoreXp += xpGain;
+      let reqXp = state.fiscoreLevel * 100;
+      while (state.fiscoreXp >= reqXp) {
+        state.fiscoreXp -= reqXp;
+        state.fiscoreLevel++;
+        reqXp = state.fiscoreLevel * 100;
+        showToast(`🎉 Fiscore Level Up! Now Level ${state.fiscoreLevel}!`);
+      }
+
+      if (f.isHotspotCast) {
+        respawnHotspot(performance.now());
+      }
+
+      resetFishing();
+
+      const spriteObj = FISH_SPRITES[species.id] || FISH_SPRITES.minnow;
+      document.getElementById('catch-sprite-img').src = spriteObj.dataUrl;
+      document.getElementById('catch-name').textContent = species.name;
+      document.getElementById('catch-desc').textContent = `Stored in Fish Storage (${state.fishStorage.length}/${state.storageCapacity})`;
+      document.getElementById('catch-weight').textContent = `${weight} kg`;
+      document.getElementById('catch-value').textContent = `${gemVal} Gems`;
+      document.getElementById('catch-xp').textContent = `+${xpGain} XP`;
+      document.getElementById('catch-modal').classList.remove('hidden');
+      updateHud();
+    }
+
+    // =========================================================================
+    // 7. HARBOR TOWN FACILITIES & DISCOVERY MODALS
+    // =========================================================================
+    let activeTownTab = 'market';
+
+    function openTownModal(tab = 'market') {
+      activeTownTab = tab;
+      document.getElementById('town-modal').classList.remove('hidden');
+      renderTownTab();
+    }
+
+    function closeAllModals() {
+      document.getElementById('town-modal').classList.add('hidden');
+      document.getElementById('catch-modal').classList.add('hidden');
+      document.getElementById('discovery-modal').classList.add('hidden');
+    }
+
+    document.getElementById('btn-open-town').addEventListener('click', () => openTownModal(state.nearFacility?.id || 'market'));
+    document.getElementById('btn-close-town').addEventListener('click', closeAllModals);
+    document.getElementById('btn-claim-catch').addEventListener('click', closeAllModals);
+    document.getElementById('btn-close-disc').addEventListener('click', closeAllModals);
+
+    document.getElementById('btn-discoveries').addEventListener('click', () => {
+      const list = document.getElementById('discovery-list');
+      list.innerHTML = DEPTH_ZONES.map((z) => {
+        const unlocked = state.discoveredZones.has(z.zone);
+        return `
+          <div class="flex items-center justify-between p-2.5 rounded-lg border ${unlocked ? 'bg-[#09131d] border-[#38e8d8]/60' : 'bg-[#09131d]/40 border-[#22364a] opacity-60'}">
+            <div>
+              <div class="text-xs font-bold ${unlocked ? 'text-[#8cf7ee]' : 'text-[#7897b5]'}">${z.name}</div>
+              <div class="text-[11px] text-[#9cb5cc]">${unlocked ? 'Charted & Explored' : 'Sail offshore to discover'}</div>
+            </div>
+            <span class="font-pixel text-[9px] px-2 py-1 rounded ${unlocked ? 'bg-[#193829] text-[#a8f794] border border-[#82e068]' : 'bg-[#142538] text-[#7897b5]'}">
+              ${unlocked ? 'CHARTED' : 'LOCKED'}
+            </span>
+          </div>
+        `;
+      }).join('');
+      document.getElementById('discovery-modal').classList.remove('hidden');
+    });
+
+    document.querySelectorAll('.town-tab').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activeTownTab = btn.dataset.tab;
+        renderTownTab();
+      });
+    });
+
+    function renderTownTab() {
+      document.querySelectorAll('.town-tab').forEach((btn) => {
+        const active = btn.dataset.tab === activeTownTab;
+        btn.className = `town-tab py-2 px-1 rounded cursor-pointer transition ${
+          active
+            ? 'bg-[#214463] text-[#ffe18c] border border-[#f2b738]'
+            : 'bg-[#09131d] text-[#9cb5cc] border border-[#263c52] hover:text-white'
+        }`;
+      });
+
+      const container = document.getElementById('town-tab-content');
+
+      if (activeTownTab === 'market') {
+        const totalVal = state.fishStorage.reduce((s, f) => s + f.gemValue, 0);
+        container.innerHTML = `
+          <div class="flex items-center justify-between bg-[#09131d] border border-[#28425e] rounded-lg p-3">
+            <div>
+              <div class="text-xs font-bold text-[#b5cde3]">Fish Storage Haul (${state.fishStorage.length}/${state.storageCapacity})</div>
+              <div class="font-mono-num text-sm font-extrabold text-[#ffe18c]">Total Value: ◆ ${totalVal} Gems</div>
+            </div>
+            <button id="btn-sell-all" ${state.fishStorage.length === 0 ? 'disabled' : ''} class="px-4 py-2 rounded-md bg-[#f2b738] hover:bg-[#ffd262] disabled:opacity-40 text-[#1a1204] font-pixel text-[10px] font-bold cursor-pointer">
+              SELL ALL
+            </button>
+          </div>
+          <div class="space-y-2">
+            ${state.fishStorage.length === 0 ? '<p class="text-xs text-[#8aa4bd] text-center py-6">Fish Storage is empty. Cast into the ocean to fill it!</p>' :
+              state.fishStorage.map((f, idx) => {
+                const sp = FISH_SPRITES[f.speciesId] || FISH_SPRITES.minnow;
+                return `
+                  <div class="flex items-center justify-between bg-[#09131d] border border-[#263c52] rounded-lg px-3 py-2">
+                    <div class="flex items-center gap-2.5">
+                      <img src="${sp.dataUrl}" alt="${f.name}" class="w-8 h-8 pixelated bg-[#060d14] p-0.5 rounded border border-[#243b52]" />
+                      <div>
+                        <div class="text-xs font-bold text-white">${f.name}</div>
+                        <div class="font-mono-num text-[11px] text-[#89d6ff]">${f.weight} kg</div>
+                      </div>
+                    </div>
+                    <button data-sell-idx="${idx}" class="px-3 py-1.5 rounded bg-[#193829] hover:bg-[#234f3a] border border-[#82e068] text-[#a8f794] font-mono-num font-bold text-xs cursor-pointer">
+                      Sell ◆${f.gemValue}
+                    </button>
+                  </div>
+                `;
+              }).join('')
+            }
+          </div>
+        `;
+        document.getElementById('btn-sell-all')?.addEventListener('click', () => {
+          state.gems += totalVal;
+          state.fishStorage = [];
+          showToast(`Sold haul for ◆ ${totalVal} Gems!`);
+          updateHud();
+          renderTownTab();
+        });
+        container.querySelectorAll('[data-sell-idx]').forEach((b) => {
+          b.addEventListener('click', () => {
+            const idx = Number(b.dataset.sellIdx);
+            const item = state.fishStorage[idx];
+            if (!item) return;
+            state.gems += item.gemValue;
+            state.fishStorage.splice(idx, 1);
+            updateHud();
+            renderTownTab();
+          });
+        });
+      } else if (activeTownTab === 'rods') {
+        container.innerHTML = RODS.map((r) => {
+          const curLv = state.rodUpgrades[r.type] || 0;
+          const isEq = state.equippedRodType === r.type;
+          const nextCost = curLv === 0 ? r.basePrice : curLv < 3 ? r.upgradeCosts[curLv] : 0;
+          const pull = curLv > 0 ? r.pullMult[curLv - 1] : r.pullMult[0];
+          return `
+            <div class="flex items-center justify-between bg-[#09131d] border ${isEq ? 'border-[#38e8d8]' : 'border-[#263c52]'} rounded-lg p-3">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-extrabold text-white">${r.name}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded bg-[#143647] text-[#8cf7ee] font-mono-num font-bold">Zones 1–${r.maxZone}</span>
+                </div>
+                <div class="font-mono-num text-[11px] text-[#9cb5cc] mt-0.5">
+                  ${curLv > 0 ? `Upgrade Lv.${curLv}/3 • Pull ${pull.toFixed(2)}x` : `Locked • Base Pull ${pull.toFixed(2)}x`}
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                ${curLv > 0 && !isEq ? `<button data-eq-rod="${r.type}" class="px-2.5 py-1.5 rounded bg-[#1c3650] hover:bg-[#274b6e] text-xs font-bold text-white cursor-pointer">Equip</button>` : ''}
+                ${isEq ? `<span class="px-2.5 py-1.5 rounded bg-[#143647] text-[#8cf7ee] text-xs font-bold">Equipped</span>` : ''}
+                ${curLv < 3 ? `
+                  <button data-up-rod="${r.type}" ${state.gems < nextCost ? 'disabled' : ''} class="px-3 py-1.5 rounded bg-[#f2b738] hover:bg-[#ffd262] disabled:opacity-40 text-[#1a1204] font-mono-num font-extrabold text-xs cursor-pointer">
+                    ${curLv === 0 ? `Buy ◆${nextCost}` : `Lv.${curLv + 1} ◆${nextCost}`}
+                  </button>
+                ` : '<span class="font-pixel text-[9px] text-[#82e068] px-2">MAX</span>'}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        container.querySelectorAll('[data-eq-rod]').forEach((b) => {
+          b.addEventListener('click', () => {
+            state.equippedRodType = Number(b.dataset.eqRod);
+            syncBoatVisuals();
+            updateHud();
+            renderTownTab();
+          });
+        });
+        container.querySelectorAll('[data-up-rod]').forEach((b) => {
+          b.addEventListener('click', () => {
+            const t = Number(b.dataset.upRod);
+            const r = RODS.find((x) => x.type === t);
+            const curLv = state.rodUpgrades[t] || 0;
+            const cost = curLv === 0 ? r.basePrice : r.upgradeCosts[curLv];
+            if (state.gems < cost) return;
+            state.gems -= cost;
+            state.rodUpgrades[t] = curLv + 1;
+            state.equippedRodType = t;
+            syncBoatVisuals();
+            showToast(`🎣 ${r.name} upgraded to Level ${curLv + 1}!`);
+            updateHud();
+            renderTownTab();
+          });
+        });
+      } else if (activeTownTab === 'boats') {
+        container.innerHTML = BOATS.map((b) => {
+          const owned = state.ownedBoats.includes(b.id);
+          const selected = state.selectedBoatId === b.id;
+          const upLv = state.boatUpgrades[b.id] || 1;
+          const upCost = 180 * upLv;
+          return `
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#09131d] border ${selected ? 'border-[#f2b738]' : 'border-[#263c52]'} rounded-lg p-3">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-extrabold text-white">${b.name}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded bg-[#1c3650] text-[#89d6ff] font-mono-num font-bold">Zones 1–${b.maxZone}</span>
+                  <span class="text-[10px] text-[#ffe18c] font-semibold">${b.role}</span>
+                </div>
+                <p class="text-[11px] text-[#9cb5cc] mt-0.5">${b.desc}</p>
+                <div class="font-mono-num text-[10px] text-[#8cf7ee] mt-1">
+                  ${owned ? `Hull Spec Lv.${upLv}/3 ${b.upgradable ? '(Upgradable)' : '(Fixed Hull)'}` : 'Permanent vessel purchase'}
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                ${!owned ? `
+                  <button data-buy-boat="${b.id}" ${state.gems < b.price ? 'disabled' : ''} class="px-3 py-2 rounded bg-[#f2b738] hover:bg-[#ffd262] disabled:opacity-40 text-[#1a1204] font-mono-num font-extrabold text-xs cursor-pointer">
+                    Buy ◆${b.price}
+                  </button>
+                ` : `
+                  ${!selected ? `<button data-sel-boat="${b.id}" class="px-3 py-1.5 rounded bg-[#1c3650] hover:bg-[#274b6e] text-xs font-bold text-white cursor-pointer">Select</button>` : '<span class="px-2.5 py-1.5 rounded bg-[#362b12] border border-[#f2b738] text-[#ffe18c] text-xs font-bold">Active</span>'}
+                  ${b.upgradable && upLv < 3 ? `<button data-up-boat="${b.id}" ${state.gems < upCost ? 'disabled' : ''} class="px-2.5 py-1.5 rounded bg-[#38e8d8] hover:bg-[#6bf7ea] disabled:opacity-40 text-[#062024] font-mono-num font-extrabold text-xs cursor-pointer">Tune ◆${upCost}</button>` : ''}
+                `}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        container.querySelectorAll('[data-buy-boat]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const b = BOATS.find((x) => x.id === btn.dataset.buyBoat);
+            if (!b || state.gems < b.price) return;
+            state.gems -= b.price;
+            state.ownedBoats.push(b.id);
+            state.selectedBoatId = b.id;
+            syncBoatVisuals();
+            showToast(`⛵ Purchased & selected ${b.name}!`);
+            updateHud();
+            renderTownTab();
+          });
+        });
+        container.querySelectorAll('[data-sel-boat]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            state.selectedBoatId = btn.dataset.selBoat;
+            syncBoatVisuals();
+            updateHud();
+            renderTownTab();
+          });
+        });
+        container.querySelectorAll('[data-up-boat]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const id = btn.dataset.upBoat;
+            const lv = state.boatUpgrades[id] || 1;
+            const cost = 180 * lv;
+            if (state.gems < cost) return;
+            state.gems -= cost;
+            state.boatUpgrades[id] = lv + 1;
+            showToast(`⛵ Upgraded hull speed & handling to Lv.${lv + 1}!`);
+            updateHud();
+            renderTownTab();
+          });
+        });
+      } else if (activeTownTab === 'bait') {
+        container.innerHTML = `
+          <div class="flex items-center justify-between bg-[#09131d] border border-[#263c52] rounded-lg p-3">
+            <div>
+              <div class="text-xs font-bold text-white">🪱 Rod-Equipped Bait Pack (+15 Charges)</div>
+              <div class="text-[11px] text-[#9cb5cc]">Consumes 1 charge per cast for 45% faster bites. Owned: ${state.baitCharges}</div>
+            </div>
+            <button id="btn-buy-bait" ${state.gems < 25 ? 'disabled' : ''} class="px-3.5 py-2 rounded bg-[#4aa64d] hover:bg-[#57ba5a] disabled:opacity-40 text-[#081709] font-mono-num font-extrabold text-xs cursor-pointer">
+              Buy ◆25
+            </button>
+          </div>
+          <div class="flex items-center justify-between bg-[#09131d] border border-[#263c52] rounded-lg p-3">
+            <div>
+              <div class="text-xs font-bold text-white">🧪 Chum Lure Booster (x2)</div>
+              <div class="text-[11px] text-[#9cb5cc]">Quick-slot booster: +45% bite frequency for 60s. Owned: ${state.boosters.chum}</div>
+            </div>
+            <button id="btn-buy-chum" ${state.gems < 40 ? 'disabled' : ''} class="px-3.5 py-2 rounded bg-[#38e8d8] hover:bg-[#6bf7ea] disabled:opacity-40 text-[#062024] font-mono-num font-extrabold text-xs cursor-pointer">
+              Buy ◆40
+            </button>
+          </div>
+          <div class="flex items-center justify-between bg-[#09131d] border border-[#263c52] rounded-lg p-3">
+            <div>
+              <div class="text-xs font-bold text-white">🪢 Grip Wax Booster (x2)</div>
+              <div class="text-[11px] text-[#9cb5cc]">Quick-slot booster: +30% reel pull power for 60s. Owned: ${state.boosters.wax}</div>
+            </div>
+            <button id="btn-buy-wax" ${state.gems < 45 ? 'disabled' : ''} class="px-3.5 py-2 rounded bg-[#78c8f5] hover:bg-[#a3dcff] disabled:opacity-40 text-[#062024] font-mono-num font-extrabold text-xs cursor-pointer">
+              Buy ◆45
+            </button>
+          </div>
+        `;
+        document.getElementById('btn-buy-bait')?.addEventListener('click', () => {
+          if (state.gems < 25) return;
+          state.gems -= 25; state.baitCharges += 15;
+          updateHud(); renderTownTab();
+        });
+        document.getElementById('btn-buy-chum')?.addEventListener('click', () => {
+          if (state.gems < 40) return;
+          state.gems -= 40; state.boosters.chum += 2;
+          updateHud(); renderTownTab();
+        });
+        document.getElementById('btn-buy-wax')?.addEventListener('click', () => {
+          if (state.gems < 45) return;
+          state.gems -= 45; state.boosters.wax += 2;
+          updateHud(); renderTownTab();
+        });
+      } else if (activeTownTab === 'storage') {
+        const upCost = Math.round(state.storageCapacity * 12);
+        container.innerHTML = `
+          <div class="bg-[#09131d] border border-[#b68aff]/60 rounded-lg p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm font-extrabold text-[#d8c3ff]">Dedicated Fish Storage Warehouse</div>
+                <div class="text-xs text-[#9cb5cc]">Isolated from sandbox inventory. Boat type never restricts storage capacity.</div>
+              </div>
+              <span class="px-3 py-1 rounded bg-[#2b1d42] text-[#ead7ff] font-mono-num font-extrabold text-xs">
+                ${state.fishStorage.length} / ${state.storageCapacity}
+              </span>
+            </div>
+            <button id="btn-up-storage" ${state.gems < upCost ? 'disabled' : ''} class="w-full py-2.5 rounded bg-[#b68aff] hover:bg-[#cba8ff] disabled:opacity-40 text-[#160b26] font-pixel text-[10px] font-bold cursor-pointer">
+              EXPAND (+6 SLOTS) — ◆ ${upCost} GEMS
+            </button>
+          </div>
+        `;
+        document.getElementById('btn-up-storage')?.addEventListener('click', () => {
+          if (state.gems < upCost) return;
+          state.gems -= upCost;
+          state.storageCapacity += 6;
+          showToast(`📦 Fish Storage expanded to ${state.storageCapacity} slots!`);
+          updateHud(); renderTownTab();
+        });
+      }
+    }
+
+    // =========================================================================
+    // 8. HUD SYNCHRONIZATION
+    // =========================================================================
+    function updateHud() {
+      const reqXp = state.fiscoreLevel * 100;
+      document.getElementById('hud-level').textContent = state.fiscoreLevel;
+      document.getElementById('hud-xp-text').textContent = `${state.fiscoreXp}/${reqXp} XP`;
+      document.getElementById('hud-xp-bar').style.width = `${Math.min(100, (state.fiscoreXp / reqXp) * 100)}%`;
+      document.getElementById('hud-gems').textContent = state.gems;
+      document.getElementById('hud-storage').textContent = `${state.fishStorage.length}/${state.storageCapacity}`;
+
+      const activePos = state.mode === 'boating' ? state.boatPos : state.playerPos;
+      const zNum = getZoneAtPos(activePos.x, activePos.z);
+      const zObj = DEPTH_ZONES.find((z) => z.zone === zNum);
+      document.getElementById('hud-zone').textContent = zNum === 0 ? 'Island Harbor (Safe)' : zObj.name;
+
+      const w = WEATHERS[state.weatherIndex];
+      document.getElementById('hud-weather-icon').textContent = w.icon;
+      document.getElementById('hud-weather-label').textContent = w.name;
+      document.getElementById('hud-disc-count').textContent = `${state.discoveredZones.size}/6`;
+
+      const rod = RODS.find((r) => r.type === state.equippedRodType) || RODS[0];
+      const rodLv = state.rodUpgrades[rod.type] || 1;
+      document.getElementById('hud-rod-name').textContent = `${rod.name} (Lv.${rodLv})`;
+      document.getElementById('hud-rod-cap').textContent = `Z${rod.maxZone}`;
+      document.getElementById('hud-bait').textContent = state.baitCharges;
+
+      document.getElementById('booster-chum-qty').textContent = `x${state.boosters.chum} (Fast Bite)`;
+      document.getElementById('booster-wax-qty').textContent = `x${state.boosters.wax} (+30% Pull)`;
+
+      const priLabel = document.getElementById('pri-action-label');
+      const priSub = document.getElementById('pri-action-sub');
+      if (state.fishing.phase === 'idle') {
+        priLabel.textContent = 'CAST';
+        priSub.textContent = 'SPACE';
+      } else if (state.fishing.phase === 'waiting') {
+        priLabel.textContent = 'CANCEL';
+        priSub.textContent = 'WAIT';
+      } else {
+        priLabel.textContent = 'REEL!';
+        priSub.textContent = 'HOLD';
+      }
+
+      const secIcon = document.getElementById('sec-action-icon');
+      const secLabel = document.getElementById('sec-action-label');
+      const prompt = document.getElementById('context-prompt');
+
+      if (state.mode === 'boating') {
+        secIcon.textContent = state.nearDock ? '🏝️' : '⚓';
+        secLabel.textContent = state.nearDock ? 'DOCK' : 'AT SEA';
+        const boat = BOATS.find((b) => b.id === state.selectedBoatId) || BOATS[0];
+        prompt.textContent = state.nearDock
+          ? 'Alongside Harbor Pier — Tap DOCK [E] to disembark'
+          : `Steering ${boat.name} (Max Zone ${boat.maxZone}) — Tap CAST to fish`;
+      } else if (state.nearFacility) {
+        secIcon.textContent = state.nearFacility.icon;
+        secLabel.textContent = 'OPEN';
+        prompt.textContent = `Near ${state.nearFacility.name} — Tap OPEN [E]`;
+      } else if (state.nearDock) {
+        secIcon.textContent = '⛵';
+        secLabel.textContent = 'BOARD';
+        prompt.textContent = 'At Harbor Pier — Tap BOARD [E] to sail or CAST off pier';
+      } else {
+        secIcon.textContent = '🧭';
+        secLabel.textContent = 'TOWN';
+        prompt.textContent = 'Walk to a Town Shop, Harbor Pier, or Cast into the Lagoon';
+      }
+    }
+
+    // =========================================================================
+    // 9. MAIN 60FPS PIXEL-VOXEL SIMULATION LOOP
+    // =========================================================================
+    let lastTime = performance.now();
+    let wakeTimer = 0;
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const dt = Math.min(0.05, (now - lastTime) / 1000);
+      lastTime = now;
+
+      // 1. Animate Pixel-Textured Ocean Waves & UV Drift
+      const wAmp = WEATHERS[state.weatherIndex].waveAmp;
+      const tSec = now * 0.0018;
+      waterTexObj.tex.offset.x = (now * 0.00004) % 1;
+      waterTexObj.tex.offset.y = (now * 0.00003) % 1;
+
+      for (let i = 0; i < posAttr.count; i++) {
+        const vx = posAttr.getX(i);
+        const vz = posAttr.getZ(i);
+        const wave = Math.sin(vx * 0.22 + tSec) * Math.cos(vz * 0.22 + tSec * 0.85) * wAmp;
+        posAttr.setY(i, wave);
+      }
+      posAttr.needsUpdate = true;
+
+      // Animate shoreline foam pulse
+      const foamPulse = 1 + Math.sin(tSec * 1.5) * 0.025;
+      foamRing.scale.set(foamPulse, foamPulse, 1);
+
+      // 2. Animate Wake & Splash Particles
+      for (const p of wakeParticles) {
+        if (!p.mesh.visible) continue;
+        p.life -= dt;
+        if (p.life <= 0) {
+          p.mesh.visible = false;
+          continue;
+        }
+        p.mesh.position.x += p.vx * dt;
+        p.mesh.position.y += p.vy * dt;
+        p.mesh.position.z += p.vz * dt;
+        if (p.vy !== 0) p.vy -= 9.8 * dt;
+        p.mesh.material.opacity = (p.life / p.maxLife) * 0.85;
+      }
+
+      // 3. Animate Selective Underwater Fish Silhouettes & Hotspot
+      for (const uf of underwaterFish) {
+        uf.angle += uf.speed * dt;
+        const nx = Math.cos(uf.angle) * uf.radius;
+        const nz = Math.sin(uf.angle) * uf.radius;
+        uf.mesh.position.set(nx, -0.48 + Math.sin(tSec * 2 + uf.radius) * 0.1, nz);
+        uf.mesh.rotation.y = -uf.angle + (uf.speed > 0 ? Math.PI * 0.5 : -Math.PI * 0.5);
+      }
+
+      if (hotspotState.active) {
+        if (now >= hotspotState.expiresAt) {
+          respawnHotspot(now);
+        } else {
+          const pulse = 1 + Math.sin(now * 0.005) * 0.15;
+          hotspotRing.scale.set(pulse, pulse, 1);
+        }
+      }
+
+      // 4. Directional Movement Input
+      let inX = joyVec.x;
+      let inZ = joyVec.y;
+      if (keys.has('KeyA') || keys.has('ArrowLeft')) inX -= 1;
+      if (keys.has('KeyD') || keys.has('ArrowRight')) inX += 1;
+      if (keys.has('KeyW') || keys.has('ArrowUp')) inZ -= 1;
+      if (keys.has('KeyS') || keys.has('ArrowDown')) inZ += 1;
+      const inMag = Math.hypot(inX, inZ);
+      if (inMag > 1) { inX /= inMag; inZ /= inMag; }
+
+      // 5. Island Walking OR Ocean Boat Navigation
+      if (state.fishing.phase === 'idle') {
+        if (state.mode === 'walking') {
+          if (inMag > 0.08) {
+            const speed = 6.8;
+            const nx = state.playerPos.x + inX * speed * dt;
+            const nz = state.playerPos.z + inZ * speed * dt;
+            state.playerYaw = Math.atan2(inX, inZ);
+            state.walkPhase += dt * 12;
+
+            // Swing voxel limbs while walking
+            const swing = Math.sin(state.walkPhase) * 0.45;
+            playerRig.legL.rotation.x = swing;
+            playerRig.legR.rotation.x = -swing;
+            playerRig.armL.rotation.x = -swing * 0.6;
+
+            const onIsland = Math.hypot(nx, nz) <= 11.4;
+            const onPier = nx >= 8.0 && nx <= 14.6 && Math.abs(nz) <= 1.15;
+            if (onIsland || onPier) {
+              state.playerPos.x = nx;
+              state.playerPos.z = nz;
+              state.playerPos.y = onPier ? 1.04 : 1.08;
+            }
+          } else {
+            playerRig.legL.rotation.x = 0;
+            playerRig.legR.rotation.x = 0;
+            playerRig.armL.rotation.x = 0;
+          }
+          playerGroup.position.copy(state.playerPos);
+          playerGroup.rotation.y = state.playerYaw;
+          boatGroup.position.copy(state.boatPos);
+          boatGroup.rotation.y = state.boatYaw;
+        } else if (state.mode === 'boating') {
+          const boat = BOATS.find((b) => b.id === state.selectedBoatId) || BOATS[0];
+          const tuneMult = 1 + ((state.boatUpgrades[boat.id] || 1) - 1) * 0.14;
+          const maxSpd = boat.speed * tuneMult;
+          const turnSpd = boat.turnSpeed * tuneMult;
+
+          if (inMag > 0.08) {
+            const targetYaw = Math.atan2(inX, inZ);
+            let diff = targetYaw - state.boatYaw;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            state.boatYaw += Math.sign(diff) * Math.min(Math.abs(diff), turnSpd * dt);
+            state.boatSpeed = Math.min(maxSpd, state.boatSpeed + maxSpd * 2.2 * dt);
+          } else {
+            state.boatSpeed = Math.max(0, state.boatSpeed - maxSpd * 1.8 * dt);
+          }
+
+          const stepX = Math.sin(state.boatYaw) * state.boatSpeed * dt;
+          const stepZ = Math.cos(state.boatYaw) * state.boatSpeed * dt;
+          const nextBx = state.boatPos.x + stepX;
+          const nextBz = state.boatPos.z + stepZ;
+          const nextDist = Math.hypot(nextBx, nextBz);
+          const nextZone = getZoneAtPos(nextBx, nextBz);
+
+          if (nextDist >= 13.5 && nextDist <= 96 && nextZone <= boat.maxZone) {
+            state.boatPos.x = nextBx;
+            state.boatPos.z = nextBz;
+            if (nextZone > 0 && !state.discoveredZones.has(nextZone)) {
+              state.discoveredZones.add(nextZone);
+              const zInfo = DEPTH_ZONES.find((z) => z.zone === nextZone);
+              showToast(`🧭 Charted ${zInfo.name}!`);
+            }
+          } else if (nextZone > boat.maxZone && state.boatSpeed > 1) {
+            state.boatSpeed = 0;
+            showToast(`⛵ ${boat.name} cannot enter Zone ${nextZone}! Upgrade boat at Dockyard.`);
+          }
+
+          // Spawn pixel wake trail behind moving boat
+          if (state.boatSpeed > 1.5) {
+            wakeTimer += dt;
+            if (wakeTimer >= 0.08) {
+              wakeTimer = 0;
+              const sternX = state.boatPos.x - Math.sin(state.boatYaw) * 1.6 + (Math.random() - 0.5) * 0.7;
+              const sternZ = state.boatPos.z - Math.cos(state.boatYaw) * 1.6 + (Math.random() - 0.5) * 0.7;
+              spawnWakeParticle(sternX, 0.14, sternZ, 0, 0, 0, 0.75);
+            }
+          }
+
+          state.boatPos.y = 0.16 + Math.sin(tSec * 2.2) * 0.07;
+          boatGroup.position.copy(state.boatPos);
+          boatGroup.rotation.y = state.boatYaw;
+
+          playerRig.legL.rotation.x = 0;
+          playerRig.legR.rotation.x = 0;
+          state.playerPos.set(state.boatPos.x, state.boatPos.y + 0.45, state.boatPos.z);
+          playerGroup.position.copy(state.playerPos);
+          playerGroup.rotation.y = state.boatYaw;
+        }
+      }
+
+      // Check Proximity to Town Facilities & Harbor Pier
+      let foundFac = null;
+      if (state.mode === 'walking') {
+        for (const f of facilityMeshes) {
+          const dist = Math.hypot(state.playerPos.x - f.x, state.playerPos.z - (f.z + 1.5));
+          f.pad.material.opacity = dist < 2.2 ? 0.95 : 0.45;
+          if (dist < 2.2) foundFac = f;
+        }
+      }
+      const activePos = state.mode === 'boating' ? state.boatPos : state.playerPos;
+      const nearDock = Math.hypot(activePos.x - 13.8, activePos.z - 0) < 3.4;
+      if (foundFac !== state.nearFacility || nearDock !== state.nearDock) {
+        state.nearFacility = foundFac;
+        state.nearDock = nearDock;
+        updateHud();
+      } else if (state.mode === 'boating') {
+        updateHud();
+      }
+
+      // 6. Hybrid Fishing Encounter Simulation
+      const f = state.fishing;
+      if (f.phase !== 'idle') {
+        const rodTip = new THREE.Vector3(0.45, 2.05, 1.55).applyAxisAngle(new THREE.Vector3(0, 1, 0), playerGroup.rotation.y).add(playerGroup.position);
+        const bobberAnimY = f.bobberPos.y + Math.sin(now * (f.phase === 'biting' || f.phase === 'reeling' ? 0.035 : 0.008)) * (f.phase === 'biting' || f.phase === 'reeling' ? 0.24 : 0.08);
+        bobberGroup.position.set(f.bobberPos.x, bobberAnimY, f.bobberPos.z);
+        const ripScale = 1 + ((now * 0.002) % 1.4);
+        rippleRing.scale.set(ripScale, ripScale, 1);
+        rippleRing.material.opacity = Math.max(0, 0.8 - ((now * 0.002) % 1.4) * 0.55);
+
+        lineGeo.setFromPoints([rodTip, bobberGroup.position]);
+
+        if (f.phase === 'waiting' && now >= f.biteAt) {
+          f.phase = 'biting';
+          f.currentFish = selectCatchForZone(f.targetZone, f.isHotspotCast);
+          for (let s = 0; s < 8; s++) {
+            spawnWakeParticle(f.bobberPos.x, 0.25, f.bobberPos.z, (Math.random() - 0.5) * 3.2, 2.6 + Math.random() * 1.8, (Math.random() - 0.5) * 3.2, 0.5);
+          }
+          document.getElementById('fish-fight-title').textContent = `! BITE ! HOLD REEL [SPACE]`;
+          showToast('❗ Bite on the line! Hold REEL and keep tension in the green!');
+          updateHud();
+        } else if ((f.phase === 'biting' || f.phase === 'reeling') && now >= f.expiresAt && f.progress <= 0) {
+          resetFishing();
+          showToast('The fish slipped off the hook!');
+        } else if (f.phase === 'biting' || f.phase === 'reeling') {
+          f.fightPhase += dt * 3.4;
+          const fishRes = f.currentFish ? f.currentFish.resistance : 1.0;
+          const surge = Math.max(0, Math.sin(f.fightPhase) * 0.45 * fishRes);
+
+          if (f.reelingInput) {
+            f.tension += dt * (0.42 + surge);
+          } else {
+            f.tension -= dt * 0.44;
+          }
+          f.tension = Math.max(0.05, Math.min(1.0, f.tension));
+
+          const inGreen = f.tension >= 0.28 && f.tension <= 0.76;
+          const tensionFill = document.getElementById('fish-tension-fill');
+          const tensionBadge = document.getElementById('fish-tension-badge');
+          tensionFill.style.width = `${Math.round(f.tension * 100)}%`;
+          document.getElementById('fish-tension-pct').textContent = `${Math.round(f.tension * 100)}%`;
+
+          if (f.tension > 0.80) {
+            tensionFill.className = 'h-full bg-[#e6482e] transition-all duration-75';
+            tensionBadge.textContent = 'HIGH TENSION!';
+            tensionBadge.className = 'px-2 py-0.5 rounded text-[10px] font-pixel bg-[#3b1b1f] text-[#ff9b9b] border border-[#e6482e]';
+          } else if (f.tension < 0.28) {
+            tensionFill.className = 'h-full bg-[#f2b738] transition-all duration-75';
+            tensionBadge.textContent = 'SLACK';
+            tensionBadge.className = 'px-2 py-0.5 rounded text-[10px] font-pixel bg-[#362b12] text-[#ffe18c] border border-[#f2b738]';
+          } else {
+            tensionFill.className = 'h-full bg-[#4ec46a] transition-all duration-75';
+            tensionBadge.textContent = 'SWEET SPOT';
+            tensionBadge.className = 'px-2 py-0.5 rounded text-[10px] font-pixel bg-[#193829] text-[#a8f794] border border-[#82e068]';
+          }
+
+          if (f.tension >= 0.98) {
+            resetFishing();
+            showToast('💥 Line snapped under extreme tension!');
+          } else if (f.reelingInput) {
+            const rod = RODS.find((r) => r.type === state.equippedRodType) || RODS[0];
+            const rodLv = state.rodUpgrades[rod.type] || 1;
+            const pullPower = rod.pullMult[rodLv - 1] * (now < state.activeBuffs.waxUntil ? 1.3 : 1.0);
+            const zoneMult = inGreen ? 1.4 : 0.7;
+            f.progress = Math.min(100, f.progress + ((26 * pullPower * zoneMult) / fishRes) * dt);
+            document.getElementById('fish-progress-fill').style.width = `${Math.round(f.progress)}%`;
+            document.getElementById('fish-progress-pct').textContent = `${Math.round(f.progress)}%`;
+
+            if (f.progress >= 100) {
+              completeCatch();
+            }
+          }
+        }
+      }
+
+      // 7. Smooth Top-Down Angled Voxel Camera Tracking with Zoom Presets
+      const camTarget = state.mode === 'boating' ? state.boatPos : state.playerPos;
+      const preset = CAMERA_PRESETS[state.camPresetIndex];
+      const desiredCamX = camTarget.x;
+      const desiredCamY = preset.y + (state.mode === 'boating' ? 3 : 0);
+      const desiredCamZ = camTarget.z + preset.z + (state.mode === 'boating' ? 2.5 : 0);
+      camera.position.lerp(new THREE.Vector3(desiredCamX, desiredCamY, desiredCamZ), 1 - Math.exp(-6.5 * dt));
+      camera.lookAt(camTarget.x, 0.6, camTarget.z);
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    updateHud();
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>

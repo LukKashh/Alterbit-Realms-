@@ -7,24 +7,21 @@ import {
   type ChatMessage,
   type ExchangeSnapshot,
   type FishingCastState,
-  type FiscoreProgress,
   type FriendEntry,
   type FriendRequestEntry,
   type InventorySlot,
   type UserRole,
   type WorldSummary,
 } from './game/network.ts';
-import type { DungeonSnapshot } from './game/dungeon.ts';
 import { getItemDef, ITEM_IDS, type PlayerStatKey } from './game/catalog.ts';
+import { TILE_SIZE } from './game/constants.ts';
 import { cloneGameConfig, DEFAULT_GAME_CONFIG, type GameConfig } from './game/config.ts';
 import type { EquippedWearables } from './game/pixelArt.ts';
-import { soundEngine } from './game/audio.ts';
 import { TitleScreen } from './components/TitleScreen.tsx';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
 import { ModeSelection } from './components/ModeSelection.tsx';
 import { GameHud } from './components/GameHud.tsx';
-import { DungeonOverlay } from './components/DungeonOverlay.tsx';
-import { Fishing3dOverlay } from './components/Fishing3dOverlay.tsx';
+import { soundEngine } from './game/audio.ts';
 import { testFirestoreConnection } from './lib/firebase.ts';
 import {
   publishWorldPresence,
@@ -56,7 +53,7 @@ const DEFAULT_STATS: Record<PlayerStatKey, number> = {
   exchangeTrades: 0,
 };
 
-const DEFAULT_FISCORE_PROGRESS: FiscoreProgress = { xp: 0, level: 1, catches: 0, deepestDepth: 0 };
+
 
 const DEFAULT_EXCHANGE: ExchangeSnapshot = {
   listings: [],
@@ -116,15 +113,10 @@ export default function App() {
   const [unclaimedWl, setUnclaimedWl] = useState<number>(0);
   const [exchangeSnapshot, setExchangeSnapshot] = useState<ExchangeSnapshot>(DEFAULT_EXCHANGE);
   const [fishingCast, setFishingCast] = useState<FishingCastState | null>(null);
-  const [fiscoreProgress, setFiscoreProgress] = useState<FiscoreProgress>(DEFAULT_FISCORE_PROGRESS);
-  const [lastFiscoreCatch, setLastFiscoreCatch] = useState<string | null>(null);
   const [fishingBiting, setFishingBiting] = useState<boolean>(false);
   const [fishingProgress, setFishingProgress] = useState<number>(0);
   const [fishingLineTension, setFishingLineTension] = useState<number>(0.15);
   const [fishingFightPattern, setFishingFightPattern] = useState<'darting' | 'surging' | 'deep_run' | 'erratic'>('darting');
-  const [dungeonSnapshot, setDungeonSnapshot] = useState<DungeonSnapshot | null>(null);
-  const [dungeonOpen, setDungeonOpen] = useState<boolean>(false);
-  const [fishing3dOpen, setFishing3dOpen] = useState<boolean>(false);
   const [hotbarItemIds, setHotbarItemIds] = useState<number[]>(EMPTY_HOTBAR);
   const [selectedItemId, setSelectedItemId] = useState<number>(ITEM_IDS.FIST);
   const [gameConfig, setGameConfig] = useState<GameConfig>(() => cloneGameConfig(DEFAULT_GAME_CONFIG));
@@ -141,10 +133,10 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean>(false);
+  const [adminWorldEdit, setAdminWorldEdit] = useState<boolean>(false);
+  const [adminBrushItemId, setAdminBrushItemId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (fishing3dOpen && connected) socketRef.current?.send({ type: 'fiscore_enter' });
-  }, [fishing3dOpen, connected]);
+
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -213,9 +205,13 @@ export default function App() {
       const buffs = user.activeBuffs ?? [];
       setActiveBuffs(buffs);
       setUnclaimedWl(user.unclaimedWl ?? 0);
-      setFiscoreProgress(user.fiscore ?? DEFAULT_FISCORE_PROGRESS);
-      engineRef.current?.setLocalIdentity(user.playerId, user.playerName, '#3f8fd9', user.equipped);
+            engineRef.current?.setLocalIdentity(user.playerId, user.playerName, '#3f8fd9', user.equipped);
       engineRef.current?.setActiveBuffs(buffs);
+      if (user.role !== 'admin') {
+        setAdminWorldEdit(false);
+        setAdminBrushItemId(null);
+        engineRef.current?.setAdminWorldEdit(false, null);
+      }
       void syncUserToFirestore(user, socketRef.current?.getActiveWorldName() ?? '').catch(() => {});
     },
     [syncHotbarWithInventory]
@@ -237,16 +233,7 @@ export default function App() {
     }
   }, [appState]);
 
-  // Freeze the sandbox character while the independent 3D dungeon overlay is open.
-  useEffect(() => {
-    if (dungeonSnapshot || dungeonOpen) {
-      engineRef.current?.setMode('paused');
-    } else if (appState === 'playing') {
-      engineRef.current?.setMode('playing');
-    } else if (appState === 'paused') {
-      engineRef.current?.setMode('paused');
-    }
-  }, [dungeonSnapshot?.runId, dungeonSnapshot?.phase, dungeonOpen, appState]);
+
 
   const fetchWorldsList = useCallback(async () => {
     try {
@@ -284,8 +271,10 @@ export default function App() {
 
     const engine = new BlockgroveEngine(mount, {
       onMoveSync: (state) => socket.send({ type: 'move', ...state }),
-      onPunchTile: (tx, ty, toolItemId) => socket.send({ type: 'punch_tile', tx, ty, toolItemId }),
-      onPlaceTile: (tx, ty, itemId) => socket.send({ type: 'place_tile', tx, ty, itemId }),
+      onPunchTile: (tx, ty, toolItemId, adminEdit) =>
+        socket.send({ type: 'punch_tile', tx, ty, toolItemId, ...(adminEdit ? { adminEdit: true } : {}) }),
+      onPlaceTile: (tx, ty, itemId, adminEdit) =>
+        socket.send({ type: 'place_tile', tx, ty, itemId, ...(adminEdit ? { adminEdit: true } : {}) }),
       onPickupDrop: (dropId) => socket.send({ type: 'pickup_drop', dropId }),
       onInspectTile: (info) => setInspectInfo(info),
       onCoordsChange: (tx, ty) => setCoords({ tx, ty }),
@@ -334,12 +323,10 @@ export default function App() {
             recentWorlds: msg.recentWorlds,
             activeBuffs: msg.activeBuffs,
             unclaimedWl: msg.unclaimedWl,
-            fiscore: msg.fiscore,
           });
           setGameConfig(msg.gameConfig);
           engine.applyGameConfig(msg.gameConfig);
           if (msg.exchange) setExchangeSnapshot(msg.exchange);
-          socket.send({ type: 'dungeon_resume' });
           break;
         case 'pong':
           if (typeof msg.playerCount === 'number') {
@@ -379,8 +366,7 @@ export default function App() {
             setInspectInfo(null);
           }
           setWorldName(msg.world.name);
-          if (msg.world.name === 'STATION') socket.send({ type: 'dungeon_resume' });
-          setWorldOwner(msg.world.worldLock?.ownerName ?? null);
+          if (msg.world.name === 'STATION')           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
           setWorldKind(msg.world.worldKind ?? 'standard');
           setMineExpiresAt(msg.world.expiresAt ?? null);
           setFishingCast(null);
@@ -405,15 +391,7 @@ export default function App() {
             setPlayerCount(msg.players.length);
           }
           break;
-        case 'dungeon_state':
-          setDungeonSnapshot(msg.snapshot);
-          setDungeonOpen(true);
-          break;
-        case 'dungeon_error':
-          if (msg.message.toLowerCase().includes('left the expedition')) setDungeonSnapshot(null);
-          showToast(msg.message);
-          break;
-        case 'world_error':
+                        case 'world_error':
           if (modeRef.current === 'loading') {
             setAppState('hub');
             showToast(msg.message);
@@ -452,7 +430,11 @@ export default function App() {
             msg.fluidType,
             msg.fluidLevel,
             msg.furnace,
-            msg.bfgCollector
+            msg.bfgCollector,
+            msg.seedPot,
+            msg.matteragenEngine,
+            msg.atmMachine,
+            msg.vaultbox
           );
           if (msg.worldLock !== undefined) {
             setWorldOwner(msg.worldLock?.ownerName ?? null);
@@ -490,8 +472,7 @@ export default function App() {
           setRecentWorlds(msg.recentWorlds);
           setActiveBuffs(msg.activeBuffs ?? []);
           setUnclaimedWl(msg.unclaimedWl ?? 0);
-          setFiscoreProgress(msg.fiscore ?? DEFAULT_FISCORE_PROGRESS);
-          engine.setLocalEquipped(msg.equipped);
+                    engine.setLocalEquipped(msg.equipped);
           engine.setActiveBuffs(msg.activeBuffs ?? []);
           if (msg.notice) showToast(msg.notice);
           break;
@@ -502,18 +483,17 @@ export default function App() {
           setWorlds(msg.worlds);
           break;
         case 'fishing_started':
-          if (msg.cast.mode === 'fiscore') setLastFiscoreCatch(null);
-          setFishingProgress(msg.cast.pullProgress ?? 0);
+                    setFishingProgress(msg.cast.pullProgress ?? 0);
           setFishingLineTension(msg.cast.lineTension ?? 0.15);
           setFishingFightPattern(msg.cast.fightPattern ?? 'darting');
-          if (msg.cast.mode !== 'fiscore') engine.setFishingCast(msg.cast);
+          engine.setFishingCast(msg.cast);
           if (msg.cast.playerId === playerIdRef.current) {
             setFishingCast(msg.cast);
             setFishingBiting(msg.cast.biting);
           }
           break;
         case 'fishing_progress':
-          if (msg.mode !== 'fiscore') engine.updateFishingProgress(msg.playerId, msg.progress, msg.lineTension, msg.bobberOffset, msg.fightPattern);
+          engine.updateFishingProgress(msg.playerId, msg.progress, msg.lineTension, msg.bobberOffset, msg.fightPattern);
           if (msg.playerId === playerIdRef.current) {
             setFishingProgress(msg.progress);
             setFishingLineTension(msg.lineTension);
@@ -522,7 +502,7 @@ export default function App() {
           }
           break;
         case 'fishing_bite':
-          if (msg.mode !== 'fiscore') engine.markFishingBite(msg.playerId);
+          engine.markFishingBite(msg.playerId);
           if (msg.playerId === playerIdRef.current) {
             soundEngine.fishingBite();
             setFishingBiting(true);
@@ -530,15 +510,14 @@ export default function App() {
           }
           break;
         case 'fishing_ended':
-          if (msg.mode !== 'fiscore') engine.removeFishingCast(msg.playerId);
+          engine.removeFishingCast(msg.playerId);
           if (msg.playerId === playerIdRef.current) {
             setFishingCast(null);
             setFishingBiting(false);
             setFishingProgress(0);
             setFishingLineTension(0.15);
             setFishingFightPattern('darting');
-            if (msg.mode === 'fiscore') setLastFiscoreCatch(msg.caughtName ?? null);
-            if (msg.caughtName) {
+                        if (msg.caughtName) {
               soundEngine.unlock();
               showToast(`Caught ${msg.caughtName}!`);
             }
@@ -695,18 +674,14 @@ export default function App() {
   );
 
   const handleReturnToHub = useCallback(() => {
-    if (dungeonSnapshot) socketRef.current?.send({ type: 'dungeon_action', action: 'leave' });
-    setDungeonSnapshot(null);
-    socketRef.current?.leaveWorld();
+            socketRef.current?.leaveWorld();
     void fetchWorldsList();
     setInspectInfo(null);
     setAppState('hub');
-  }, [fetchWorldsList, dungeonSnapshot]);
+  }, [fetchWorldsList]);
 
   const handleSignOut = useCallback(async () => {
-    if (dungeonSnapshot) socketRef.current?.send({ type: 'dungeon_action', action: 'leave' });
-    setDungeonSnapshot(null);
-    let token: string | null = null;
+            let token: string | null = null;
     try {
       token = localStorage.getItem(TOKEN_STORAGE_KEY);
       localStorage.removeItem(TOKEN_STORAGE_KEY);
@@ -723,9 +698,27 @@ export default function App() {
     setHotbarItemIds(EMPTY_HOTBAR);
     setSelectedItemId(ITEM_IDS.FIST);
     engineRef.current?.setSelectedItem(ITEM_IDS.FIST);
+    setAdminWorldEdit(false);
+    setAdminBrushItemId(null);
+    engineRef.current?.setAdminWorldEdit(false, null);
     setRole('player');
     setAppState('auth');
-  }, [dungeonSnapshot]);
+  }, []);
+
+  const handleToggleAdminWorldEdit = useCallback(
+    (enabled: boolean, brushItemId: number | null = null) => {
+      if (role !== 'admin') return;
+      setAdminWorldEdit(enabled);
+      setAdminBrushItemId(brushItemId);
+      engineRef.current?.setAdminWorldEdit(enabled, brushItemId);
+      if (enabled && brushItemId && brushItemId !== ITEM_IDS.AIR) {
+        setSelectedItemId(brushItemId);
+        engineRef.current?.setSelectedItem(brushItemId);
+      }
+      soundEngine.uiClick();
+    },
+    [role]
+  );
 
   const handleSelectItem = useCallback((itemId: number) => {
     setSelectedItemId(itemId);
@@ -736,8 +729,7 @@ export default function App() {
   // Global keyboard shortcuts (hotbar 1-6, Pause Esc/P, Mute M)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (dungeonSnapshot || dungeonOpen) return;
-      const tag = (e.target as HTMLElement | null)?.tagName;
+            const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
       if (modeRef.current === 'playing' || modeRef.current === 'paused') {
@@ -762,7 +754,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSelectItem, hotbarItemIds, dungeonSnapshot, dungeonOpen]);
+  }, [handleSelectItem, hotbarItemIds]);
 
   // Live Firestore world presence heartbeat & subscription when in a world
   useEffect(() => {
@@ -777,8 +769,8 @@ export default function App() {
       void publishWorldPresence({
         worldName,
         playerName,
-        x: pose?.x ?? coords.tx * 48,
-        y: pose?.y ?? coords.ty * 48,
+        x: pose?.x ?? coords.tx * TILE_SIZE,
+        y: pose?.y ?? coords.ty * TILE_SIZE,
         level,
         online,
       }).catch(() => {});
@@ -801,7 +793,7 @@ export default function App() {
   }, [appState, coords.tx, coords.ty, level, playerName, worldName]);
 
   return (
-    <main className="relative w-screen h-screen overflow-hidden bg-[#0b1622]">
+    <main className="relative w-full h-[100dvh] overflow-hidden bg-[#0b1622]">
       {/* Isolated Canvas2D World Mount */}
       <div ref={canvasMountRef} className="w-full h-full" />
 
@@ -826,16 +818,6 @@ export default function App() {
           connected={connected}
           onReconnectNow={() => socketRef.current?.reconnectNow()}
           onEnterWorld={handleEnterWorld}
-          onOpenDungeons={() => {
-            soundEngine.uiClick();
-            setDungeonOpen(true);
-            socketRef.current?.send({ type: 'dungeon_resume' });
-          }}
-          onOpenFishing3d={() => {
-            soundEngine.uiClick();
-            setLastFiscoreCatch(null);
-            setFishing3dOpen(true);
-          }}
           onSignOut={handleSignOut}
         />
       )}
@@ -851,6 +833,9 @@ export default function App() {
             socketRef.current?.send({ type: 'update_game_config', config: cfg })
           }
           onAdminAction={(opts) => socketRef.current?.send({ type: 'admin_action', ...opts })}
+          adminWorldEdit={adminWorldEdit}
+          adminBrushItemId={adminBrushItemId}
+          onToggleAdminWorldEdit={handleToggleAdminWorldEdit}
           worldName={worldName}
           worldOwner={worldOwner}
           playerCount={playerCount}
@@ -948,9 +933,6 @@ export default function App() {
             socketRef.current?.send({ type: 'use_consumable', itemId })
           }
           onReelFishing={() => socketRef.current?.send({ type: 'reel_fishing' })}
-          onUpgradeFishingRod={(rodInstanceId) =>
-            socketRef.current?.send({ type: 'upgrade_fishing_rod', rodInstanceId })
-          }
           onConfigureFurnace={(tx, ty, opts) =>
             socketRef.current?.send({ type: 'configure_furnace', tx, ty, ...opts })
           }
@@ -964,58 +946,15 @@ export default function App() {
               txId: opts.action === 'buy' || opts.action === 'post' ? makeTxId() : undefined,
             })
           }
+          onUpgradeMatteragen={(tx, ty) =>
+            socketRef.current?.send({ type: 'upgrade_matteragen', tx, ty })
+          }
+          onConfigureVaultbox={(tx, ty, opts) =>
+            socketRef.current?.send({ type: 'configure_vaultbox', tx, ty, ...opts })
+          }
         />
       )}
 
-      {(appState === 'hub' || appState === 'playing' || appState === 'paused') &&
-        (dungeonOpen || Boolean(dungeonSnapshot)) && (
-          <DungeonOverlay
-            engine={engineRef.current}
-            playerId={playerId}
-            level={level}
-            gems={gems}
-            inventory={inventory}
-            snapshot={dungeonSnapshot}
-            onBuyKey={(tier, payment) =>
-              socketRef.current?.send({ type: 'dungeon_buy_key', tier, payment, txId: makeTxId() })
-            }
-            onCreate={(tier, partyMode) =>
-              socketRef.current?.send({ type: 'dungeon_create', tier, partyMode })
-            }
-            onJoin={(code) => socketRef.current?.send({ type: 'dungeon_join', code })}
-            onAction={(action, dx, dy) =>
-              socketRef.current?.send(
-                action === 'attack'
-                  ? { type: 'dungeon_action', action, dx, dy, attackId: makeTxId() }
-                  : { type: 'dungeon_action', action, dx, dy }
-              )
-            }
-            onClose={() => setDungeonOpen(false)}
-            onDismiss={() => setDungeonSnapshot(null)}
-          />
-        )}
-
-      {fishing3dOpen && (
-        <Fishing3dOverlay
-          gems={gems}
-          inventory={inventory}
-          fiscore={fiscoreProgress}
-          gameConfig={gameConfig}
-          activeCast={fishingCast?.mode === 'fiscore' ? fishingCast : null}
-          biting={fishingBiting}
-          progress={fishingProgress}
-          lineTension={fishingLineTension}
-          fightPattern={fishingFightPattern}
-          lastCatchName={lastFiscoreCatch}
-          onClose={() => {
-            socketRef.current?.send({ type: 'fiscore_cancel' });
-            setFishing3dOpen(false);
-          }}
-          onCastFishing={(rodInstanceId, depthLevel) => socketRef.current?.send({ type: 'fiscore_cast', rodInstanceId, depthLevel })}
-          onReelFishing={() => socketRef.current?.send({ type: 'fiscore_reel' })}
-          onUpgradeFishingRod={(rodInstanceId) => socketRef.current?.send({ type: 'upgrade_fishing_rod', rodInstanceId })}
-        />
-      )}
-    </main>
+      </main>
   );
 }

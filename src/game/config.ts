@@ -242,7 +242,7 @@ export function getEffectiveItemDef(
   const linkedPartnerId = base.category === 'seed' ? base.producesTileId : base.seedId;
   const partnerOv = linkedPartnerId ? config?.itemOverrides?.[linkedPartnerId] : undefined;
   const partnerBase = linkedPartnerId ? CATALOG[linkedPartnerId] : undefined;
-  if (!ov && !partnerOv) return base;
+  if (!ov && !partnerOv && base.category !== 'seed') return base;
   return {
     ...base,
     hardness: ov?.hardness ?? base.hardness,
