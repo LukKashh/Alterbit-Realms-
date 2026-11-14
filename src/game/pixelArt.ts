@@ -1702,7 +1702,8 @@ function getDirectionalSpriteSheetFrame(
   const sourceHeight = sheet.naturalHeight / 4;
   const sourceCanvas = document.createElement('canvas');
   sourceCanvas.width = Math.ceil(sourceWidth);
-  sourceCanvas.height = Math.ceil(sourceHeight);
+  // Keep the fractional 22.5px row crop from sampling the next row's first pixels.
+  sourceCanvas.height = Math.floor(sourceHeight);
   const sourceCtx = sourceCanvas.getContext('2d');
   if (!sourceCtx) return null;
   sourceCtx.imageSmoothingEnabled = false;
