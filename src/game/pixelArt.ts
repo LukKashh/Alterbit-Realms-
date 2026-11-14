@@ -12,14 +12,10 @@ export type PlayerPose =
   | 'idle1'
   | 'idle2'
   | 'idle3'
-  | 'idle4'
-  | 'idle5'
   | 'walk0'
   | 'walk1'
   | 'walk2'
   | 'walk3'
-  | 'walk4'
-  | 'walk5'
   | 'jump'
   | 'fall'
   | 'punch'
@@ -1667,109 +1663,12 @@ function drawTemplateWearables(
   }
 }
 
-
-let playerSpriteSheetImage: HTMLImageElement | null = null;
-const playerSpriteSheetFrameCache = new Map<string, HTMLCanvasElement>();
-
-function getDirectionalSpriteSheetFrame(
-  pose: PlayerPose,
-  facing: 1 | -1,
-  shirtColor: string,
-  equipped?: EquippedWearables
-): HTMLCanvasElement | null {
-  const isIdle = pose === 'idle' || /^idle[0-5]$/.test(pose);
-  const isWalking = /^walk[0-5]$/.test(pose);
-  const hasEquippedWearables = Boolean(
-    equipped &&
-    Object.values(equipped).some((itemId) => Number(itemId) > 0)
-  );
-  if ((!isIdle && !isWalking) || shirtColor.toLowerCase() !== '#3f8fd9' || hasEquippedWearables) return null;
-  if (typeof Image === 'undefined' || typeof document === 'undefined') return null;
-
-  if (!playerSpriteSheetImage) {
-    playerSpriteSheetImage = new Image();
-    playerSpriteSheetImage.decoding = 'async';
-    playerSpriteSheetImage.src = '/assets/player-spritesheet-4x3.svg';
-  }
-  const sheet = playerSpriteSheetImage;
-  if (!sheet.complete || sheet.naturalWidth === 0 || sheet.naturalHeight === 0) return null;
-
-  const frameIndex = pose === 'idle' ? 0 : Number(pose.replace(isIdle ? 'idle' : 'walk', ''));
-  const safeFrame = Math.max(0, Math.min(5, Number.isFinite(frameIndex) ? frameIndex : 0));
-  // Sheet rows: right idle, right walk, left idle, left walk.
-  const row = facing === 1 ? (isIdle ? 0 : 1) : (isIdle ? 2 : 3);
-  const cacheKey = `${row}:${safeFrame}`;
-  const cached = playerSpriteSheetFrameCache.get(cacheKey);
-  if (cached) return cached;
-
-  const sourceWidth = sheet.naturalWidth / 6;
-  const sourceHeight = sheet.naturalHeight / 4;
-  const sourceCanvas = document.createElement('canvas');
-  sourceCanvas.width = Math.ceil(sourceWidth);
-  // Keep the fractional 22.5px row crop from sampling the next row's first pixels.
-  sourceCanvas.height = Math.floor(sourceHeight);
-  const sourceCtx = sourceCanvas.getContext('2d');
-  if (!sourceCtx) return null;
-  sourceCtx.imageSmoothingEnabled = false;
-  sourceCtx.drawImage(
-    sheet,
-    safeFrame * sourceWidth,
-    row * sourceHeight,
-    sourceWidth,
-    sourceHeight,
-    0,
-    0,
-    sourceCanvas.width,
-    sourceCanvas.height
-  );
-
-  const pixels = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height).data;
-  let minX = sourceCanvas.width;
-  let minY = sourceCanvas.height;
-  let maxX = -1;
-  let maxY = -1;
-  for (let y = 0; y < sourceCanvas.height; y++) {
-    for (let x = 0; x < sourceCanvas.width; x++) {
-      if (pixels[(y * sourceCanvas.width + x) * 4 + 3] > 0) {
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
-      }
-    }
-  }
-  if (maxX < minX || maxY < minY) return null;
-
-  const sourceFrameWidth = maxX - minX + 1;
-  const sourceFrameHeight = maxY - minY + 1;
-  const scale = Math.min(50 / sourceFrameWidth, 78 / sourceFrameHeight);
-  const drawWidth = Math.max(1, Math.round(sourceFrameWidth * scale));
-  const drawHeight = Math.max(1, Math.round(sourceFrameHeight * scale));
-  const [frame, frameCtx] = makeCanvas(PLAYER_CANVAS_W, PLAYER_CANVAS_H);
-  frameCtx.imageSmoothingEnabled = false;
-  frameCtx.drawImage(
-    sourceCanvas,
-    minX,
-    minY,
-    sourceFrameWidth,
-    sourceFrameHeight,
-    Math.round((PLAYER_CANVAS_W - drawWidth) / 2),
-    PLAYER_CANVAS_H - drawHeight,
-    drawWidth,
-    drawHeight
-  );
-  playerSpriteSheetFrameCache.set(cacheKey, frame);
-  return frame;
-}
-
 export function getPlayerSprite(
   pose: PlayerPose,
   facing: 1 | -1,
   shirtColor = '#3f8fd9',
   equipped?: EquippedWearables
 ): HTMLCanvasElement {
-  const sheetFrame = getDirectionalSpriteSheetFrame(pose, facing, shirtColor, equipped);
-  if (sheetFrame) return sheetFrame;
   const eqKey = `${equipped?.head ?? 0}_${equipped?.face ?? 0}_${equipped?.back ?? 0}`;
   const key = `tpl4:${pose}:${facing}:${shirtColor}:${eqKey}`;
   const cached = playerFrames.get(key);
@@ -1787,7 +1686,7 @@ export function getPlayerSprite(
 
   const CX = 12;
   const isIdle =
-    normPose === 'idle0' || normPose === 'idle1' || normPose === 'idle2' || normPose === 'idle3' || normPose === 'idle4' || normPose === 'idle5';
+    normPose === 'idle0' || normPose === 'idle1' || normPose === 'idle2' || normPose === 'idle3';
 
   if (isIdle) {
     const breath = normPose === 'idle1' || normPose === 'idle2' ? 1 : 0;
