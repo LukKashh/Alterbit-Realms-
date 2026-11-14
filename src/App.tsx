@@ -498,6 +498,7 @@ export default function App() {
           setWorlds(msg.worlds);
           break;
         case 'fishing_started':
+          if (msg.cast.mode === 'fiscore') setLastFiscoreCatch(null);
           setFishingProgress(0);
           setFishingLineTension(0.15);
           setFishingFightPattern('darting');
