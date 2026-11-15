@@ -8,7 +8,15 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from './constants.ts';
-import { getItemDef, isCropSeed, isFarmableSeed, isForegroundSolid, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
+import {
+  getItemDef,
+  isCropSeed,
+  isFarmableSeed,
+  isForegroundSolid,
+  ITEM_IDS,
+  SPLICE_RECIPES,
+  xpForNextMasteryLevel,
+} from './catalog.ts';
 import type { AreaLockRecord, PlantedTree, WorldState, ShareLockRecord } from './worldGen.ts';
 import { getShareLockSpec, rectanglesOverlap, type ShareLockPermissionKey } from './shareLocks.ts';
 import { isSystemWorld } from './expansion.ts';
@@ -317,6 +325,12 @@ export function canBreakTile(
           return { ok: false, reason: 'Empty all Vaultbox storage slots with Wrench before breaking.' };
         }
       }
+      if (fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC) {
+        const engine = world.matteragenEngines?.[key];
+        if (engine && engine.isReady && (engine.storedDrops?.length ?? 0) > 0) {
+          return { ok: false, reason: 'Claim ready yield from this Matteragen Engine before picking it up.' };
+        }
+      }
     }
     return { ok: true, layer: 'fg' };
   }
@@ -328,6 +342,14 @@ export function canBreakTile(
 
   const bgId = world.bg[idx];
   if (bgId !== ITEM_IDS.BG_SKY) {
+    if (
+      !adminEdit &&
+      bgId === ITEM_IDS.STONE_FURNACE &&
+      (world.hasWorldCoreFurnace ||
+        (world.coreFurnacePos && world.coreFurnacePos.x === tx && world.coreFurnacePos.y === ty))
+    ) {
+      return { ok: false, reason: 'The WorldCore Smeltery Furnace is permanent and indestructible.' };
+    }
     const bgDef = getItemDef(bgId);
     if (!adminEdit && (!bgDef || !bgDef.breakable)) {
       return { ok: false, reason: 'Background cannot be broken.' };
@@ -386,9 +408,10 @@ export function canPlaceTile(
     !adminEdit &&
     (itemId === ITEM_IDS.WORLD_CORE ||
       itemId === ITEM_IDS.LANDLORD_NPC ||
-      itemId === ITEM_IDS.GREENS_VENDOR_NPC)
+      itemId === ITEM_IDS.GREENS_VENDOR_NPC ||
+      itemId === ITEM_IDS.STONE_FURNACE)
   ) {
-    return { ok: false, reason: 'This special world object cannot be placed.' };
+    return { ok: false, reason: 'This special world object cannot be placed manually.' };
   }
   const def = getItemDef(itemId);
   if (
@@ -532,19 +555,18 @@ export type GrowthStage = 'planted' | 'sprout' | 'young' | 'developing' | 'matur
 export function getPlantGrowthState(
   plant: PlantedTree,
   nowMs: number
-): { stage: GrowthStage; progress: number; remainingMs: number } {
+): { stage: GrowthStage; visualStageIndex: 0 | 1 | 2 | 3; progress: number; remainingMs: number } {
   if (nowMs >= plant.maturityAt) {
-    return { stage: 'mature', progress: 1, remainingMs: 0 };
+    return { stage: 'mature', visualStageIndex: 3, progress: 1, remainingMs: 0 };
   }
   const total = Math.max(1000, plant.maturityAt - plant.plantedAt || PLANT_DEFAULT_GROWTH_MS);
   const elapsed = Math.max(0, nowMs - plant.plantedAt);
   const progress = Math.min(1, elapsed / total);
   const remainingMs = Math.max(0, plant.maturityAt - nowMs);
-  if (progress >= 1) return { stage: 'mature', progress: 1, remainingMs: 0 };
-  if (progress >= 0.6) return { stage: 'developing', progress, remainingMs };
-  if (progress >= 0.3) return { stage: 'young', progress, remainingMs };
-  if (progress >= 0.1) return { stage: 'sprout', progress, remainingMs };
-  return { stage: 'planted', progress, remainingMs };
+  if (progress >= 1) return { stage: 'mature', visualStageIndex: 3, progress: 1, remainingMs: 0 };
+  if (progress >= 0.6) return { stage: 'developing', visualStageIndex: 2, progress, remainingMs };
+  if (progress >= 0.25) return { stage: 'sprout', visualStageIndex: 1, progress, remainingMs };
+  return { stage: 'planted', visualStageIndex: 0, progress, remainingMs };
 }
 
 export function resolveSplice(seedA: number, seedB: number): number | null {
@@ -594,6 +616,22 @@ export function addXp(
   let leveledUp = false;
   while (curXp >= xpForNextLevel(curLevel)) {
     curXp -= xpForNextLevel(curLevel);
+    curLevel += 1;
+    leveledUp = true;
+  }
+  return { level: curLevel, xp: curXp, leveledUp };
+}
+
+export function addMasteryXp(
+  level: number,
+  xp: number,
+  gained: number
+): { level: number; xp: number; leveledUp: boolean } {
+  let curLevel = Math.max(1, level);
+  let curXp = Math.max(0, xp) + Math.max(0, gained);
+  let leveledUp = false;
+  while (curXp >= xpForNextMasteryLevel(curLevel)) {
+    curXp -= xpForNextMasteryLevel(curLevel);
     curLevel += 1;
     leveledUp = true;
   }

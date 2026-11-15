@@ -9,6 +9,7 @@ import {
 } from './constants.ts';
 import {
   CATALOG,
+  COLLECTION_DEV_DEFAULTS,
   GEM_STORE_LISTINGS,
   type DropEntry,
   type GemStoreListing,
@@ -84,7 +85,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     growthMultiplier: 1,
     globalGemDropChance: 0.55,
   },
-  itemOverrides: {},
+  itemOverrides: JSON.parse(JSON.stringify(COLLECTION_DEV_DEFAULTS)) as Record<number, ItemConfigOverride>,
   storeListings: [...GEM_STORE_LISTINGS],
 };
 
@@ -153,7 +154,9 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
     ),
   };
 
-  const itemOverrides: Record<number, ItemConfigOverride> = {};
+  const itemOverrides: Record<number, ItemConfigOverride> = JSON.parse(
+    JSON.stringify(COLLECTION_DEV_DEFAULTS)
+  ) as Record<number, ItemConfigOverride>;
   if (raw?.itemOverrides && typeof raw.itemOverrides === 'object') {
     for (const [k, ov] of Object.entries(raw.itemOverrides)) {
       const id = Number(k);

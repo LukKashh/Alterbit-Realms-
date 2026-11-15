@@ -108,6 +108,8 @@ export interface RemotePlayerState {
   placing?: boolean;
   shirtColor: string;
   level: number;
+  cropMasteryLevel?: number;
+  farmablockMasteryLevel?: number;
   equipped?: EquippedWearables;
   role?: UserRole;
 }
@@ -152,7 +154,12 @@ export interface AuthUserProfile {
   alterbits: number;
   xp: number;
   level: number;
+  cropMasteryLevel?: number;
+  cropMasteryXp?: number;
+  farmablockMasteryLevel?: number;
+  farmablockMasteryXp?: number;
   inventory: InventorySlot[];
+  overflowVault?: InventorySlot[];
   equipped: EquippedWearables;
   stats: Record<PlayerStatKey, number>;
   claimedAchievements: string[];
@@ -282,6 +289,9 @@ export type ClientMessage =
 
   | { type: 'upgrade_fishing_rod'; rodInstanceId: string }
   | { type: 'upgrade_matteragen'; tx: number; ty: number }
+  | { type: 'claim_matteragen'; tx: number; ty: number }
+  | { type: 'unlock_worldcore_furnace' }
+  | { type: 'claim_overflow_vault'; itemId?: number }
   | {
       type: 'configure_vaultbox';
       tx: number;
@@ -333,7 +343,12 @@ export type ServerMessage =
       alterbits: number;
       xp: number;
       level: number;
+      cropMasteryLevel?: number;
+      cropMasteryXp?: number;
+      farmablockMasteryLevel?: number;
+      farmablockMasteryXp?: number;
       inventory: InventorySlot[];
+      overflowVault?: InventorySlot[];
       equipped: EquippedWearables;
       stats: Record<PlayerStatKey, number>;
       claimedAchievements: string[];
@@ -416,9 +431,14 @@ export type ServerMessage =
       alterbits: number;
       xp: number;
       level: number;
+      cropMasteryLevel?: number;
+      cropMasteryXp?: number;
+      farmablockMasteryLevel?: number;
+      farmablockMasteryXp?: number;
       role: UserRole;
       email: string;
       inventory: InventorySlot[];
+      overflowVault?: InventorySlot[];
       equipped: EquippedWearables;
       stats: Record<PlayerStatKey, number>;
       claimedAchievements: string[];
@@ -431,7 +451,15 @@ export type ServerMessage =
       hasClaimedStarterLootbox?: boolean;
       notice?: string;
     }
-  | { type: 'world_xp_updated'; worldName: string; worldXp: number; worldLevel: number; coreTokens?: number }
+  | {
+      type: 'world_xp_updated';
+      worldName: string;
+      worldXp: number;
+      worldLevel: number;
+      coreTokens?: number;
+      hasWorldCoreFurnace?: boolean;
+      coreFurnacePos?: { x: number; y: number };
+    }
   | { type: 'player_teleported'; tx: number; ty: number; notice?: string }
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'worlds_list'; worlds: WorldSummary[] }

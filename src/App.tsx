@@ -64,7 +64,6 @@ const DEFAULT_EXCHANGE: ExchangeSnapshot = {
 
 const EMPTY_HOTBAR = [
   ITEM_IDS.FIST,
-  ITEM_IDS.WRENCH,
   ITEM_IDS.AIR,
   ITEM_IDS.AIR,
   ITEM_IDS.AIR,
@@ -87,7 +86,7 @@ export default function App() {
 
   const [playerId, setPlayerId] = useState<string>('');
   const [playerName, setPlayerName] = useState<string>('Explorer');
-  const [email, setEmail] = useState<string>('');
+  const [, setEmail] = useState<string>('');
   const [role, setRole] = useState<UserRole>('player');
   const [worldName, setWorldName] = useState<string>('NEXUS');
   const [worldOwner, setWorldOwner] = useState<string | null>(null);
@@ -100,9 +99,15 @@ export default function App() {
   const [hasClaimedStarterLootbox, setHasClaimedStarterLootbox] = useState<boolean>(false);
   const [xp, setXp] = useState<number>(0);
   const [level, setLevel] = useState<number>(1);
+  const [cropMasteryLevel, setCropMasteryLevel] = useState<number>(1);
+  const [cropMasteryXp, setCropMasteryXp] = useState<number>(0);
+  const [farmablockMasteryLevel, setFarmablockMasteryLevel] = useState<number>(1);
+  const [farmablockMasteryXp, setFarmablockMasteryXp] = useState<number>(0);
+  const [overflowVault, setOverflowVault] = useState<InventorySlot[]>([]);
   const [worldXp, setWorldXp] = useState<number>(0);
   const [worldLevel, setWorldLevel] = useState<number>(1);
   const [worldCoreTokens, setWorldCoreTokens] = useState<number>(0);
+  const [hasWorldCoreFurnace, setHasWorldCoreFurnace] = useState<boolean>(false);
   const [inventory, setInventory] = useState<InventorySlot[]>([
     { itemId: ITEM_IDS.FIST, qty: 1 },
     { itemId: ITEM_IDS.WRENCH, qty: 1 },
@@ -135,13 +140,13 @@ export default function App() {
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inspectInfo, setInspectInfo] = useState<TileInspectInfo | null>(null);
+  const [inspectedPlayer, setInspectedPlayer] = useState<import('./game/network.ts').RemotePlayerState | null>(null);
+  const [panelViewEnabled, setPanelViewEnabled] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean>(false);
   const [adminWorldEdit, setAdminWorldEdit] = useState<boolean>(false);
   const [adminBrushItemId, setAdminBrushItemId] = useState<number | null>(null);
-
-
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -152,22 +157,25 @@ export default function App() {
 
   const syncHotbarWithInventory = useCallback((inv: InventorySlot[]) => {
     setHotbarItemIds((prev) => {
-      const next = [...prev];
-      next[0] = ITEM_IDS.FIST;
-      next[1] = ITEM_IDS.WRENCH;
+      const next = prev.length === 5 ? [...prev] : [...EMPTY_HOTBAR];
+      if (next[0] !== ITEM_IDS.FIST && next[0] !== ITEM_IDS.WRENCH) {
+        next[0] = ITEM_IDS.FIST;
+      }
 
-      // Clear hotbar slots 3..6 if quantity dropped to 0 or item ID was pruned from CATALOG
-      for (let i = 2; i < next.length; i++) {
+      // Clear hotbar slots 2..5 if quantity dropped to 0 or item is FIST/WRENCH
+      for (let i = 1; i < next.length; i++) {
         const id = next[i];
         if (
-          id !== ITEM_IDS.AIR &&
-          (!getItemDef(id) || !inv.some((s) => s.itemId === id && s.qty > 0))
+          id === ITEM_IDS.FIST ||
+          id === ITEM_IDS.WRENCH ||
+          (id !== ITEM_IDS.AIR &&
+            (!getItemDef(id) || !inv.some((s) => s.itemId === id && s.qty > 0)))
         ) {
           next[i] = ITEM_IDS.AIR;
         }
       }
 
-      // Auto-populate empty slots 3..6 with newly acquired placeables, tools, or consumables
+      // Auto-populate empty slots 2..5 with newly acquired placeables, tools, or consumables
       for (const slot of inv) {
         if (slot.qty <= 0 || slot.itemId === ITEM_IDS.FIST || slot.itemId === ITEM_IDS.WRENCH) continue;
         const def = getItemDef(slot.itemId);
@@ -183,7 +191,7 @@ export default function App() {
           continue;
         }
         if (next.includes(slot.itemId)) continue;
-        const emptyIdx = next.findIndex((id, idx) => idx >= 2 && id === ITEM_IDS.AIR);
+        const emptyIdx = next.findIndex((id, idx) => idx >= 1 && id === ITEM_IDS.AIR);
         if (emptyIdx !== -1) {
           next[emptyIdx] = slot.itemId;
         }
@@ -204,6 +212,11 @@ export default function App() {
       setHasClaimedStarterLootbox(Boolean(user.hasClaimedStarterLootbox));
       setXp(user.xp);
       setLevel(user.level);
+      setCropMasteryLevel(user.cropMasteryLevel ?? 1);
+      setCropMasteryXp(user.cropMasteryXp ?? 0);
+      setFarmablockMasteryLevel(user.farmablockMasteryLevel ?? 1);
+      setFarmablockMasteryXp(user.farmablockMasteryXp ?? 0);
+      setOverflowVault(user.overflowVault ?? []);
       const cleanInv = (user.inventory ?? []).filter((s) => Boolean(getItemDef(s.itemId)));
       setInventory(cleanInv);
       syncHotbarWithInventory(cleanInv);
@@ -217,7 +230,7 @@ export default function App() {
       const buffs = user.activeBuffs ?? [];
       setActiveBuffs(buffs);
       setUnclaimedWl(user.unclaimedWl ?? 0);
-            engineRef.current?.setLocalIdentity(user.playerId, user.playerName, '#3f8fd9', user.equipped);
+      engineRef.current?.setLocalIdentity(user.playerId, user.playerName, '#3f8fd9', user.equipped, user.role);
       engineRef.current?.setActiveBuffs(buffs);
       if (user.role !== 'admin') {
         setAdminWorldEdit(false);
@@ -244,8 +257,6 @@ export default function App() {
       soundEngine.startMenuTheme();
     }
   }, [appState]);
-
-
 
   const fetchWorldsList = useCallback(async () => {
     try {
@@ -303,6 +314,7 @@ export default function App() {
         socket.send({ type: 'plow_tile', tx, ty, ...(adminEdit ? { adminEdit: true } : {}) }),
       onPickupDrop: (dropId) => socket.send({ type: 'pickup_drop', dropId }),
       onInspectTile: (info) => setInspectInfo(info),
+      onInspectPlayer: (player) => setInspectedPlayer(player),
       onCoordsChange: (tx, ty) => setCoords({ tx, ty }),
       onCastFishing: (tx, ty, rodItemId) =>
         socket.send({ type: 'cast_fishing', tx, ty, rodItemId }),
@@ -341,6 +353,11 @@ export default function App() {
             alterbits: msg.alterbits ?? 0,
             xp: msg.xp,
             level: msg.level,
+            cropMasteryLevel: msg.cropMasteryLevel ?? 1,
+            cropMasteryXp: msg.cropMasteryXp ?? 0,
+            farmablockMasteryLevel: msg.farmablockMasteryLevel ?? 1,
+            farmablockMasteryXp: msg.farmablockMasteryXp ?? 0,
+            overflowVault: msg.overflowVault ?? [],
             inventory: msg.inventory,
             equipped: msg.equipped,
             stats: msg.stats,
@@ -393,12 +410,14 @@ export default function App() {
           setErrorMessage(null);
           if (!isReconnectSameWorld) {
             setInspectInfo(null);
+            setInspectedPlayer(null);
           }
           setWorldName(msg.world.name);
           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
           setWorldXp(msg.world.worldXp ?? 0);
           setWorldLevel(msg.world.worldLevel ?? 1);
           setWorldCoreTokens(msg.world.coreTokens ?? 0);
+          setHasWorldCoreFurnace(Boolean(msg.world.hasWorldCoreFurnace));
           setWorldKind(msg.world.worldKind ?? 'standard');
           setMineExpiresAt(msg.world.expiresAt ?? null);
           setFishingCast(null);
@@ -423,7 +442,7 @@ export default function App() {
             setPlayerCount(msg.players.length);
           }
           break;
-                        case 'world_error':
+        case 'world_error':
           if (modeRef.current === 'loading') {
             setAppState('hub');
             showToast(msg.message);
@@ -469,6 +488,11 @@ export default function App() {
             msg.vaultbox,
             msg.doorLink
           );
+          if (msg.bg === ITEM_IDS.STONE_FURNACE) {
+            setHasWorldCoreFurnace(true);
+            engine.getWorldState().hasWorldCoreFurnace = true;
+            engine.getWorldState().coreFurnacePos = { x: msg.tx, y: msg.ty };
+          }
           if (msg.worldLock !== undefined) {
             setWorldOwner(msg.worldLock?.ownerName ?? null);
           }
@@ -496,6 +520,11 @@ export default function App() {
           }
           setXp(msg.xp);
           setLevel(msg.level);
+          if (msg.cropMasteryLevel !== undefined) setCropMasteryLevel(msg.cropMasteryLevel);
+          if (msg.cropMasteryXp !== undefined) setCropMasteryXp(msg.cropMasteryXp);
+          if (msg.farmablockMasteryLevel !== undefined) setFarmablockMasteryLevel(msg.farmablockMasteryLevel);
+          if (msg.farmablockMasteryXp !== undefined) setFarmablockMasteryXp(msg.farmablockMasteryXp);
+          if (msg.overflowVault !== undefined) setOverflowVault(msg.overflowVault);
           setRole(msg.role);
           setEmail(msg.email);
           const cleanInv = (msg.inventory ?? []).filter((s) => Boolean(getItemDef(s.itemId)));

@@ -201,34 +201,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Persistent Worlds
+    // Persistent Worlds (Server-authoritative read-only public mirror; clients cannot overwrite world snapshots directly)
     match /worlds/{worldId} {
       allow get: if isSignedIn() && isValidId(worldId)
         && (resource.data.publicAccess == true || resource.data.ownerUid == request.auth.uid || isAdmin());
       allow list: if isSignedIn() && resource.data.publicAccess == true;
-      allow create: if isVerified() && isValidId(worldId)
-        && isValidWorldSnapshot(incoming(), worldId)
-        && incoming().createdAt == request.time;
-      allow update: if isVerified() && isValidId(worldId)
-        && isValidWorldSnapshot(incoming(), worldId)
-        && incoming().worldId == existing().worldId
-        && incoming().createdAt == existing().createdAt
-        && (existing().ownerUid == null || existing().ownerUid == request.auth.uid || existing().publicAccess == true || isAdmin())
-        && incoming().diff(existing()).affectedKeys().hasOnly([
-          'ownerUid',
-          'ownerName',
-          'revision',
-          'spawnX',
-          'spawnY',
-          'fgRle',
-          'bgRle',
-          'fluidTypeRle',
-          'fluidLevelRle',
-          'publicAccess',
-          'updatedByUid',
-          'updatedAt'
-        ]);
-      allow delete: if isAdmin() && isValidId(worldId);
+      allow create, update, delete: if false;
 
       // Live Player Presence Subcollection (Master Gate checks parent world exists)
       match /presence/{userId} {

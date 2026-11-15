@@ -28,3 +28,10 @@ export const PUNCH_COOLDOWN_MS = 310;
 export const PLANT_DEFAULT_GROWTH_MS = 20_000;
 export const DROP_MAGNET_RADIUS = 69;
 export const DROP_PICKUP_RADIUS = 36;
+
+export const MAX_INVENTORY_SLOTS = 20;
+export const MAX_STACK_SIZE = 500;
+export const WORLDCORE_FURNACE_UNLOCK_LEVEL = 5;
+export const WORLDCORE_FURNACE_DIGIBIT_COST = 2500;
+export const WORLDCORE_FURNACE_TOKEN_COST = 3;
+

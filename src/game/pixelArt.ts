@@ -973,14 +973,175 @@ function drawTile48(itemId: number): HTMLCanvasElement {
     }
 
     // --- Desert Blast Biome Blocks (700..707) ---
-    case ITEM_IDS.DESERT_SAND:
-    case ITEM_IDS.SALT_CRUST: {
-      drawFramedPanel16(ctx, def.colorPrimary);
+    case ITEM_IDS.DESERT_SAND: {
+      // Natural wind-rippled dune sand (unframed organic terrain, distinct from beveled synthetic blocks)
       const ramp = deriveColorRamp(def.colorPrimary);
-      p3(ctx, 2, 4, ramp.highlight, 5, 1);
-      p3(ctx, 8, 6, ramp.shadow, 5, 1);
-      p3(ctx, 3, 10, ramp.highlight, 6, 1);
-      p3(ctx, 9, 12, ramp.shadow, 4, 1);
+      p3(ctx, 0, 0, ramp.base, 16, 16);
+      p3(ctx, 0, 0, ramp.highlight, 16, 2);
+      // Wind-swept undulating dune crests & troughs
+      for (const [rx, ry, rw] of [
+        [0, 3, 6],
+        [7, 4, 9],
+        [2, 7, 8],
+        [11, 8, 5],
+        [0, 11, 7],
+        [8, 12, 8],
+      ]) {
+        p3(ctx, rx, ry, ramp.highlight, rw, 1);
+        p3(ctx, rx, ry + 1, ramp.shadow, rw, 1);
+      }
+      // Fine quartz & ochre sand grains
+      for (const [gx, gy] of [
+        [3, 2],
+        [12, 3],
+        [5, 6],
+        [14, 7],
+        [2, 10],
+        [10, 10],
+        [6, 14],
+        [13, 14],
+      ]) {
+        p2(ctx, Math.round(gx * 1.5), Math.round(gy * 1.5), '#fff7d6', 1, 1);
+        p2(ctx, Math.round(gx * 1.5) + 1, Math.round(gy * 1.5) + 1, ramp.deep, 1, 1);
+      }
+      p3(ctx, 0, 15, ramp.deep, 16, 1);
+      break;
+    }
+    case ITEM_IDS.SALT_CRUST: {
+      // Cracked evaporite salt-flat crust with crystalline polygons
+      const ramp = deriveColorRamp(def.colorPrimary);
+      p3(ctx, 0, 0, ramp.base, 16, 16);
+      p3(ctx, 0, 0, '#ffffff', 16, 2);
+      // Polygonal desiccation cracks
+      p3(ctx, 5, 2, ramp.shadow, 1, 6);
+      p3(ctx, 11, 3, ramp.shadow, 1, 5);
+      p3(ctx, 2, 7, ramp.shadow, 12, 1);
+      p3(ctx, 8, 8, ramp.shadow, 1, 7);
+      p3(ctx, 3, 12, ramp.shadow, 10, 1);
+      // Sparkling salt crystal highlights
+      p3(ctx, 2, 3, '#ffffff', 2, 1);
+      p3(ctx, 7, 4, '#ffffff', 3, 1);
+      p3(ctx, 3, 9, '#ffffff', 3, 1);
+      p3(ctx, 10, 10, '#ffffff', 3, 1);
+      p3(ctx, 0, 15, ramp.deep, 16, 1);
+      break;
+    }
+    case ITEM_IDS.WALLPAPER_WAINSCOT: {
+      // Cream Regency striped upper wall + rich oak lower wainscoting panel
+      p3(ctx, 0, 0, '#e8dcc4', 16, 9);
+      for (let x = 1; x < 16; x += 3) {
+        p3(ctx, x, 0, '#d5c4a1', 1, 9);
+      }
+      // Chair rail molding
+      p3(ctx, 0, 8, '#4a2c11', 16, 1);
+      p3(ctx, 0, 9, '#c89d66', 16, 1);
+      // Lower oak wainscot panels
+      p3(ctx, 0, 10, '#6e4720', 16, 6);
+      p3(ctx, 2, 11, '#8c5a2b', 5, 4);
+      p3(ctx, 9, 11, '#8c5a2b', 5, 4);
+      p3(ctx, 3, 12, '#a8703a', 3, 2);
+      p3(ctx, 10, 12, '#a8703a', 3, 2);
+      break;
+    }
+    case ITEM_IDS.WALLPAPER_ROYAL_DAMASK: {
+      // Deep crimson velvet with woven gold diamond damask motif
+      p3(ctx, 0, 0, '#5c1624', 16, 16);
+      for (let y = 0; y < 16; y += 8) {
+        for (let x = 0; x < 16; x += 8) {
+          p3(ctx, x + 3, y + 1, '#8c1d32', 2, 6);
+          p3(ctx, x + 1, y + 3, '#8c1d32', 6, 2);
+          p3(ctx, x + 3, y + 2, '#f59e0b', 2, 4);
+          p3(ctx, x + 2, y + 3, '#f59e0b', 4, 2);
+          p3(ctx, x + 3, y + 3, '#fde047', 2, 2);
+        }
+      }
+      break;
+    }
+    case ITEM_IDS.WALLPAPER_BOTANICAL: {
+      // Sage parchment with climbing emerald vines and cream blossoms
+      p3(ctx, 0, 0, '#1e3f2b', 16, 16);
+      for (const vx of [3, 11]) {
+        p3(ctx, vx, 0, '#2e6f40', 2, 16);
+        p3(ctx, vx - 2, 3, '#4ade80', 2, 2);
+        p3(ctx, vx + 2, 7, '#4ade80', 2, 2);
+        p3(ctx, vx - 2, 11, '#4ade80', 2, 2);
+        p3(ctx, vx, 4, '#fef08a', 1, 1);
+        p3(ctx, vx + 1, 12, '#fef08a', 1, 1);
+      }
+      break;
+    }
+    case ITEM_IDS.WALLPAPER_STARLIGHT: {
+      // Midnight indigo wall with golden constellations & stardust
+      p3(ctx, 0, 0, '#0f172a', 16, 16);
+      p3(ctx, 0, 4, '#1e1b4b', 16, 4);
+      p3(ctx, 0, 12, '#1e1b4b', 16, 4);
+      for (const [sx, sy] of [
+        [3, 3],
+        [11, 2],
+        [7, 8],
+        [2, 12],
+        [12, 11],
+      ]) {
+        p3(ctx, sx, sy - 1, '#f59e0b', 1, 3);
+        p3(ctx, sx - 1, sy, '#f59e0b', 3, 1);
+        p3(ctx, sx, sy, '#fef08a', 1, 1);
+      }
+      break;
+    }
+    case ITEM_IDS.WALLPAPER_PASTEL_STRIPE: {
+      // Pastel rose-blush vertical stripes with pearl-white pinstripes
+      p3(ctx, 0, 0, '#fbcfe8', 16, 16);
+      for (let x = 0; x < 16; x += 4) {
+        p3(ctx, x, 0, '#f472b6', 2, 16);
+        p3(ctx, x + 2, 0, '#fff1f2', 1, 16);
+      }
+      break;
+    }
+    case ITEM_IDS.WALLPAPER_ART_DECO: {
+      // Obsidian charcoal with geometric brass Art Deco fan arches
+      p3(ctx, 0, 0, '#18181b', 16, 16);
+      for (const [ax, ay] of [
+        [0, 0],
+        [8, 0],
+        [4, 8],
+      ]) {
+        p3(ctx, ax + 1, ay + 5, '#d97706', 6, 1);
+        p3(ctx, ax + 2, ay + 3, '#f59e0b', 4, 2);
+        p3(ctx, ax + 3, ay + 1, '#fde047', 2, 2);
+        p3(ctx, ax + 3, ay + 6, '#713f12', 2, 2);
+      }
+      break;
+    }
+    case ITEM_IDS.WALLPAPER_SAKURA: {
+      // Warm plum-parchment backdrop with sakura branches & pink blossoms
+      p3(ctx, 0, 0, '#4a1d34', 16, 16);
+      p3(ctx, 0, 3, '#2d1220', 11, 1);
+      p3(ctx, 5, 4, '#2d1220', 8, 1);
+      p3(ctx, 3, 10, '#2d1220', 13, 1);
+      for (const [bx, by] of [
+        [3, 2],
+        [9, 3],
+        [13, 6],
+        [5, 9],
+        [11, 11],
+        [2, 13],
+      ]) {
+        p3(ctx, bx, by, '#f472b6', 3, 2);
+        p3(ctx, bx + 1, by, '#fce7f3', 1, 1);
+      }
+      break;
+    }
+    case ITEM_IDS.WALLPAPER_MOROCCAN_MOSAIC: {
+      // Deep teal zellige tilework with turquoise & gold quatrefoils
+      p3(ctx, 0, 0, '#134e4a', 16, 16);
+      for (let y = 0; y < 16; y += 8) {
+        for (let x = 0; x < 16; x += 8) {
+          p3(ctx, x + 2, y + 1, '#0d9488', 4, 6);
+          p3(ctx, x + 1, y + 2, '#0d9488', 6, 4);
+          p3(ctx, x + 2, y + 2, '#2dd4bf', 4, 4);
+          p3(ctx, x + 3, y + 3, '#fef08a', 2, 2);
+        }
+      }
       break;
     }
     case ITEM_IDS.RED_SANDSTONE:

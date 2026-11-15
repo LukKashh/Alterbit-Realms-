@@ -156,6 +156,8 @@ export interface WorldState {
   worldXp?: number;
   worldLevel?: number;
   coreTokens?: number;
+  hasWorldCoreFurnace?: boolean;
+  coreFurnacePos?: { x: number; y: number };
   nexusLayoutVersion?: number;
   revision: number;
 }
@@ -193,8 +195,8 @@ export const NEXUS_DOOR_DESTINATIONS: NexusDoorDestination[] = [
   },
   {
     id: 'upper_exchange',
-    label: '↑ Exchange & Furnace',
-    subtitle: 'Upper Deck — Global Exchange Terminal & Stone Smelting Furnace',
+    label: '↑ Global Exchange',
+    subtitle: 'Upper Deck — Global Exchange Terminal',
     tx: 50,
     ty: 17,
   },
@@ -207,7 +209,7 @@ export const NEXUS_DOOR_DESTINATIONS: NexusDoorDestination[] = [
   },
 ];
 
-export const NEXUS_LAYOUT_VERSION = 4;
+export const NEXUS_LAYOUT_VERSION = 5;
 
 export function hashWorldSeed(name: string): number {
   let h = 2166136261 >>> 0;
@@ -445,7 +447,6 @@ export function generateWorld(
       nBg[(upperDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
     }
     nFg[(upperDeckY - 1) * nWidth + 43] = ITEM_IDS.EXCHANGE_TERMINAL;
-    nFg[(upperDeckY - 1) * nWidth + 57] = ITEM_IDS.STONE_FURNACE;
     nBg[(upperDeckY - 1) * nWidth + 51] = ITEM_IDS.GP_DOOR;
     nFg[(upperDeckY - 1) * nWidth + 50] = ITEM_IDS.WOODEN_SIGN;
 
@@ -473,28 +474,17 @@ export function generateWorld(
       areaLocks: {},
       shareLocks: {},
       vendingMachines: {},
-      furnaces: {
-        '57,17': {
-          x: 57,
-          y: 17,
-          ownerId: 'SYSTEM',
-          recipeId: null,
-          startedAt: null,
-          finishesAt: null,
-          readyOutputItemId: 0,
-          readyOutputQty: 0,
-        },
-      },
+      furnaces: {},
       bfgCollectors: {},
       signs: {
         '47,29': '← Fresh Greens',
-        '52,29': '↑ Exchange & Furnace',
+        '52,29': '↑ Global Exchange',
         '55,29': 'Realm Steward →',
         '30,27': '← Fresh Greens',
-        '19,27': 'Fresh Greens Market: Trade harvested Crops for Digibits & buy Crop Seeds!',
+        '19,27': 'Fresh Greens Market',
         '70,27': 'Realm Steward →',
-        '81,27': 'Realm Steward: Conjure your personal 50×40 World with a Starter Supply Lootbox!',
-        '50,17': '↑ Exchange & Furnace',
+        '81,27': 'Realm Steward',
+        '50,17': '↑ Global Exchange',
       },
       doorLinks: {},
       worldXp: 0,
