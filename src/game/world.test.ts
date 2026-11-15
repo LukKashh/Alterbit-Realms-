@@ -9,6 +9,7 @@ import {
   WORLD_WIDTH,
 } from './constants.ts';
 import { ACHIEVEMENTS, GEM_STORE_LISTINGS, ITEM_IDS } from './catalog.ts';
+import { formatHudFixed, formatHudNumber } from './format.ts';
 import { generateMineShaft, generateWorld } from './worldGen.ts';
 import {
   ensureFluidArrays,
@@ -140,9 +141,9 @@ test('seed growth stages, splicing recipes, world name validation, and XP leveli
   assert.equal(getPlantGrowthState(plant, 9000).stage, 'developing');
   assert.equal(getPlantGrowthState(plant, 12000).stage, 'mature');
 
-  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_DIRT, ITEM_IDS.GP_SEED_ROCK), ITEM_IDS.GP_SEED_GRASS);
-  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_ROCK, ITEM_IDS.GP_SEED_DIRT), ITEM_IDS.GP_SEED_GRASS);
-  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_ROCK, ITEM_IDS.GP_SEED_GRASS), ITEM_IDS.GP_SEED_BRICKS);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_DIRT, ITEM_IDS.GP_SEED_ROCK), null);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_ROCK, ITEM_IDS.GP_SEED_DIRT), null);
+  assert.equal(resolveSplice(ITEM_IDS.GP_SEED_ROCK, ITEM_IDS.GP_SEED_GRASS), null);
   assert.equal(resolveSplice(ITEM_IDS.GP_SEED_GRASS, ITEM_IDS.GP_SEED_GRASS), null);
 
   assert.equal(validateWorldName('My_World1').ok, true);
@@ -609,11 +610,10 @@ test('mining shaft 50x150 isolation (0 Gems), pickaxe durability + furnace craft
   if (!reg.ok) return;
   const acct = reg.account;
 
-  // Give Mining Scroll + Stone Pickaxe + Bamboo Rod + Furnace + Copper Fragments + Coal + Glacier Trout
+  // Give Mining Scroll + Stone Pickaxe + Bamboo Rod + Copper Fragments + Coal + Glacier Trout
   store.addInventory(acct, ITEM_IDS.MINING_SCROLL, 1);
   store.addInventory(acct, ITEM_IDS.STONE_PICKAXE, 1);
   store.addInventory(acct, ITEM_IDS.BAMBOO_ROD, 1);
-  store.addInventory(acct, ITEM_IDS.STONE_FURNACE, 1);
   store.addInventory(acct, ITEM_IDS.COPPER_FRAGMENT, 3);
   store.addInventory(acct, ITEM_IDS.COAL_FUEL, 2);
   store.addInventory(acct, ITEM_IDS.FISH_GLACIER_TROUT, 2);
@@ -647,18 +647,32 @@ test('mining shaft 50x150 isolation (0 Gems), pickaxe durability + furnace craft
   const durAfter = acct.inventory.find((s) => s.itemId === ITEM_IDS.STONE_PICKAXE)?.durability ?? 0;
   assert.equal(durAfter, durBefore - 1, 'Pickaxe durability must decrement by 1 per broken foreground tile');
 
-  // Leave mine shaft & verify furnace smelting + repair + culinary buff in a dedicated test world
+  // Leave mine shaft & verify WorldCore Lv.5 Furnace Expansion + smelting in owned realm
   store.leaveWorld(scrollRes.mineWorldName, acct.id);
   const testWorldName = `CRAFT_${suffix.toUpperCase()}`;
+  assert.equal(store.createOwnedWorld(acct, testWorldName).ok, true);
   const startJoined = store.joinWorld(acct, testWorldName);
   assert.equal(startJoined.ok, true);
   if (!startJoined.ok) return;
 
-  const fTx = startJoined.world.state.spawnX + 2;
-  const fTy = startJoined.world.state.spawnY;
-  startJoined.world.state.fg[tileIndexIn(startJoined.world.state, fTx, fTy)] = ITEM_IDS.AIR;
-  const placeFurnace = store.handlePlaceTile(startJoined.world, acct, ITEM_IDS.STONE_FURNACE, fTx, fTy);
-  assert.equal(placeFurnace.ok, true);
+  // Furnace Expansion is blocked below World Level 5
+  acct.alterbits = 3000;
+  startJoined.world.state.coreTokens = 3;
+  const earlyExp = store.unlockWorldCoreFurnace(acct, testWorldName);
+  assert.equal(earlyExp.ok, false, 'Furnace expansion must require World Level 5');
+
+  // At World Level 5 with 2,500 DB & 3 Core Tokens, unlock spawns interactive background Furnace above WorldCore
+  startJoined.world.state.worldLevel = 5;
+  const expRes = store.unlockWorldCoreFurnace(acct, testWorldName);
+  assert.equal(expRes.ok, true);
+  if (!expRes.ok) return;
+  const fTx = expRes.tx;
+  const fTy = expRes.ty;
+  assert.equal(fTx, startJoined.world.state.worldLock!.x);
+  assert.equal(fTy, startJoined.world.state.worldLock!.y - 1);
+  assert.equal(startJoined.world.state.bg[tileIndexIn(startJoined.world.state, fTx, fTy)], ITEM_IDS.STONE_FURNACE);
+  assert.equal(acct.alterbits, 500);
+  assert.equal(startJoined.world.state.coreTokens, 0);
 
   // Repair Stone Pickaxe using Rock
   store.addInventory(acct, ITEM_IDS.GP_ROCK, 10);
@@ -944,5 +958,13 @@ test('16. Live connectivity & reconnect resumes exact player coordinates and pre
   store.flushDirtyWorlds();
 });
 
-
-
+test('HUD number formatting uses commas for 4+ digits and period for decimals', () => {
+  assert.equal(formatHudNumber(0), '0');
+  assert.equal(formatHudNumber(999), '999');
+  assert.equal(formatHudNumber(1000), '1,000');
+  assert.equal(formatHudNumber(1234567), '1,234,567');
+  assert.equal(formatHudNumber(12.5), '12.5');
+  assert.equal(formatHudNumber(1250.75), '1,250.75');
+  assert.equal(formatHudFixed(1250, 2), '1,250.00');
+  assert.equal(formatHudFixed(0.5, 2), '0.50');
+});

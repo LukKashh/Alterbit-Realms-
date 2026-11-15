@@ -9,8 +9,7 @@ import {
   getFarmablesByBranch,
   isFarmableSeed,
   getMatteragenBranch,
-  getMatteragenIntervalMs,
-  getMatteragenEffectiveIntervalMs,
+  getEffectiveMatteragenIntervalMs,
   rollMatteragenYield,
   MATTERAGEN_UPGRADE_COSTS,
   getCoreTokenSpawnChance,
@@ -21,10 +20,6 @@ import {
   isCropBlock,
   isCropItem,
   isCropSeed,
-  getCropMasteryRequiredLevel,
-  getCropMasteryXpGrant,
-  getFarmablockMasteryRequiredLevel,
-  getFarmablockMasteryXpGrant,
   ITEM_IDS,
   ATM_MIN_INTERVAL_MS,
   rollAtmIntervalMs,
@@ -37,15 +32,12 @@ import {
 import {
   DEFAULT_VIEW_SCALE,
   MAX_INVENTORY_SLOTS,
-  MAX_STACK_SIZE,
+  MAX_INVENTORY_STACK,
   MAX_WORLD_PLAYERS,
   PLANT_DEFAULT_GROWTH_MS,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
   TILE_SIZE,
-  WORLDCORE_FURNACE_DIGIBIT_COST,
-  WORLDCORE_FURNACE_TOKEN_COST,
-  WORLDCORE_FURNACE_UNLOCK_LEVEL,
 } from '../src/game/constants.ts';
 import {
   cloneGameConfig,
@@ -69,12 +61,15 @@ import {
   canEnterWorld,
   canPlaceTile,
   canPlowTile,
+  getCropMasteryRequiredLevel,
+  getFarmableMasteryRequiredLevel,
   getPlantGrowthState,
   hasEditPermission,
   inBoundsWorld,
   isDoorBlock,
   isWithinReach,
   resolveSplice,
+  sortInventorySlots,
   tileIndexIn,
   validateWorldName,
 } from '../src/game/rules.ts';
@@ -85,7 +80,6 @@ import {
   VAULTBOX_SLOT_COUNT,
   type BfgCollectorRecord,
   type FurnaceRecord,
-  type MatteragenRecord,
   type VaultboxRecord,
   type VaultboxSlot,
   type VendingMachineRecord,
@@ -102,39 +96,25 @@ import type {
   FriendEntry,
   FriendRequestEntry,
   InventorySlot,
+  PublicPlayerProfile,
   RemotePlayerState,
   ResumePosition,
   UserRole,
   WorldDrop,
   WorldSummary,
 } from '../src/game/network.ts';
+import { isCloudSqlConfigured } from '../src/db/index.ts';
+import {
+  loadAllSnapshotsFromSql,
+  syncAppStateToSql,
+  syncPlayerSnapshotToSql,
+  syncWorldSnapshotToSql,
+} from '../src/db/users.ts';
 import type { EquippedWearables } from '../src/game/pixelArt.ts';
 import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec } from '../src/game/shareLocks.ts';
 import type { ShareLockPermissions } from '../src/game/shareLocks.ts';
 import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance, isSystemWorld } from '../src/game/expansion.ts';
-import {
-  isCloudSqlConfigured,
-  syncPlayerToSql,
-  syncWorldToSql,
-  syncAccountToSql,
-  syncSessionToSql,
-  deleteSessionFromSql,
-  loadAllStateFromSql,
-} from '../src/db/users.ts';
 
-export function getOccupiedBackpackSlots(inventory: InventorySlot[]): number {
-  let count = 0;
-  let hasCoreTool = false;
-  for (const s of inventory) {
-    if (!s || s.qty <= 0) continue;
-    if (s.itemId === ITEM_IDS.FIST || s.itemId === ITEM_IDS.WRENCH) {
-      hasCoreTool = true;
-    } else {
-      count += 1;
-    }
-  }
-  return count + (hasCoreTool ? 1 : 0);
-}
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
 function rollTreeHarvestRewards(seedId: number, seedDef: ItemDefinition | undefined, luckPct = 0) {
@@ -168,13 +148,12 @@ export interface PlayerAccount {
   alterbits: number;
   xp: number;
   level: number;
-  cropMasteryLevel?: number;
-  cropMasteryXp?: number;
-  farmablockMasteryLevel?: number;
-  farmablockMasteryXp?: number;
+  cropMasteryXp: number;
+  cropMasteryLevel: number;
+  farmablockMasteryXp: number;
+  farmablockMasteryLevel: number;
   shirtColor: string;
   inventory: InventorySlot[];
-  overflowVault?: InventorySlot[];
   equipped: EquippedWearables;
   stats: Record<PlayerStatKey, number>;
   claimedAchievements: string[];
@@ -283,8 +262,6 @@ export class AuthoritativeWorldStore {
   private lastPunchAt = new Map<string, number>();
   private lastChatAt = new Map<string, number>();
   private lastKnownPositions = new Map<string, { pose: ResumePosition; savedAt: number }>();
-  private pendingWorldSaves = new Map<string, ReturnType<typeof setTimeout>>();
-  private pendingPlayerSaves = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     fs.mkdirSync(WORLDS_DIR, { recursive: true });
@@ -295,12 +272,12 @@ export class AuthoritativeWorldStore {
       console.warn('[CatalogValidator] Reference issues found:', catalogCheck.warnings);
     }
 
-    // Never run destructive world/profile wipes automatically on startup.
+    // Never wipe persisted user data or worlds on startup; hydrate from local disk + DB instead.
     this.loadCredentials();
     this.loadSessions();
     this.loadGameConfig();
     this.loadExchange();
-    this.seedBootstrapAdminIfConfigured();
+    this.seedDefaultAccounts();
     this.getOrCreateWorld('START');
     this.getOrCreateWorld('NEXUS');
     this.getOrCreateWorld('DWELLER');
@@ -310,86 +287,114 @@ export class AuthoritativeWorldStore {
     this.getOrCreateWorld('FARM');
   }
 
-  private writeJsonAtomically(filePath: string, payload: unknown) {
-    const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(payload), 'utf8');
-    fs.renameSync(tmpPath, filePath);
-  }
-
   /**
-   * Hydrates accounts, sessions, player profiles, and worlds from PostgreSQL (Cloud SQL)
-   * when configured as the single authoritative production storage.
+   * Hydrates credentials, sessions, config, exchange, players, and worlds from Cloud SQL
+   * so ephemeral container restarts never lose saved user progress or personal worlds.
    */
-  async hydrateFromDatabase(): Promise<void> {
-    if (!isCloudSqlConfigured()) return;
-    try {
-      const state = await loadAllStateFromSql();
-      for (const accRow of state.accounts) {
-        const existingIdx = this.credentials.findIndex((c) => c.accountId === accRow.accountId);
-        const record: CredentialRecord = {
-          accountId: accRow.accountId,
-          email: accRow.email,
-          username: accRow.username,
-          usernameLower: accRow.usernameLower,
-          passwordHash: accRow.passwordHash,
-          role: accRow.role === 'admin' ? 'admin' : 'player',
-          createdAt: accRow.createdAt,
-        };
-        if (existingIdx >= 0) this.credentials[existingIdx] = record;
-        else this.credentials.push(record);
-      }
-      for (const sessRow of state.sessions) {
-        this.sessions.set(sessRow.token, {
-          token: sessRow.token,
-          accountId: sessRow.accountId,
-          createdAt: sessRow.createdAt,
-        });
-      }
-      for (const rawPlayer of state.players) {
-        if (rawPlayer && typeof rawPlayer === 'object' && 'id' in rawPlayer) {
-          const hydrated = this.hydrateAccountDefaults(rawPlayer as PlayerAccount);
-          this.players.set(hydrated.id, hydrated);
-        }
-      }
-      for (const rawWorld of state.worlds) {
-        if (rawWorld && typeof rawWorld === 'object' && 'name' in rawWorld) {
-          const wState = rawWorld as WorldState;
-          const name = String(wState.name || '').trim().toUpperCase();
-          if (!name) continue;
-          const hydratedState =
-            name === 'NEXUS' && (wState.nexusLayoutVersion ?? 0) !== NEXUS_LAYOUT_VERSION
-              ? this.hydrateWorldDefaults(generateWorld('NEXUS'))
-              : this.hydrateWorldDefaults(wState);
-          const existing = this.worlds.get(name);
-          if (existing) {
-            existing.state = hydratedState;
-            existing.fluidFrontier = this.seedInitialFluidFrontier(hydratedState);
-          } else {
-            this.worlds.set(name, {
-              state: hydratedState,
-              players: new Map(),
-              drops: new Map(),
-              damage: new Map(),
-              fluidFrontier: this.seedInitialFluidFrontier(hydratedState),
-              activeCasts: new Map(),
-              chatHistory: [
-                {
-                  id: `sys_${Date.now()}`,
-                  senderId: 'system',
-                  senderName: 'Blockgrove',
-                  text: `Welcome to ${hydratedState.name}.`,
-                  timestamp: Date.now(),
-                  system: true,
-                },
-              ],
-              dirty: false,
-            });
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[WorldStore] Failed to hydrate from Cloud SQL:', err);
+  async hydrateFromDatabase(): Promise<{ usersHydrated: number; worldsHydrated: number }> {
+    if (!isCloudSqlConfigured()) {
+      return { usersHydrated: 0, worldsHydrated: 0 };
     }
+    const { userProfiles, worldStates, appStates } = await loadAllSnapshotsFromSql();
+
+    // 1. Credentials
+    const sqlCreds = appStates.credentials?.items;
+    if (Array.isArray(sqlCreds)) {
+      let credChanged = false;
+      for (const rawCred of sqlCreds as CredentialRecord[]) {
+        if (!rawCred?.accountId || !rawCred?.usernameLower) continue;
+        const exists = this.credentials.some(
+          (c) => c.accountId === rawCred.accountId || c.usernameLower === rawCred.usernameLower
+        );
+        if (!exists) {
+          this.credentials.push(rawCred);
+          credChanged = true;
+        }
+      }
+      if (credChanged) {
+        fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(this.credentials, null, 2), 'utf8');
+      }
+    }
+
+    // 2. Sessions
+    const sqlSessions = appStates.sessions?.items;
+    if (Array.isArray(sqlSessions)) {
+      let sessChanged = false;
+      for (const s of sqlSessions as SessionRecord[]) {
+        if (s?.token && s?.accountId && !this.sessions.has(s.token)) {
+          this.sessions.set(s.token, s);
+          sessChanged = true;
+        }
+      }
+      if (sessChanged) {
+        const arr = Array.from(this.sessions.values()).slice(-500);
+        fs.writeFileSync(SESSIONS_FILE, JSON.stringify(arr), 'utf8');
+      }
+    }
+
+    // 3. Game Config & Exchange
+    if (appStates.game_config && !fs.existsSync(CONFIG_FILE)) {
+      this.gameConfig = sanitizeGameConfig(appStates.game_config as Partial<GameConfig>);
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.gameConfig, null, 2), 'utf8');
+    }
+    if (appStates.exchange && !fs.existsSync(EXCHANGE_FILE)) {
+      const rawEx = appStates.exchange as Partial<ExchangeSnapshot>;
+      this.exchangeState = {
+        listings: Array.isArray(rawEx.listings) ? rawEx.listings : [],
+        priceStats: rawEx.priceStats && typeof rawEx.priceStats === 'object' ? rawEx.priceStats : {},
+        totalWlBurned: Number(rawEx.totalWlBurned ?? 0),
+        totalGemsCleared: Number(rawEx.totalGemsCleared ?? 0),
+      };
+      fs.writeFileSync(EXCHANGE_FILE, JSON.stringify(this.exchangeState, null, 2), 'utf8');
+    }
+
+    // 4. User Profiles
+    let usersHydrated = 0;
+    for (const row of userProfiles) {
+      const parsed = this.hydrateAccountDefaults(row.profileData as unknown as PlayerAccount);
+      if (!parsed.id) parsed.id = row.uid;
+      const diskPath = path.join(PLAYERS_DIR, `${this.safeFileId(parsed.id)}.json`);
+      const existingDisk = fs.existsSync(diskPath) ? this.loadPlayerById(parsed.id) : null;
+      const score = (a: PlayerAccount | null) =>
+        a ? a.level * 100000 + a.xp + a.gems + a.inventory.length * 100 + (a.hasClaimedStarterLootbox ? 500 : 0) : -1;
+      if (!existingDisk || score(parsed) > score(existingDisk)) {
+        this.players.set(parsed.id, parsed);
+        fs.writeFileSync(diskPath, JSON.stringify(parsed), 'utf8');
+        usersHydrated += 1;
+      }
+    }
+
+    // 5. Worlds
+    let worldsHydrated = 0;
+    for (const rawWorld of worldStates) {
+      if (!rawWorld?.name || rawWorld.worldKind === 'mine_shaft') continue;
+      if (rawWorld.name === 'NEXUS' && (rawWorld.nexusLayoutVersion ?? 0) !== NEXUS_LAYOUT_VERSION) {
+        continue;
+      }
+      const hydrated = this.hydrateWorldDefaults(rawWorld);
+      const diskPath = path.join(WORLDS_DIR, `${hydrated.name}.json`);
+      let existingRev = -1;
+      if (fs.existsSync(diskPath)) {
+        try {
+          const diskParsed = JSON.parse(fs.readFileSync(diskPath, 'utf8')) as WorldState;
+          existingRev = diskParsed.revision ?? 0;
+        } catch {
+          existingRev = -1;
+        }
+      }
+      if (!fs.existsSync(diskPath) || (hydrated.revision ?? 0) > existingRev) {
+        fs.writeFileSync(diskPath, JSON.stringify(hydrated), 'utf8');
+        const liveExisting = this.worlds.get(hydrated.name);
+        if (liveExisting) {
+          liveExisting.state = hydrated;
+          liveExisting.fluidFrontier = this.seedInitialFluidFrontier(hydrated);
+        }
+        worldsHydrated += 1;
+      }
+    }
+
+    this.seedDefaultAccounts();
+    return { usersHydrated, worldsHydrated };
   }
 
   private hashPassword(password: string, salt?: string): string {
@@ -420,16 +425,11 @@ export class AuthoritativeWorldStore {
     }
   }
 
-  private saveCredentials(changedCred?: CredentialRecord) {
+  private saveCredentials() {
+    fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(this.credentials, null, 2), 'utf8');
     if (isCloudSqlConfigured()) {
-      if (changedCred) {
-        void syncAccountToSql(changedCred);
-      } else {
-        for (const c of this.credentials) void syncAccountToSql(c);
-      }
-      return;
+      void syncAppStateToSql('credentials', { items: this.credentials });
     }
-    this.writeJsonAtomically(ACCOUNTS_FILE, this.credentials);
   }
 
   private loadSessions() {
@@ -446,15 +446,12 @@ export class AuthoritativeWorldStore {
     }
   }
 
-  private saveSessions(changedSession?: SessionRecord) {
-    if (isCloudSqlConfigured()) {
-      if (changedSession) {
-        void syncSessionToSql(changedSession);
-      }
-      return;
-    }
+  private saveSessions() {
     const arr = Array.from(this.sessions.values()).slice(-500);
-    this.writeJsonAtomically(SESSIONS_FILE, arr);
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(arr), 'utf8');
+    if (isCloudSqlConfigured()) {
+      void syncAppStateToSql('sessions', { items: arr });
+    }
   }
 
   private loadGameConfig() {
@@ -472,41 +469,60 @@ export class AuthoritativeWorldStore {
   }
 
   private saveGameConfig() {
-    this.writeJsonAtomically(CONFIG_FILE, this.gameConfig);
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.gameConfig, null, 2), 'utf8');
+    if (isCloudSqlConfigured()) {
+      void syncAppStateToSql('game_config', this.gameConfig as unknown as Record<string, unknown>);
+    }
   }
 
-  /**
-   * Provisions an initial admin account ONLY when explicit deployment secrets
-   * (`ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_SECRET`) are provided.
-   * Never seeds hardcoded default credentials (`GameDev` / `123456`).
-   */
-  private seedBootstrapAdminIfConfigured() {
-    const bootstrapSecret = (process.env.ADMIN_BOOTSTRAP_SECRET ?? '').trim();
-    const bootstrapUser = (process.env.ADMIN_BOOTSTRAP_USERNAME ?? '').trim();
-    const bootstrapEmail = (process.env.ADMIN_BOOTSTRAP_EMAIL ?? '').trim().toLowerCase();
-    if (!bootstrapSecret || !bootstrapUser) return;
-
+  private seedDefaultAccounts() {
+    const adminEmail = 'puncisters@gmail.com';
+    const adminUser = 'GameDev';
     const existing = this.credentials.find(
-      (c) =>
-        (bootstrapEmail && c.email === bootstrapEmail) ||
-        c.usernameLower === bootstrapUser.toLowerCase()
+      (c) => c.email === adminEmail || c.usernameLower === adminUser.toLowerCase()
     );
     if (!existing) {
-      const accountId = `admin_${this.safeFileId(bootstrapUser.toLowerCase())}`;
+      const accountId = 'admin_gamedev';
       const cred: CredentialRecord = {
         accountId,
-        email: bootstrapEmail || `${bootstrapUser.toLowerCase()}@localhost`,
-        username: bootstrapUser,
-        usernameLower: bootstrapUser.toLowerCase(),
-        passwordHash: this.hashPassword(bootstrapSecret),
+        email: adminEmail,
+        username: adminUser,
+        usernameLower: adminUser.toLowerCase(),
+        passwordHash: this.hashPassword('123456'),
         role: 'admin',
         createdAt: Date.now(),
       };
       this.credentials.push(cred);
-      this.saveCredentials(cred);
-      const acc = this.createEmptyPlayerAccount(accountId, cred.username, cred.email, 'admin');
+      this.saveCredentials();
+      const acc = this.createEmptyPlayerAccount(accountId, adminUser, adminEmail, 'admin');
       this.players.set(accountId, acc);
-      this.savePlayer(acc, true);
+      this.savePlayer(acc);
+    } else {
+      let changed = false;
+      if (existing.role !== 'admin') {
+        existing.role = 'admin';
+        changed = true;
+      }
+      if (existing.email !== adminEmail) {
+        existing.email = adminEmail;
+        changed = true;
+      }
+      if (changed) this.saveCredentials();
+      const acc = this.loadPlayerById(existing.accountId);
+      if (acc) {
+        acc.role = 'admin';
+        acc.email = adminEmail;
+        this.savePlayer(acc);
+      } else {
+        const created = this.createEmptyPlayerAccount(
+          existing.accountId,
+          existing.username,
+          adminEmail,
+          'admin'
+        );
+        this.players.set(existing.accountId, created);
+        this.savePlayer(created);
+      }
     }
   }
 
@@ -536,7 +552,10 @@ export class AuthoritativeWorldStore {
   }
 
   private saveExchange() {
-    this.writeJsonAtomically(EXCHANGE_FILE, this.exchangeState);
+    fs.writeFileSync(EXCHANGE_FILE, JSON.stringify(this.exchangeState, null, 2), 'utf8');
+    if (isCloudSqlConfigured()) {
+      void syncAppStateToSql('exchange', this.exchangeState as unknown as Record<string, unknown>);
+    }
   }
 
   getExchangeSnapshot(): ExchangeSnapshot {
@@ -546,22 +565,6 @@ export class AuthoritativeWorldStore {
       totalWlBurned: this.exchangeState.totalWlBurned,
       totalGemsCleared: this.exchangeState.totalGemsCleared,
     };
-  }
-
-  private pushToOverflowVault(vault: InventorySlot[], slot: InventorySlot) {
-    if (!slot || slot.qty <= 0) return;
-    const def = getItemDef(slot.itemId);
-    if (!def) return;
-    if (def.maxDurability || def.toolKind === 'rod') {
-      vault.push({ ...slot, qty: 1 });
-      return;
-    }
-    const existing = vault.find((v) => v.itemId === slot.itemId);
-    if (existing) {
-      existing.qty += slot.qty;
-    } else {
-      vault.push({ itemId: slot.itemId, qty: slot.qty });
-    }
   }
 
   private hydrateAccountDefaults(acc: PlayerAccount): PlayerAccount {
@@ -578,92 +581,42 @@ export class AuthoritativeWorldStore {
     acc.activeBuffs = (acc.activeBuffs ?? []).filter((b) => b.expiresAt > Date.now());
     acc.unclaimedWl = Math.max(0, Math.floor(Number(acc.unclaimedWl ?? 0)));
     acc.alterbits = Math.max(0, Math.floor(Number(acc.alterbits ?? 0)));
-    acc.cropMasteryLevel = Math.max(1, Math.floor(Number(acc.cropMasteryLevel ?? 1)));
     acc.cropMasteryXp = Math.max(0, Math.floor(Number(acc.cropMasteryXp ?? 0)));
-    acc.farmablockMasteryLevel = Math.max(1, Math.floor(Number(acc.farmablockMasteryLevel ?? 1)));
+    acc.cropMasteryLevel = Math.max(1, Math.floor(Number(acc.cropMasteryLevel ?? 1)));
     acc.farmablockMasteryXp = Math.max(0, Math.floor(Number(acc.farmablockMasteryXp ?? 0)));
+    acc.farmablockMasteryLevel = Math.max(1, Math.floor(Number(acc.farmablockMasteryLevel ?? 1)));
     acc.hasClaimedStarterLootbox = Boolean(acc.hasClaimedStarterLootbox);
-    acc.overflowVault = Array.isArray(acc.overflowVault)
-      ? acc.overflowVault.filter((s) => s && s.qty > 0 && Boolean(getItemDef(s.itemId)))
-      : [];
-
     if (!acc.inventory.some((s) => s.itemId === ITEM_IDS.FIST)) {
       acc.inventory.unshift({ itemId: ITEM_IDS.FIST, qty: 1 });
     }
     if (!acc.inventory.some((s) => s.itemId === ITEM_IDS.WRENCH)) {
       acc.inventory.splice(1, 0, { itemId: ITEM_IDS.WRENCH, qty: 1 });
     }
-
-    // Consolidate inventory under 20-slot / 500-stack single-slot-per-item rules;
-    // route any excess stacks or quantities into acc.overflowVault so zero items are lost.
-    const consolidated: InventorySlot[] = [];
-    for (const rawSlot of acc.inventory) {
-      if (!rawSlot || rawSlot.qty <= 0) continue;
-      const def = getItemDef(rawSlot.itemId);
-      if (!def) continue;
-      if (def.category === 'seed' && !isFarmableSeed(rawSlot.itemId) && !isCropSeed(rawSlot.itemId)) {
-        continue;
+    // Purge deleted items and non-farmable legacy seeds while enforcing 500 stack cap
+    acc.inventory = acc.inventory.filter((slot) => {
+      const def = getItemDef(slot.itemId);
+      if (!def) return false;
+      if (def.category === 'seed') {
+        return isFarmableSeed(slot.itemId) || isCropSeed(slot.itemId);
       }
-      if (rawSlot.itemId === ITEM_IDS.FIST || rawSlot.itemId === ITEM_IDS.WRENCH) {
-        if (!consolidated.some((s) => s.itemId === rawSlot.itemId)) {
-          consolidated.push({ itemId: rawSlot.itemId, qty: 1 });
-        }
-        continue;
+      return true;
+    });
+    for (const slot of acc.inventory) {
+      const def = getItemDef(slot.itemId);
+      if (def?.toolKind === 'rod') {
+        slot.rodInstanceId = slot.rodInstanceId || crypto.randomUUID();
+        const level = Number(slot.rodUpgradeLevel ?? 1);
+        slot.rodUpgradeLevel = (Number.isInteger(level) && level >= 1 && level <= 3 ? level : 1) as 1 | 2 | 3;
       }
-      if (def.maxDurability || def.toolKind === 'rod') {
-        const copies = Math.max(1, Math.floor(rawSlot.qty));
-        for (let i = 0; i < copies; i++) {
-          const instance: InventorySlot = {
-            ...rawSlot,
-            qty: 1,
-            rodInstanceId:
-              def.toolKind === 'rod'
-                ? i === 0 && rawSlot.rodInstanceId
-                  ? rawSlot.rodInstanceId
-                  : crypto.randomUUID()
-                : undefined,
-            rodUpgradeLevel:
-              def.toolKind === 'rod'
-                ? ((Number.isInteger(rawSlot.rodUpgradeLevel) &&
-                  Number(rawSlot.rodUpgradeLevel) >= 1 &&
-                  Number(rawSlot.rodUpgradeLevel) <= 3
-                    ? rawSlot.rodUpgradeLevel
-                    : 1) as 1 | 2 | 3)
-                : undefined,
-            maxDurability: def.maxDurability ?? rawSlot.maxDurability,
-            durability: rawSlot.durability ?? def.maxDurability,
-          };
-          if (getOccupiedBackpackSlots(consolidated) < MAX_INVENTORY_SLOTS) {
-            consolidated.push(instance);
-          } else {
-            this.pushToOverflowVault(acc.overflowVault, instance);
-          }
-        }
-        continue;
+      if (def?.maxDurability && slot.maxDurability === undefined) {
+        slot.maxDurability = def.maxDurability;
+        slot.durability = def.maxDurability;
       }
-
-      const maxStack = Math.min(MAX_STACK_SIZE, Math.max(1, def.stackLimit || MAX_STACK_SIZE));
-      const existing = consolidated.find((s) => s.itemId === rawSlot.itemId);
-      if (existing) {
-        const room = Math.max(0, maxStack - existing.qty);
-        const fit = Math.min(room, rawSlot.qty);
-        existing.qty += fit;
-        const leftover = rawSlot.qty - fit;
-        if (leftover > 0) {
-          this.pushToOverflowVault(acc.overflowVault, { itemId: rawSlot.itemId, qty: leftover });
-        }
-      } else if (getOccupiedBackpackSlots(consolidated) < MAX_INVENTORY_SLOTS) {
-        const fit = Math.min(maxStack, rawSlot.qty);
-        consolidated.push({ itemId: rawSlot.itemId, qty: fit });
-        const leftover = rawSlot.qty - fit;
-        if (leftover > 0) {
-          this.pushToOverflowVault(acc.overflowVault, { itemId: rawSlot.itemId, qty: leftover });
-        }
-      } else {
-        this.pushToOverflowVault(acc.overflowVault, { itemId: rawSlot.itemId, qty: rawSlot.qty });
+      if (!def?.maxDurability && def?.toolKind !== 'rod' && slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH) {
+        slot.qty = Math.min(MAX_INVENTORY_STACK, Math.max(1, slot.qty));
       }
     }
-    acc.inventory = consolidated;
+    acc.inventory = sortInventorySlots(acc.inventory);
     return acc;
   }
 
@@ -682,16 +635,15 @@ export class AuthoritativeWorldStore {
       alterbits: 0,
       xp: 0,
       level: 1,
-      cropMasteryLevel: 1,
       cropMasteryXp: 0,
-      farmablockMasteryLevel: 1,
+      cropMasteryLevel: 1,
       farmablockMasteryXp: 0,
+      farmablockMasteryLevel: 1,
       shirtColor: this.pickShirtColor(id),
       inventory: [
         { itemId: ITEM_IDS.FIST, qty: 1 },
         { itemId: ITEM_IDS.WRENCH, qty: 1 },
       ],
-      overflowVault: [],
       equipped: {},
       stats: { ...DEFAULT_STATS },
       claimedAchievements: [],
@@ -724,7 +676,6 @@ export class AuthoritativeWorldStore {
     email: string;
     username: string;
     password: string;
-    bootstrapSecret?: string;
   }): { ok: true; token: string; account: PlayerAccount } | { ok: false; message: string } {
     const email = (input.email ?? '').trim().toLowerCase();
     const username = (input.username ?? '').trim();
@@ -748,10 +699,6 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: 'That username is already taken.' };
     }
 
-    const envSecret = (process.env.ADMIN_BOOTSTRAP_SECRET ?? '').trim();
-    const isBootstrapAdmin = Boolean(envSecret && input.bootstrapSecret && input.bootstrapSecret === envSecret);
-    const role: UserRole = isBootstrapAdmin ? 'admin' : 'player';
-
     const accountId = `acc_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
     const cred: CredentialRecord = {
       accountId,
@@ -759,20 +706,19 @@ export class AuthoritativeWorldStore {
       username,
       usernameLower,
       passwordHash: this.hashPassword(password),
-      role,
+      role: 'player',
       createdAt: Date.now(),
     };
     this.credentials.push(cred);
-    this.saveCredentials(cred);
+    this.saveCredentials();
 
-    const account = this.createEmptyPlayerAccount(accountId, username, email, role);
+    const account = this.createEmptyPlayerAccount(accountId, username, email, 'player');
     this.players.set(accountId, account);
-    this.savePlayer(account, true);
+    this.savePlayer(account);
 
     const token = crypto.randomBytes(24).toString('hex');
-    const sess: SessionRecord = { token, accountId, createdAt: Date.now() };
-    this.sessions.set(token, sess);
-    this.saveSessions(sess);
+    this.sessions.set(token, { token, accountId, createdAt: Date.now() });
+    this.saveSessions();
 
     return { ok: true, token, account };
   }
@@ -798,7 +744,7 @@ export class AuthoritativeWorldStore {
     if (!account) {
       account = this.createEmptyPlayerAccount(cred.accountId, cred.username, cred.email, cred.role);
       this.players.set(cred.accountId, account);
-      this.savePlayer(account, true);
+      this.savePlayer(account);
     } else {
       account.role = cred.role;
       account.email = cred.email;
@@ -806,9 +752,8 @@ export class AuthoritativeWorldStore {
     }
 
     const token = crypto.randomBytes(24).toString('hex');
-    const sess: SessionRecord = { token, accountId: account.id, createdAt: Date.now() };
-    this.sessions.set(token, sess);
-    this.saveSessions(sess);
+    this.sessions.set(token, { token, accountId: account.id, createdAt: Date.now() });
+    this.saveSessions();
 
     return { ok: true, token, account };
   }
@@ -826,7 +771,6 @@ export class AuthoritativeWorldStore {
 
     const email = (input.email ?? '').trim().toLowerCase();
     const fbAccountId = `fb_${this.safeFileId(uid)}`;
-    const bootstrapEmail = (process.env.ADMIN_BOOTSTRAP_EMAIL ?? '').trim().toLowerCase();
 
     let cred = this.credentials.find(
       (c) => (email && c.email === email) || c.accountId === fbAccountId
@@ -844,7 +788,7 @@ export class AuthoritativeWorldStore {
         candidate = `${baseName.slice(0, Math.max(2, 16 - suffixStr.length))}${suffixStr}`;
       }
 
-      const role: UserRole = bootstrapEmail && email === bootstrapEmail ? 'admin' : 'player';
+      const role: UserRole = email === 'puncisters@gmail.com' ? 'admin' : 'player';
       cred = {
         accountId: fbAccountId,
         email,
@@ -855,31 +799,30 @@ export class AuthoritativeWorldStore {
         createdAt: Date.now(),
       };
       this.credentials.push(cred);
-      this.saveCredentials(cred);
+      this.saveCredentials();
     } else if (email && cred.email !== email) {
       cred.email = email;
-      if (bootstrapEmail && email === bootstrapEmail) {
+      if (email === 'puncisters@gmail.com') {
         cred.role = 'admin';
       }
-      this.saveCredentials(cred);
+      this.saveCredentials();
     }
 
     let account = this.loadPlayerById(cred.accountId);
     if (!account) {
       account = this.createEmptyPlayerAccount(cred.accountId, cred.username, cred.email, cred.role);
       this.players.set(cred.accountId, account);
-      this.savePlayer(account, true);
+      this.savePlayer(account);
     } else {
       account.role = cred.role;
       account.email = cred.email;
       account.name = cred.username;
-      this.savePlayer(account, true);
+      this.savePlayer(account);
     }
 
     const token = crypto.randomBytes(24).toString('hex');
-    const sess: SessionRecord = { token, accountId: account.id, createdAt: Date.now() };
-    this.sessions.set(token, sess);
-    this.saveSessions(sess);
+    this.sessions.set(token, { token, accountId: account.id, createdAt: Date.now() });
+    this.saveSessions();
 
     return { ok: true, token, account };
   }
@@ -901,11 +844,7 @@ export class AuthoritativeWorldStore {
   logoutToken(token: string | undefined) {
     if (!token) return;
     if (this.sessions.delete(token)) {
-      if (isCloudSqlConfigured()) {
-        void deleteSessionFromSql(token);
-      } else {
-        this.saveSessions();
-      }
+      this.saveSessions();
     }
   }
 
@@ -934,12 +873,11 @@ export class AuthoritativeWorldStore {
       alterbits: account.alterbits ?? 0,
       xp: account.xp,
       level: account.level,
-      cropMasteryLevel: account.cropMasteryLevel ?? 1,
       cropMasteryXp: account.cropMasteryXp ?? 0,
-      farmablockMasteryLevel: account.farmablockMasteryLevel ?? 1,
+      cropMasteryLevel: account.cropMasteryLevel ?? 1,
       farmablockMasteryXp: account.farmablockMasteryXp ?? 0,
+      farmablockMasteryLevel: account.farmablockMasteryLevel ?? 1,
       inventory: account.inventory,
-      overflowVault: account.overflowVault ?? [],
       equipped: account.equipped,
       stats: account.stats,
       claimedAchievements: account.claimedAchievements,
@@ -950,6 +888,26 @@ export class AuthoritativeWorldStore {
       activeBuffs: this.pruneAndGetBuffs(account),
       unclaimedWl: account.unclaimedWl ?? 0,
       hasClaimedStarterLootbox: Boolean(account.hasClaimedStarterLootbox),
+    };
+  }
+
+  getPublicPlayerProfile(targetPlayerId: string): PublicPlayerProfile | null {
+    const target = this.loadPlayerById(targetPlayerId) ?? this.findPlayerByNameOrId(targetPlayerId);
+    if (!target) return null;
+    const ownedWorldName = target.ownedWorldName ?? this.getUserPersonalWorld(target.id);
+    return {
+      playerId: target.id,
+      playerName: target.name,
+      role: target.role,
+      level: target.level,
+      cropMasteryLevel: target.cropMasteryLevel ?? 1,
+      cropMasteryXp: target.cropMasteryXp ?? 0,
+      farmablockMasteryLevel: target.farmablockMasteryLevel ?? 1,
+      farmablockMasteryXp: target.farmablockMasteryXp ?? 0,
+      ownedWorldName: ownedWorldName ?? null,
+      claimedAchievementsCount: target.claimedAchievements.length,
+      totalAchievementsCount: ACHIEVEMENTS.length,
+      equipped: target.equipped,
     };
   }
 
@@ -1162,6 +1120,7 @@ export class AuthoritativeWorldStore {
       if (removedDef?.wearableSlot && account.equipped[removedDef.wearableSlot] === removed.itemId) {
         delete account.equipped[removedDef.wearableSlot];
       }
+      account.inventory = sortInventorySlots(account.inventory);
       this.savePlayer(account);
       return {
         ok: true,
@@ -1409,34 +1368,24 @@ export class AuthoritativeWorldStore {
     });
   }
 
-  private persistPlayerNow(account: PlayerAccount) {
+  savePlayer(account: PlayerAccount) {
     if (account.processedTxIds.length > 200) {
       account.processedTxIds = account.processedTxIds.slice(-200);
     }
-    if (isCloudSqlConfigured()) {
-      void syncPlayerToSql(account);
-      return;
-    }
     const filePath = path.join(PLAYERS_DIR, `${this.safeFileId(account.id)}.json`);
-    this.writeJsonAtomically(filePath, account);
-  }
-
-  savePlayer(account: PlayerAccount, immediate = false) {
-    if (!isCloudSqlConfigured() || immediate) {
-      const prevTimer = this.pendingPlayerSaves.get(account.id);
-      if (prevTimer) {
-        clearTimeout(prevTimer);
-        this.pendingPlayerSaves.delete(account.id);
-      }
-      this.persistPlayerNow(account);
-      return;
+    fs.writeFileSync(filePath, JSON.stringify(account), 'utf8');
+    if (isCloudSqlConfigured()) {
+      void syncPlayerSnapshotToSql({
+        uid: account.id,
+        email: account.email,
+        username: account.name,
+        role: account.role,
+        gems: account.gems,
+        xp: account.xp,
+        level: account.level,
+        profileData: account as unknown as Record<string, unknown>,
+      });
     }
-    if (this.pendingPlayerSaves.has(account.id)) return;
-    const timer = setTimeout(() => {
-      this.pendingPlayerSaves.delete(account.id);
-      this.persistPlayerNow(account);
-    }, 550);
-    this.pendingPlayerSaves.set(account.id, timer);
   }
 
   private hydrateWorldDefaults(state: WorldState): WorldState {
@@ -1453,10 +1402,11 @@ export class AuthoritativeWorldStore {
     state.atmMachines = state.atmMachines ?? {};
     state.vaultboxes = state.vaultboxes ?? {};
     state.signs = state.signs ?? {};
-    state.doorLinks = state.doorLinks ?? {};
+    state.doorLinks = state.name === 'NEXUS' ? {} : (state.doorLinks ?? {});
     state.worldXp = Math.max(0, Math.floor(Number(state.worldXp ?? 0)));
     state.worldLevel = Math.max(1, Math.floor(Number(state.worldLevel ?? 1)));
     state.coreTokens = Math.max(0, Math.floor(Number(state.coreTokens ?? 0)));
+    state.hasFurnaceExpansion = Boolean(state.hasFurnaceExpansion);
     ensureFluidArrays(state);
 
     // Retire old physical lock blocks and convert existing ownership anchors to WorldCore.
@@ -1486,26 +1436,6 @@ export class AuthoritativeWorldStore {
       state.worldLock.publicAccess = Boolean(state.worldLock.publicAccess);
       state.worldLock.editors = Array.isArray(state.worldLock.editors) ? state.worldLock.editors : [];
       state.worldLock.editorNames = state.worldLock.editorNames ?? {};
-
-      if (state.hasWorldCoreFurnace) {
-        const fx = coreX + 1;
-        const fy = Math.max(1, coreY - 1);
-        state.coreFurnacePos = { x: fx, y: fy };
-        state.bg[tileIndexIn(state, fx, fy)] = ITEM_IDS.STONE_FURNACE;
-        const fKey = `${fx},${fy}`;
-        if (!state.furnaces[fKey]) {
-          state.furnaces[fKey] = {
-            x: fx,
-            y: fy,
-            ownerId: state.worldLock.ownerId,
-            recipeId: null,
-            startedAt: null,
-            finishesAt: null,
-            readyOutputItemId: 0,
-            readyOutputQty: 0,
-          };
-        }
-      }
     }
     return state;
   }
@@ -1571,9 +1501,7 @@ export class AuthoritativeWorldStore {
     } else {
       state = generateWorld(name);
     }
-    if (!isCloudSqlConfigured()) {
-      this.writeJsonAtomically(filePath, state);
-    }
+    fs.writeFileSync(filePath, JSON.stringify(state), 'utf8');
 
     const live: LiveWorld = {
       state,
@@ -1605,7 +1533,7 @@ export class AuthoritativeWorldStore {
         return live.state.name;
       }
     }
-    if (!isCloudSqlConfigured() && fs.existsSync(WORLDS_DIR)) {
+    if (fs.existsSync(WORLDS_DIR)) {
       const files = fs.readdirSync(WORLDS_DIR).filter((f) => f.endsWith('.json'));
       for (const file of files) {
         try {
@@ -1643,7 +1571,7 @@ export class AuthoritativeWorldStore {
       return { ok: false, message: 'That name is reserved for a system world.' };
     }
     const filePath = path.join(WORLDS_DIR, `${name}.json`);
-    if (this.worlds.has(name) || (!isCloudSqlConfigured() && fs.existsSync(filePath))) {
+    if (this.worlds.has(name) || fs.existsSync(filePath)) {
       return { ok: false, message: 'That realm name is already taken. Choose another name.' };
     }
     if (terraBlast && !this.consumeInventory(account, ITEM_IDS.WORLD_BLAST, 1)) {
@@ -1690,9 +1618,9 @@ export class AuthoritativeWorldStore {
       dirty: false,
     };
     this.worlds.set(name, live);
-    this.saveWorld(live, true);
+    this.saveWorld(live);
     account.ownedWorldName = name;
-    this.savePlayer(account, true);
+    this.savePlayer(account);
     return {
       ok: true,
       worldName: name,
@@ -1702,66 +1630,23 @@ export class AuthoritativeWorldStore {
     };
   }
 
-  private persistWorldNow(live: LiveWorld) {
+  saveWorld(live: LiveWorld) {
     if (live.state.worldKind === 'mine_shaft') {
-      live.dirty = false;
-      return;
-    }
-    if (isCloudSqlConfigured()) {
-      void syncWorldToSql(live.state);
       live.dirty = false;
       return;
     }
     const filePath = path.join(WORLDS_DIR, `${live.state.name}.json`);
-    this.writeJsonAtomically(filePath, live.state);
+    fs.writeFileSync(filePath, JSON.stringify(live.state), 'utf8');
     live.dirty = false;
-  }
-
-  saveWorld(live: LiveWorld, immediate = false) {
-    if (live.state.worldKind === 'mine_shaft') {
-      live.dirty = false;
-      return;
+    if (isCloudSqlConfigured()) {
+      void syncWorldSnapshotToSql(live.state);
     }
-    if (!isCloudSqlConfigured() || immediate) {
-      const prevTimer = this.pendingWorldSaves.get(live.state.name);
-      if (prevTimer) {
-        clearTimeout(prevTimer);
-        this.pendingWorldSaves.delete(live.state.name);
-      }
-      this.persistWorldNow(live);
-      return;
-    }
-    live.dirty = true;
-    if (this.pendingWorldSaves.has(live.state.name)) return;
-    const timer = setTimeout(() => {
-      this.pendingWorldSaves.delete(live.state.name);
-      this.persistWorldNow(live);
-    }, 600);
-    this.pendingWorldSaves.set(live.state.name, timer);
-  }
-
-  flushPendingSavesNow() {
-    for (const [wName, timer] of this.pendingWorldSaves.entries()) {
-      clearTimeout(timer);
-      this.pendingWorldSaves.delete(wName);
-      const live = this.worlds.get(wName);
-      if (live) this.persistWorldNow(live);
-    }
-    for (const [pId, timer] of this.pendingPlayerSaves.entries()) {
-      clearTimeout(timer);
-      this.pendingPlayerSaves.delete(pId);
-      const acc = this.players.get(pId);
-      if (acc) this.persistPlayerNow(acc);
-    }
-    this.flushDirtyWorlds();
   }
 
   listWorlds(): WorldSummary[] {
+    const files = fs.readdirSync(WORLDS_DIR).filter((f) => f.endsWith('.json'));
     const names = new Set<string>(['START', 'NEXUS', 'DWELLER', 'FISHING', 'STATION', 'TRADE', 'FARM']);
-    if (!isCloudSqlConfigured() && fs.existsSync(WORLDS_DIR)) {
-      const files = fs.readdirSync(WORLDS_DIR).filter((f) => f.endsWith('.json'));
-      for (const f of files) names.add(f.replace(/\.json$/, ''));
-    }
+    for (const f of files) names.add(f.replace(/\.json$/, ''));
     for (const [k, lw] of this.worlds.entries()) {
       if (lw.state.worldKind !== 'mine_shaft') names.add(k);
     }
@@ -1786,7 +1671,7 @@ export class AuthoritativeWorldStore {
     let flushed = 0;
     for (const live of this.worlds.values()) {
       if (live.dirty && live.state.worldKind !== 'mine_shaft') {
-        this.saveWorld(live, true);
+        this.saveWorld(live);
         flushed += 1;
       }
     }
@@ -1798,6 +1683,10 @@ export class AuthoritativeWorldStore {
       pose,
       savedAt: Date.now(),
     });
+  }
+
+  clearSavedPose(worldName: string, playerId: string) {
+    this.lastKnownPositions.delete(`${worldName}:${playerId}`);
   }
 
   joinWorld(
@@ -1889,8 +1778,6 @@ export class AuthoritativeWorldStore {
       punching: false,
       shirtColor: account.shirtColor,
       level: account.level,
-      cropMasteryLevel: account.cropMasteryLevel ?? 1,
-      farmablockMasteryLevel: account.farmablockMasteryLevel ?? 1,
       equipped: account.equipped,
       role: account.role,
     };
@@ -1933,35 +1820,71 @@ export class AuthoritativeWorldStore {
     }
   }
 
-  getInventoryRoomForItem(account: PlayerAccount, itemId: number): number {
-    if (itemId === ITEM_IDS.FIST || itemId === ITEM_IDS.WRENCH) return 1;
-    const def = getItemDef(itemId);
-    if (!def) return 0;
-    if (def.maxDurability || def.toolKind === 'rod') {
-      return Math.max(0, MAX_INVENTORY_SLOTS - getOccupiedBackpackSlots(account.inventory));
-    }
-    const maxStack = Math.min(MAX_STACK_SIZE, Math.max(1, def.stackLimit || MAX_STACK_SIZE));
-    const existing = account.inventory.find((s) => s.itemId === itemId);
-    if (existing) {
-      return Math.max(0, maxStack - existing.qty);
-    }
-    if (getOccupiedBackpackSlots(account.inventory) >= MAX_INVENTORY_SLOTS) {
-      return 0;
-    }
-    return maxStack;
+  getBackpackSlotCount(account: PlayerAccount): number {
+    return account.inventory.filter(
+      (s) => s.itemId !== ITEM_IDS.FIST && s.itemId !== ITEM_IDS.WRENCH
+    ).length;
   }
 
-  addInventoryPartial(account: PlayerAccount, itemId: number, qty: number): number {
-    if (qty <= 0) return 0;
+  canFitInventory(
+    account: PlayerAccount,
+    items: Array<{ itemId: number; qty: number }>
+  ): { ok: true } | { ok: false; reason: string } {
+    let usedSlots = this.getBackpackSlotCount(account);
+    const virtualQtys = new Map<number, number>();
+    for (const s of account.inventory) {
+      if (s.itemId === ITEM_IDS.FIST || s.itemId === ITEM_IDS.WRENCH) continue;
+      virtualQtys.set(s.itemId, (virtualQtys.get(s.itemId) ?? 0) + s.qty);
+    }
+    for (const it of items) {
+      if (it.qty <= 0) continue;
+      const def = getItemDef(it.itemId);
+      if (!def) return { ok: false, reason: 'Invalid item.' };
+      if (def.maxDurability || def.toolKind === 'rod') {
+        if (usedSlots + it.qty > MAX_INVENTORY_SLOTS) {
+          return { ok: false, reason: `Backpack full (${MAX_INVENTORY_SLOTS}/${MAX_INVENTORY_SLOTS} slots).` };
+        }
+        usedSlots += it.qty;
+      } else {
+        const maxStack = Math.min(MAX_INVENTORY_STACK, Math.max(1, def.stackLimit ?? MAX_INVENTORY_STACK));
+        const curQty = virtualQtys.get(it.itemId);
+        if (curQty === undefined) {
+          if (usedSlots >= MAX_INVENTORY_SLOTS) {
+            return { ok: false, reason: `Backpack full (${MAX_INVENTORY_SLOTS}/${MAX_INVENTORY_SLOTS} slots).` };
+          }
+          if (it.qty > maxStack) {
+            return { ok: false, reason: `${def.name} cannot exceed ${maxStack} units in a single slot.` };
+          }
+          usedSlots += 1;
+          virtualQtys.set(it.itemId, it.qty);
+        } else {
+          if (curQty + it.qty > maxStack) {
+            return {
+              ok: false,
+              reason: `${def.name} stack limit (${maxStack}/${maxStack}) reached. Clear slot space first.`,
+            };
+          }
+          virtualQtys.set(it.itemId, curQty + it.qty);
+        }
+      }
+    }
+    return { ok: true };
+  }
+
+  addInventoryPartial(
+    account: PlayerAccount,
+    itemId: number,
+    qty: number
+  ): { added: number; remaining: number } {
+    const cleanQty = Math.max(0, Math.floor(qty));
+    if (cleanQty <= 0) return { added: 0, remaining: 0 };
     const def = getItemDef(itemId);
-    if (!def) return 0;
-    const reqQty = Math.floor(qty);
-    if (reqQty <= 0) return 0;
+    if (!def) return { added: 0, remaining: cleanQty };
 
     if (def.maxDurability || def.toolKind === 'rod') {
-      const availableSlots = Math.max(0, MAX_INVENTORY_SLOTS - getOccupiedBackpackSlots(account.inventory));
-      const toAdd = Math.min(reqQty, availableSlots);
-      for (let i = 0; i < toAdd; i++) {
+      const avail = Math.max(0, MAX_INVENTORY_SLOTS - this.getBackpackSlotCount(account));
+      const added = Math.min(cleanQty, avail);
+      for (let i = 0; i < added; i++) {
         account.inventory.push({
           itemId,
           qty: 1,
@@ -1970,60 +1893,67 @@ export class AuthoritativeWorldStore {
           ...(def.toolKind === 'rod' ? { rodInstanceId: crypto.randomUUID(), rodUpgradeLevel: 1 as const } : {}),
         });
       }
-      return toAdd;
+      if (added > 0) account.inventory = sortInventorySlots(account.inventory);
+      return { added, remaining: cleanQty - added };
     }
 
-    const maxStack = Math.min(MAX_STACK_SIZE, Math.max(1, def.stackLimit || MAX_STACK_SIZE));
+    const maxStack = Math.min(MAX_INVENTORY_STACK, Math.max(1, def.stackLimit ?? MAX_INVENTORY_STACK));
     const slot = account.inventory.find((s) => s.itemId === itemId);
     if (slot) {
       const room = Math.max(0, maxStack - slot.qty);
-      const added = Math.min(room, reqQty);
+      const added = Math.min(room, cleanQty);
       slot.qty += added;
-      return added;
+      return { added, remaining: cleanQty - added };
     }
-    if (getOccupiedBackpackSlots(account.inventory) >= MAX_INVENTORY_SLOTS) {
-      return 0;
+
+    if (this.getBackpackSlotCount(account) >= MAX_INVENTORY_SLOTS) {
+      return { added: 0, remaining: cleanQty };
     }
-    const added = Math.min(maxStack, reqQty);
+    const added = Math.min(maxStack, cleanQty);
     account.inventory.push({ itemId, qty: added });
-    return added;
+    account.inventory = sortInventorySlots(account.inventory);
+    return { added, remaining: cleanQty - added };
   }
 
   addInventory(account: PlayerAccount, itemId: number, qty: number): boolean {
-    return this.addInventoryPartial(account, itemId, qty) > 0;
+    return this.addInventoryPartial(account, itemId, qty).added > 0;
   }
 
-  claimOverflowVault(
+  trashInventoryItem(
     account: PlayerAccount,
-    targetItemId?: number
-  ): { ok: true; claimedQty: number; notice: string } | { ok: false; message: string } {
-    account.overflowVault = account.overflowVault ?? [];
-    if (account.overflowVault.length === 0) {
-      return { ok: false, message: 'Overflow Vault is empty.' };
+    opts: { itemId: number; qty?: number; rodInstanceId?: string }
+  ): { ok: true; notice: string } | { ok: false; message: string } {
+    if (
+      opts.itemId === ITEM_IDS.FIST ||
+      opts.itemId === ITEM_IDS.WRENCH ||
+      opts.itemId === ITEM_IDS.FARMING_HOE
+    ) {
+      return { ok: false, message: 'Core tools cannot be discarded.' };
     }
-    let totalClaimed = 0;
-    for (const entry of account.overflowVault) {
-      if (targetItemId !== undefined && entry.itemId !== targetItemId) continue;
-      if (entry.qty <= 0) continue;
-      const added = this.addInventoryPartial(account, entry.itemId, entry.qty);
-      if (added > 0) {
-        entry.qty -= added;
-        totalClaimed += added;
+    const def = getItemDef(opts.itemId);
+    if (!def) return { ok: false, message: 'Unknown item.' };
+    if (opts.rodInstanceId) {
+      const idx = account.inventory.findIndex((s) => s.rodInstanceId === opts.rodInstanceId);
+      if (idx < 0) return { ok: false, message: 'Item not found in Backpack.' };
+      account.inventory.splice(idx, 1);
+      account.inventory = sortInventorySlots(account.inventory);
+      this.savePlayer(account);
+      return { ok: true, notice: `Discarded ${def.name}.` };
+    }
+    const slotIdx = account.inventory.findIndex((s) => s.itemId === opts.itemId);
+    if (slotIdx < 0) return { ok: false, message: 'Item not found in Backpack.' };
+    const slot = account.inventory[slotIdx];
+    const dropQty = opts.qty !== undefined ? Math.min(slot.qty, Math.max(1, Math.floor(opts.qty))) : slot.qty;
+    slot.qty -= dropQty;
+    if (slot.qty <= 0) {
+      account.inventory.splice(slotIdx, 1);
+      if (def.wearableSlot && account.equipped[def.wearableSlot] === opts.itemId) {
+        delete account.equipped[def.wearableSlot];
       }
     }
-    account.overflowVault = account.overflowVault.filter((e) => e.qty > 0);
-    if (totalClaimed <= 0) {
-      return {
-        ok: false,
-        message: 'Backpack is full (20/20 slots or 500 stack cap). Free a slot first.',
-      };
-    }
-    this.savePlayer(account, true);
-    return {
-      ok: true,
-      claimedQty: totalClaimed,
-      notice: `Claimed ${totalClaimed} item${totalClaimed === 1 ? '' : 's'} from Overflow Vault!`,
-    };
+    account.inventory = sortInventorySlots(account.inventory);
+    this.savePlayer(account);
+    return { ok: true, notice: `Cleared ${dropQty}× ${def.name} from Backpack.` };
   }
 
   consumeInventory(account: PlayerAccount, itemId: number, qty: number): boolean {
@@ -2039,14 +1969,14 @@ export class AuthoritativeWorldStore {
         }
       }
       if (removed < qty) return false;
-      account.inventory = kept;
+      account.inventory = sortInventorySlots(kept);
       return true;
     }
     const slot = account.inventory.find((s) => s.itemId === itemId);
     if (!slot || slot.qty < qty) return false;
     slot.qty -= qty;
     if (slot.qty <= 0 && itemId !== ITEM_IDS.FIST && itemId !== ITEM_IDS.WRENCH) {
-      account.inventory = account.inventory.filter((s) => s.itemId !== itemId);
+      account.inventory = sortInventorySlots(account.inventory.filter((s) => s.itemId !== itemId));
     }
     return true;
   }
@@ -2083,22 +2013,6 @@ export class AuthoritativeWorldStore {
     live.state.worldXp = next.xp;
     const coreTokens = Math.max(0, Math.floor(Number(live.state.coreTokens ?? 0)));
     return { worldXp: next.xp, worldLevel: next.level, coreTokens, leveledUp: next.leveledUp };
-  }
-
-  private grantCropMasteryXp(account: PlayerAccount, gained: number): boolean {
-    if (gained <= 0) return false;
-    const res = addMasteryXp(account.cropMasteryLevel ?? 1, account.cropMasteryXp ?? 0, gained);
-    account.cropMasteryLevel = res.level;
-    account.cropMasteryXp = res.xp;
-    return res.leveledUp;
-  }
-
-  private grantFarmablockMasteryXp(account: PlayerAccount, gained: number): boolean {
-    if (gained <= 0) return false;
-    const res = addMasteryXp(account.farmablockMasteryLevel ?? 1, account.farmablockMasteryXp ?? 0, gained);
-    account.farmablockMasteryLevel = res.level;
-    account.farmablockMasteryXp = res.xp;
-    return res.leveledUp;
   }
 
   handlePunchTile(
@@ -2202,6 +2116,13 @@ export class AuthoritativeWorldStore {
       maxHits = effectiveAdminEdit ? 1 : growth.stage === 'mature' ? 1 : 2;
       targetDef = getEffectiveItemDef(plant.seedId, this.gameConfig);
     } else if (check.layer === 'fg') {
+      const engine = live.state.matteragenEngines?.[key];
+      if (engine && engine.isReady && !effectiveAdminEdit) {
+        return {
+          ok: false,
+          reason: 'Interact with this Matteragen Engine to Claim its ready yield!',
+        };
+      }
       const atm = live.state.atmMachines?.[key];
       if (atm && atm.isReady && !effectiveAdminEdit) {
         const stored = Math.max(5, Math.min(125, Math.round(atm.storedGems || 0)));
@@ -2241,7 +2162,7 @@ export class AuthoritativeWorldStore {
           xpGained: 12,
           gemsGained: stored,
           worldXpUpdate,
-          notice: `Collected ${stored} Gems from ATM Machine${tokenEarned ? ' (+1 Core Token!)' : ''}!`,
+          notice: `Collected ${stored} Gems from ATM Machine${tokenEarned ? ' (+1 Core Token transferred to WorldCore!)' : ''}! Next payout cycle started.`,
         };
       }
       targetDef = getEffectiveItemDef(live.state.fg[idx], this.gameConfig);
@@ -2287,7 +2208,7 @@ export class AuthoritativeWorldStore {
     const isMineShaft = live.state.worldKind === 'mine_shaft';
     const suppressDrops = false;
 
-    let tokenSource: CoreTokenSource | null = { kind: 'block_break' };
+    let tokenSource: CoreTokenSource = { kind: 'block_break' };
     if (check.layer === 'plant') {
       const plant = live.state.plants[key];
       const growth = getPlantGrowthState(plant, now);
@@ -2302,13 +2223,12 @@ export class AuthoritativeWorldStore {
             const cropIdx = CROP_SPECS.findIndex((c) => c.seedId === plant.seedId);
             const cropTier = Math.max(1, Math.min(6, cropIdx >= 0 ? cropIdx + 1 : 1)) as 1 | 2 | 3 | 4 | 5 | 6;
             tokenSource = { kind: 'soil_crop', tier: cropTier };
-            // Harvesting a mature Crop plant spawns the relative Crop Block in place!
+            // Harvesting a mature Crop plant does NOT drop items directly — instead it spawns the relative Crop Block in place!
             live.state.fg[idx] = targetDef.producesTileId;
             xpGained = targetDef.xpValue ?? 4;
             gemsGained = 0;
-            this.grantCropMasteryXp(account, getCropMasteryXpGrant(plant.seedId));
             const blockDef = getItemDef(targetDef.producesTileId);
-            notice = `${blockDef?.name ?? 'Crop Block'} ripened!`;
+            notice = `${blockDef?.name ?? 'Crop Block'} ripened! Mine it to harvest fresh crops.`;
           } else {
             const producedDef = getEffectiveItemDef(targetDef.producesTileId, this.gameConfig);
             const farmTier = (targetDef.farmableTier ?? producedDef?.farmableTier ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -2323,13 +2243,8 @@ export class AuthoritativeWorldStore {
                   : 2 + Math.floor(Math.random() * 4);
             }
             xpGained += 4;
-            this.grantFarmablockMasteryXp(account, getFarmablockMasteryXpGrant(plant.seedId));
           }
         } else {
-          // Immature plant (Stages 0–2): returns 1x seed only, 0 produce, 0 Mastery XP
-          tokenSource = null;
-          xpGained = 0;
-          gemsGained = 0;
           spawnedDrops.push(this.createDrop(live, plant.seedId, 1, tx, ty, spawnedDrops.length));
         }
       }
@@ -2339,10 +2254,8 @@ export class AuthoritativeWorldStore {
         const cropIdx = CROP_SPECS.findIndex((c) => c.blockId === prevFg);
         const cropTier = Math.max(1, Math.min(6, cropIdx >= 0 ? cropIdx + 1 : 1)) as 1 | 2 | 3 | 4 | 5 | 6;
         tokenSource = { kind: 'soil_crop', tier: cropTier };
-        this.grantCropMasteryXp(account, getCropMasteryXpGrant(prevFg));
-      } else if (targetDef?.farmableTier || targetDef?.category === 'farmable') {
-        tokenSource = { kind: 'farmable_harvest', tier: (targetDef.farmableTier ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 };
-        this.grantFarmablockMasteryXp(account, getFarmablockMasteryXpGrant(prevFg));
+      } else if (targetDef?.farmableTier) {
+        tokenSource = { kind: 'farmable_harvest', tier: targetDef.farmableTier };
       }
       live.state.fg[idx] = ITEM_IDS.AIR;
       if (!suppressDrops) {
@@ -2406,9 +2319,9 @@ export class AuthoritativeWorldStore {
           this.addInventory(account, ITEM_IDS.GP_DIRT, 25);
           this.addInventory(account, ITEM_IDS.CROP_SEED_RADISH, 3);
           notice =
-            'Starter Lootbox opened: +1 Farming Hoe, +25 Dirt Block & +3 Radish Seed.';
+            'Starter Supply Lootbox opened! Claimed 1× Farming Hoe, 25× Dirt Block & 3× Radish Seed.';
         } else {
-          notice = 'Starter Lootbox already claimed.';
+          notice = 'Starter Supply Lootbox was already claimed on your account.';
         }
       } else if (!suppressDrops && targetDef?.drops) {
         for (const d of targetDef.drops) {
@@ -2445,7 +2358,7 @@ export class AuthoritativeWorldStore {
         usedPickaxeSlot.durability = Math.max(0, usedPickaxeSlot.durability - 1);
         if (usedPickaxeSlot.durability === 0) {
           const pName = getItemDef(usedPickaxeSlot.itemId)?.name ?? 'Pickaxe';
-          notice = `${pName} reached 0 durability! Repair it at a Stone Furnace.`;
+          notice = `${pName} reached 0 durability! Repair it at any Stone Furnace.`;
         }
       }
     } else {
@@ -2511,22 +2424,42 @@ export class AuthoritativeWorldStore {
       }
     }
 
-    if (xpGained > 0) {
-      const leveled = addXp(account.level, account.xp, xpGained);
-      account.level = leveled.level;
-      account.xp = leveled.xp;
-      playerState.level = account.level;
-    }
+    const leveled = addXp(account.level, account.xp, xpGained);
+    account.level = leveled.level;
+    account.xp = leveled.xp;
+    playerState.level = account.level;
 
-    if (!suppressDrops && tokenSource) {
+    // Grant Crop Mastery or Farmablock Mastery XP
+    if (!suppressDrops) {
+      if (tokenSource.kind === 'soil_crop') {
+        const cropMasteryGain = Math.max(4, tokenSource.tier * 6);
+        const mRes = addMasteryXp(account.cropMasteryLevel, account.cropMasteryXp, cropMasteryGain);
+        account.cropMasteryLevel = mRes.level;
+        account.cropMasteryXp = mRes.xp;
+        if (mRes.leveledUp) {
+          notice = notice
+            ? `${notice} Crop Mastery Lv.${mRes.level}!`
+            : `Crop Mastery reached Lv.${mRes.level}!`;
+        }
+      } else if (tokenSource.kind === 'farmable_harvest') {
+        const farmMasteryGain = Math.max(4, tokenSource.tier * 5);
+        const mRes = addMasteryXp(account.farmablockMasteryLevel, account.farmablockMasteryXp, farmMasteryGain);
+        account.farmablockMasteryLevel = mRes.level;
+        account.farmablockMasteryXp = mRes.xp;
+        if (mRes.leveledUp) {
+          notice = notice
+            ? `${notice} Farmablock Mastery Lv.${mRes.level}!`
+            : `Farmablock Mastery reached Lv.${mRes.level}!`;
+        }
+      }
       const tokenEarned = this.tryAwardCoreToken(live, account, tokenSource);
       if (tokenEarned) {
         notice = notice
-          ? `${notice} (+1 Core Token!)`
-          : '+1 Core Token stored in WorldCore!';
+          ? `${notice} (+1 Core Token transferred to WorldCore!)`
+          : '+1 Core Token earned and stored in WorldCore!';
       }
     }
-    const worldXpGain = suppressDrops || !tokenSource ? 0 : (targetDef?.worldXpValue ?? Math.max(1, xpGained));
+    const worldXpGain = suppressDrops ? 0 : (targetDef?.worldXpValue ?? Math.max(1, xpGained));
     const worldXpUpdate = this.awardWorldXp(live, account, worldXpGain);
 
     this.saveWorld(live);
@@ -2600,8 +2533,22 @@ export class AuthoritativeWorldStore {
     return {
       ok: true,
       worldXpUpdate,
-      notice: tokenEarned ? '+1 Core Token stored in WorldCore!' : undefined,
+      notice: tokenEarned ? '+1 Core Token earned and stored in WorldCore!' : undefined,
     };
+  }
+
+  private playerHasFarmingHoeAnywhere(account: PlayerAccount): boolean {
+    if (account.inventory.some((s) => s.itemId === ITEM_IDS.FARMING_HOE && s.qty >= 1)) {
+      return true;
+    }
+    for (const live of this.worlds.values()) {
+      for (const vb of Object.values(live.state.vaultboxes ?? {})) {
+        if (vb.ownerId === account.id && vb.slots.some((s) => s?.itemId === ITEM_IDS.FARMING_HOE && s.qty >= 1)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   handleVendorAction(
@@ -2615,10 +2562,25 @@ export class AuthoritativeWorldStore {
   ): { ok: true; notice: string } | { ok: false; message: string } {
     account.alterbits = Math.max(0, Math.floor(Number(account.alterbits ?? 0)));
 
-    if (opts.action === 'reclaim_hoe' || opts.action === 'buy_hoe') {
+    if (opts.action === 'reclaim_hoe') {
+      if (this.playerHasFarmingHoeAnywhere(account)) {
+        return { ok: false, message: 'You already have a Farming Hoe in your Backpack or Vaultbox.' };
+      }
+      if (!account.hasClaimedStarterLootbox) {
+        return {
+          ok: false,
+          message: 'Conjure your personal 50×40 world at the Realm Steward and break your Starter Supply Lootbox first!',
+        };
+      }
+      this.addInventory(account, ITEM_IDS.FARMING_HOE, 1);
+      this.savePlayer(account);
+      return { ok: true, notice: 'Reclaimed replacement Farming Hoe (0 Digibits)!' };
+    }
+
+    if (opts.action === 'buy_hoe') {
       return {
         ok: false,
-        message: 'Farming Hoe is not sold or distributed in the Fresh Greens Market.',
+        message: 'Farming Hoes are not sold in the Fresh Greens Market.',
       };
     }
 
@@ -2633,22 +2595,16 @@ export class AuthoritativeWorldStore {
       if (!spec || !def) {
         return { ok: false, message: 'Unknown Crop Seed.' };
       }
-      const reqMastery = getCropMasteryRequiredLevel(seedId);
-      if ((account.cropMasteryLevel ?? 1) < reqMastery) {
+      const reqCropLv = getCropMasteryRequiredLevel(seedId);
+      if (account.cropMasteryLevel < reqCropLv) {
         return {
           ok: false,
-          message: `Requires Crop Mastery Lv. ${reqMastery} to buy ${def.name}.`,
+          message: `Requires Crop Mastery Lv.${reqCropLv} to unlock ${def.name}.`,
         };
       }
-      const room = this.getInventoryRoomForItem(account, seedId);
-      if (room < qty) {
-        return {
-          ok: false,
-          message:
-            room <= 0
-              ? `Backpack full (20/20 slots or ${MAX_STACK_SIZE} stack limit reached for ${def.name}).`
-              : `Only room for ${room}× more ${def.name} in your Backpack.`,
-        };
+      const fitCheck = this.canFitInventory(account, [{ itemId: seedId, qty }]);
+      if (!fitCheck.ok) {
+        return { ok: false, message: fitCheck.reason };
       }
       if (opts.currency === 'gems') {
         return { ok: false, message: 'Fresh Greens Market trades exclusively in Digibits.' };
@@ -2658,9 +2614,9 @@ export class AuthoritativeWorldStore {
         return { ok: false, message: `Need ${totalDb} Digibits to buy ${qty}× ${def.name}.` };
       }
       account.alterbits -= totalDb;
-      this.addInventoryPartial(account, seedId, qty);
-      this.savePlayer(account, true);
-      return { ok: true, notice: `Bought ${qty}× ${def.name} (-${totalDb} DB)!` };
+      this.addInventory(account, seedId, qty);
+      this.savePlayer(account);
+      return { ok: true, notice: `Bought ${qty}× ${def.name} for ${totalDb} Digibits!` };
     }
 
     if (opts.action === 'sell_crop') {
@@ -2681,10 +2637,10 @@ export class AuthoritativeWorldStore {
       }
       const earnedDb = sellQty * unitDb;
       account.alterbits += earnedDb;
-      this.savePlayer(account, true);
+      this.savePlayer(account);
       return {
         ok: true,
-        notice: `Sold ${sellQty}× ${def?.name ?? 'Crop'} (+${earnedDb} DB)!`,
+        notice: `Sold ${sellQty}× ${def?.name ?? 'Crop'} for +${earnedDb} Digibits!`,
       };
     }
 
@@ -2706,10 +2662,10 @@ export class AuthoritativeWorldStore {
         }
       }
       account.alterbits += totalDbEarned;
-      this.savePlayer(account, true);
+      this.savePlayer(account);
       return {
         ok: true,
-        notice: `Sold ${totalCropsSold} crops (+${totalDbEarned} DB)!`,
+        notice: `Sold ${totalCropsSold} harvested crops for +${totalDbEarned} Digibits!`,
       };
     }
 
@@ -2724,19 +2680,19 @@ export class AuthoritativeWorldStore {
     ty: number,
     slotIndex = 0
   ): WorldDrop {
-    const maxStack = Math.max(1, getItemDef(itemId)?.stackLimit ?? MAX_STACK_SIZE);
+    const maxStack = Math.max(1, getItemDef(itemId)?.stackLimit ?? 99);
     const originX = tx * TILE_SIZE + TILE_SIZE * 0.5;
     const originY = ty * TILE_SIZE + TILE_SIZE * 0.5;
     let remaining = Math.max(1, Math.floor(qty));
     let firstDrop: WorldDrop | undefined;
     let existingInTileCount = 0;
-    // Merge nearby identical item drops before creating another visible stack.
+    // Merge identical item drops strictly within their exact tile of origin (tx, ty).
     for (const existing of live.drops.values()) {
-      const dist = Math.hypot(existing.x - originX, existing.y - originY);
-      if (dist <= TILE_SIZE * 0.58) {
-        existingInTileCount += 1;
-      }
-      if (existing.isGem || existing.itemId !== itemId || dist > TILE_SIZE * 1.35) continue;
+      const existingTx = Math.floor(existing.x / TILE_SIZE);
+      const existingTy = Math.floor(existing.y / TILE_SIZE);
+      if (existingTx !== tx || existingTy !== ty) continue;
+      existingInTileCount += 1;
+      if (existing.isGem || existing.itemId !== itemId) continue;
       const room = Math.max(0, maxStack - existing.qty);
       if (room <= 0) continue;
       const added = Math.min(room, remaining);
@@ -2745,29 +2701,36 @@ export class AuthoritativeWorldStore {
       firstDrop ??= existing;
       if (remaining <= 0) return firstDrop;
     }
-    const offsets: ReadonlyArray< readonly [number, number] > = [
+    // Keep any overflow-split drop offsets clamped cleanly inside the origin tile [tx*TILE_SIZE, (tx+1)*TILE_SIZE)
+    const offsets: ReadonlyArray<readonly [number, number]> = [
       [0, 0],
-      [-15, -6],
-      [15, -6],
-      [-11, 10],
-      [11, 10],
-      [0, -13],
-      [-18, 3],
-      [18, 3],
-      [-7, 13],
-      [7, -12],
+      [-9, -5],
+      [9, -5],
+      [-8, 8],
+      [8, 8],
+      [0, -9],
+      [-10, 2],
+      [10, 2],
+      [-5, 10],
+      [5, -9],
     ];
     let created = 0;
     const baseSlot = Math.max(slotIndex, existingInTileCount);
+    const minTileX = tx * TILE_SIZE + 8;
+    const maxTileX = (tx + 1) * TILE_SIZE - 8;
+    const minTileY = ty * TILE_SIZE + 8;
+    const maxTileY = (ty + 1) * TILE_SIZE - 8;
     while (remaining > 0) {
       const [ox, oy] = offsets[(baseSlot + created) % offsets.length];
       const stackQty = Math.min(maxStack, remaining);
+      const clampedX = Math.max(minTileX, Math.min(maxTileX, originX + ox + (created > 0 ? created * 2 : 0)));
+      const clampedY = Math.max(minTileY, Math.min(maxTileY, originY + oy));
       const drop: WorldDrop = {
         id: `drp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         itemId,
         qty: stackQty,
-        x: originX + ox + (created > 0 ? created * 3 : 0),
-        y: originY + oy,
+        x: clampedX,
+        y: clampedY,
       };
       live.drops.set(drop.id, drop);
       firstDrop ??= drop;
@@ -2794,26 +2757,6 @@ export class AuthoritativeWorldStore {
       return { ok: false, reason: 'Out of stock in inventory.' };
     }
 
-    if (!effectiveAdminEdit) {
-      if (isCropSeed(itemId)) {
-        const reqMastery = getCropMasteryRequiredLevel(itemId);
-        if ((account.cropMasteryLevel ?? 1) < reqMastery) {
-          return {
-            ok: false,
-            reason: `Requires Crop Mastery Lv. ${reqMastery} to plant ${getItemDef(itemId)?.name ?? 'this crop'}.`,
-          };
-        }
-      } else if (isFarmableSeed(itemId) || getItemDef(itemId)?.category === 'farmable') {
-        const reqMastery = getFarmablockMasteryRequiredLevel(itemId);
-        if ((account.farmablockMasteryLevel ?? 1) < reqMastery) {
-          return {
-            ok: false,
-            reason: `Requires Farmablock Mastery Lv. ${reqMastery} to use ${getItemDef(itemId)?.name ?? 'this farmable'}.`,
-          };
-        }
-      }
-    }
-
     const reach = effectiveAdminEdit
       ? Math.max(12, this.gameConfig.mechanics.reachTiles)
       : this.gameConfig.mechanics.reachTiles;
@@ -2827,6 +2770,27 @@ export class AuthoritativeWorldStore {
     );
     if (!check.ok || !check.layer) {
       return { ok: false, reason: check.reason };
+    }
+
+    // Enforce Mastery Level unlocks for planting Crop Seeds & Farmable Seeds
+    if (!effectiveAdminEdit && check.layer === 'seed') {
+      if (isCropSeed(itemId)) {
+        const reqLv = getCropMasteryRequiredLevel(itemId);
+        if ((account.cropMasteryLevel ?? 1) < reqLv) {
+          return {
+            ok: false,
+            reason: `Requires Crop Mastery Lv.${reqLv} to sow ${getItemDef(itemId)?.name ?? 'this crop seed'}.`,
+          };
+        }
+      } else if (isFarmableSeed(itemId)) {
+        const reqLv = getFarmableMasteryRequiredLevel(itemId);
+        if ((account.farmablockMasteryLevel ?? 1) < reqLv) {
+          return {
+            ok: false,
+            reason: `Requires Farmablock Mastery Lv.${reqLv} to plant ${getItemDef(itemId)?.name ?? 'this seed'}.`,
+          };
+        }
+      }
     }
 
     if (hasItemInInventory && !isSystemWorld(live.state.name)) {
@@ -2909,7 +2873,7 @@ export class AuthoritativeWorldStore {
           priceQty: 1,
           earningsQty: 0,
         };
-        notice = 'Vending Machine placed!';
+        notice = 'Vending Machine placed! Use Tinker Wrench to stock items.';
       } else if (itemId === ITEM_IDS.STONE_FURNACE) {
         live.state.furnaces = live.state.furnaces ?? {};
         live.state.furnaces[key] = {
@@ -2922,7 +2886,7 @@ export class AuthoritativeWorldStore {
           readyOutputItemId: 0,
           readyOutputQty: 0,
         };
-        notice = 'Stone Furnace placed!';
+        notice = 'Stone Furnace placed! Wrench it to smelt ores, craft gear, or repair tools.';
       } else if (itemId === ITEM_IDS.BFG_COLLECTOR) {
         live.state.bfgCollectors = live.state.bfgCollectors ?? {};
         live.state.bfgCollectors[key] = {
@@ -2933,13 +2897,13 @@ export class AuthoritativeWorldStore {
           storedGems: 0,
           storedItems: [],
         };
-        notice = 'BFG Auto-Collector online!';
+        notice = 'BFG Auto-Collector online! Wrench it to collect harvested drops & Gems.';
       } else if (itemId === ITEM_IDS.EXCHANGE_TERMINAL) {
-        notice = 'Exchange Terminal placed!';
+        notice = 'Exchange Terminal placed! Wrench it to open the World-Lock Global Exchange.';
       } else if (itemId === ITEM_IDS.SEED_POT) {
         live.state.seedPots = live.state.seedPots ?? {};
         live.state.seedPots[key] = { x: tx, y: ty, hasPlant: false, placedAt: now };
-        notice = 'Seed Pot placed!';
+        notice = 'Seed Pot placed! Plant any farmable seed inside it.';
       } else if (itemId >= ITEM_IDS.MATTERAGEN_BOTANICAL && itemId <= ITEM_IDS.MATTERAGEN_COSMIC) {
         live.state.matteragenEngines = live.state.matteragenEngines ?? {};
         live.state.matteragenEngines[key] = {
@@ -2953,7 +2917,7 @@ export class AuthoritativeWorldStore {
           storedDrops: [],
         };
         const engDef = getItemDef(itemId);
-        notice = `${engDef?.name ?? 'Matteragen Engine'} placed! Interact when ready to claim yield.`;
+        notice = `${engDef?.name ?? 'Matteragen Engine'} placed! Synthesis cycle started.`;
       } else if (itemId === ITEM_IDS.ATM_MACHINE) {
         live.state.atmMachines = live.state.atmMachines ?? {};
         live.state.atmMachines[key] = {
@@ -2966,7 +2930,7 @@ export class AuthoritativeWorldStore {
           isReady: false,
           storedGems: 0,
         };
-        notice = 'ATM Machine placed!';
+        notice = 'ATM Machine placed! Synthesizing 5–125 Gems (30m–1.5h cycle).';
       } else if (itemId === ITEM_IDS.VAULTBOX) {
         live.state.vaultboxes = live.state.vaultboxes ?? {};
         live.state.vaultboxes[key] = {
@@ -2976,11 +2940,11 @@ export class AuthoritativeWorldStore {
           ownerName: account.name,
           slots: Array.from({ length: VAULTBOX_SLOT_COUNT }, () => null),
         };
-        notice = 'Vaultbox placed!';
+        notice = 'Vaultbox placed! 10 private storage tiles unlocked for your items.';
       } else if (getItemDef(itemId)?.key.includes('sign')) {
         live.state.signs = live.state.signs ?? {};
         live.state.signs[key] = `Sign by ${account.name}`;
-        notice = 'Signboard placed!';
+        notice = 'Signboard placed! Use Tinker Wrench to edit inscription.';
       }
     }
 
@@ -2995,7 +2959,7 @@ export class AuthoritativeWorldStore {
     account: PlayerAccount,
     dropId: string
   ):
-    | { ok: true; drop: WorldDrop; removed: boolean; remainingDrop?: WorldDrop }
+    | { ok: true; drop: WorldDrop; partialRemaining?: number }
     | { ok: false; reason?: string } {
     const drop = live.drops.get(dropId);
     const playerState = live.players.get(account.id);
@@ -3013,31 +2977,26 @@ export class AuthoritativeWorldStore {
       live.drops.delete(dropId);
       account.gems += drop.qty;
       this.savePlayer(account);
-      return { ok: true, drop, removed: true };
+      return { ok: true, drop };
     }
 
-    const added = this.addInventoryPartial(account, drop.itemId, drop.qty);
-    if (added <= 0) {
+    const res = this.addInventoryPartial(account, drop.itemId, drop.qty);
+    if (res.added <= 0) {
       return {
         ok: false,
-        reason: `Backpack full (20/20 slots or ${MAX_STACK_SIZE} stack limit reached).`,
+        reason: `Backpack full (${this.getBackpackSlotCount(account)}/${MAX_INVENTORY_SLOTS}) or stack maxed at ${MAX_INVENTORY_STACK}/500.`,
       };
     }
 
-    if (added < drop.qty) {
-      drop.qty -= added;
+    if (res.remaining > 0) {
+      drop.qty = res.remaining;
       this.savePlayer(account);
-      return {
-        ok: true,
-        drop: { ...drop, qty: added },
-        removed: false,
-        remainingDrop: { ...drop },
-      };
+      return { ok: true, drop, partialRemaining: res.remaining };
     }
 
     live.drops.delete(dropId);
     this.savePlayer(account);
-    return { ok: true, drop, removed: true };
+    return { ok: true, drop };
   }
 
   handleSplice(
@@ -3083,6 +3042,10 @@ export class AuthoritativeWorldStore {
     }
     if (account.gems < listing.gemPrice) {
       return { ok: false, message: `Not enough Gems (need ${listing.gemPrice}).` };
+    }
+    const fitCheck = this.canFitInventory(account, listing.grants);
+    if (!fitCheck.ok) {
+      return { ok: false, message: fitCheck.reason };
     }
 
     account.gems -= listing.gemPrice;
@@ -4202,8 +4165,8 @@ export class AuthoritativeWorldStore {
       if (live.state.matteragenEngines) {
         let enginesChanged = false;
         for (const engine of Object.values(live.state.matteragenEngines)) {
-          if (engine.isReady) continue; // Stops past a singular yield until collected
-          const interval = getMatteragenEffectiveIntervalMs(engine.typeId, engine.level || 1);
+          if (engine.isReady) continue; // Stops past a singular yield until claimed
+          const interval = getEffectiveMatteragenIntervalMs(engine.typeId, engine.level || 1);
           if (now - (engine.lastHarvestMs || engine.placedAtMs || now) >= interval) {
             engine.isReady = true;
             engine.storedDrops = rollMatteragenYield(engine.typeId, engine.level || 1);
@@ -4238,6 +4201,186 @@ export class AuthoritativeWorldStore {
     return { fluidUpdates, fishingBites, fishingTimeouts, fishingStates, completedFurnaces, completedEngines, expiredMines };
   }
 
+  claimMatteragenEngine(
+    account: PlayerAccount,
+    worldName: string,
+    tx: number,
+    ty: number
+  ):
+    | {
+        ok: true;
+        notice: string;
+        worldXpUpdate?: { worldXp: number; worldLevel: number; coreTokens: number; leveledUp: boolean } | null;
+      }
+    | { ok: false; message: string } {
+    const live = this.worlds.get(worldName);
+    if (!live) return { ok: false, message: 'World not found.' };
+    const key = `${tx},${ty}`;
+    const engine = live.state.matteragenEngines?.[key];
+    if (!engine) return { ok: false, message: 'Matteragen Engine not found.' };
+    if (
+      live.state.worldLock &&
+      live.state.worldLock.ownerId !== account.id &&
+      !live.state.worldLock.editors.includes(account.id) &&
+      account.role !== 'admin'
+    ) {
+      return { ok: false, message: 'Only the world owner or editors can claim engine yields.' };
+    }
+    if (!engine.isReady || !engine.storedDrops || engine.storedDrops.length === 0) {
+      return { ok: false, message: 'Yield is not ready yet.' };
+    }
+
+    const unclaimed: { itemId: number; count: number }[] = [];
+    let totalClaimed = 0;
+    for (const drop of engine.storedDrops) {
+      const res = this.addInventoryPartial(account, drop.itemId, drop.count);
+      totalClaimed += res.added;
+      if (res.remaining > 0) {
+        unclaimed.push({ itemId: drop.itemId, count: res.remaining });
+      }
+    }
+
+    if (totalClaimed === 0) {
+      return {
+        ok: false,
+        message: 'Backpack full (20/20 slots) or item stacks maxed at 500/500. Clear space to claim yield.',
+      };
+    }
+
+    const engLevel = Math.max(1, engine.level || 1);
+    const branchTier: 1 | 2 | 3 | 4 | 5 =
+      engine.typeId === ITEM_IDS.MATTERAGEN_COSMIC
+        ? 5
+        : engine.typeId === ITEM_IDS.MATTERAGEN_ARCANE
+          ? 4
+          : engine.typeId === ITEM_IDS.MATTERAGEN_LUMINESCENT
+            ? 3
+            : engine.typeId === ITEM_IDS.MATTERAGEN_GEOMINERAL
+              ? 2
+              : 1;
+
+    if (unclaimed.length > 0) {
+      engine.storedDrops = unclaimed;
+      live.state.revision += 1;
+      live.dirty = true;
+      this.saveWorld(live);
+      this.savePlayer(account);
+      return {
+        ok: true,
+        notice: `Claimed ${totalClaimed} blocks (${unclaimed.reduce((s, d) => s + d.count, 0)} remaining — free Backpack space).`,
+      };
+    }
+
+    const now = Date.now();
+    const xpGain = 15 * engLevel;
+    const gemBonus = 10 * engLevel;
+    account.gems += gemBonus;
+    const leveled = addXp(account.level, account.xp, xpGain);
+    account.level = leveled.level;
+    account.xp = leveled.xp;
+    const remote = live.players.get(account.id);
+    if (remote) remote.level = account.level;
+
+    const farmMasteryGain = Math.max(6, branchTier * 8);
+    const mRes = addMasteryXp(account.farmablockMasteryLevel, account.farmablockMasteryXp, farmMasteryGain);
+    account.farmablockMasteryLevel = mRes.level;
+    account.farmablockMasteryXp = mRes.xp;
+
+    const tokenEarned = this.tryAwardCoreToken(live, account, {
+      kind: 'matteragen_harvest',
+      branchTier,
+      level: engLevel,
+    });
+    const worldXpUpdate = this.awardWorldXp(live, account, 10 * engLevel);
+
+    engine.isReady = false;
+    engine.storedDrops = [];
+    engine.lastHarvestMs = now;
+    live.state.revision += 1;
+    live.dirty = true;
+    this.saveWorld(live);
+    this.savePlayer(account);
+    const eDef = getItemDef(engine.typeId);
+    const notice = `Claimed ${totalClaimed} blocks & +${gemBonus} Gems from ${eDef?.name ?? 'Engine'}${tokenEarned ? ' (+1 Core Token!)' : ''}!`;
+    return { ok: true, notice, worldXpUpdate };
+  }
+
+  unlockWorldCoreFurnace(
+    account: PlayerAccount,
+    worldName: string
+  ):
+    | {
+        ok: true;
+        tx: number;
+        ty: number;
+        coreTokens: number;
+        notice: string;
+      }
+    | { ok: false; message: string } {
+    const live = this.worlds.get(worldName);
+    if (!live) return { ok: false, message: 'World not found.' };
+    if (!live.state.worldLock) {
+      return { ok: false, message: 'WorldCore Expansion requires an owned realm.' };
+    }
+    if (live.state.worldLock.ownerId !== account.id && account.role !== 'admin') {
+      return { ok: false, message: 'Only the World Owner can unlock WorldCore Expansions.' };
+    }
+    const worldLevel = Math.max(1, Math.floor(Number(live.state.worldLevel ?? 1)));
+    if (worldLevel < 5) {
+      return { ok: false, message: 'WorldCore Expansion unlocks at World Level 5.' };
+    }
+    if (live.state.hasFurnaceExpansion) {
+      return { ok: false, message: 'Furnace Expansion is already unlocked in this world.' };
+    }
+
+    const dbCost = 2500;
+    const tokenCost = 3;
+    const curDb = Math.max(0, Math.floor(Number(account.alterbits ?? 0)));
+    const curTokens = Math.max(0, Math.floor(Number(live.state.coreTokens ?? 0)));
+    if (curDb < dbCost) {
+      return { ok: false, message: `Need ${dbCost.toLocaleString()} Digibits (you have ${curDb.toLocaleString()}).` };
+    }
+    if (curTokens < tokenCost) {
+      return { ok: false, message: `Need ${tokenCost} Core Tokens (WorldCore has ${curTokens}).` };
+    }
+
+    const coreX = live.state.worldLock.x;
+    const coreY = live.state.worldLock.y;
+    const fTx = coreX;
+    const fTy = Math.max(1, coreY - 1);
+    const fIdx = tileIndexIn(live.state, fTx, fTy);
+    const fKey = `${fTx},${fTy}`;
+
+    account.alterbits = curDb - dbCost;
+    live.state.coreTokens = curTokens - tokenCost;
+    live.state.hasFurnaceExpansion = true;
+    live.state.fg[fIdx] = ITEM_IDS.AIR;
+    if (live.state.plants[fKey]) delete live.state.plants[fKey];
+    live.state.bg[fIdx] = ITEM_IDS.STONE_FURNACE;
+    live.state.furnaces = live.state.furnaces ?? {};
+    live.state.furnaces[fKey] = {
+      x: fTx,
+      y: fTy,
+      ownerId: live.state.worldLock.ownerId,
+      recipeId: null,
+      startedAt: null,
+      finishesAt: null,
+      readyOutputItemId: 0,
+      readyOutputQty: 0,
+    };
+    live.state.revision += 1;
+    live.dirty = true;
+    this.saveWorld(live);
+    this.savePlayer(account);
+    return {
+      ok: true,
+      tx: fTx,
+      ty: fTy,
+      coreTokens: live.state.coreTokens,
+      notice: `WorldCore Expansion unlocked! Interactive Furnace spawned above WorldCore at (${fTx}, ${fTy}).`,
+    };
+  }
+
   upgradeMatteragenEngine(
     account: PlayerAccount,
     worldName: string,
@@ -4265,224 +4408,19 @@ export class AuthoritativeWorldStore {
     if (availableTokens < cost) {
       return {
         ok: false,
-        message: `Requires ${cost} Core Tokens (World has ${availableTokens}).`,
+        message: `Upgrading to Level ${engine.level + 1} requires ${cost} Core Tokens from WorldCore Storage. (World has ${availableTokens} Core Tokens)`,
       };
     }
     live.state.coreTokens = availableTokens - cost;
     engine.level += 1;
     live.state.revision += 1;
     live.dirty = true;
-    this.saveWorld(live, true);
-    const totalReductionPct = (engine.level - 1) * 5;
+    this.saveWorld(live);
     return {
       ok: true,
       level: engine.level,
       coreTokens: live.state.coreTokens,
-      notice: `Upgraded to Lv.${engine.level} (-${totalReductionPct}% production time)!`,
-    };
-  }
-
-  claimMatteragenEngine(
-    account: PlayerAccount,
-    worldName: string,
-    tx: number,
-    ty: number
-  ):
-    | {
-        ok: true;
-        partial: boolean;
-        engine: MatteragenRecord;
-        claimedItems: Array<{ itemId: number; qty: number }>;
-        worldXpUpdate?: { worldXp: number; worldLevel: number; coreTokens: number; leveledUp: boolean } | null;
-        notice: string;
-      }
-    | { ok: false; message: string } {
-    const live = this.worlds.get(worldName);
-    if (!live) return { ok: false, message: 'World not found.' };
-    const key = `${tx},${ty}`;
-    const engine = live.state.matteragenEngines?.[key];
-    if (!engine) return { ok: false, message: 'Matteragen Engine not found.' };
-
-    if (account.role !== 'admin' && !hasEditPermission(live.state, account.id, tx, ty, 'interact')) {
-      return { ok: false, message: 'You do not have permission to claim this Matteragen Engine.' };
-    }
-    if (!engine.isReady || !engine.storedDrops || engine.storedDrops.length === 0) {
-      return { ok: false, message: 'Matteragen Engine yield is not ready yet.' };
-    }
-
-    const claimedItems: Array<{ itemId: number; qty: number }> = [];
-    let totalClaimed = 0;
-
-    for (const drop of engine.storedDrops) {
-      if (drop.count <= 0) continue;
-      const fit = this.addInventoryPartial(account, drop.itemId, drop.count);
-      if (fit > 0) {
-        drop.count -= fit;
-        totalClaimed += fit;
-        claimedItems.push({ itemId: drop.itemId, qty: fit });
-      }
-    }
-
-    engine.storedDrops = engine.storedDrops.filter((d) => d.count > 0);
-    if (totalClaimed <= 0) {
-      return {
-        ok: false,
-        message: `Backpack full (20/20 slots or ${MAX_STACK_SIZE} stack cap). Clear space to claim yield.`,
-      };
-    }
-
-    const now = Date.now();
-    if (engine.storedDrops.length > 0) {
-      // Partial claim: keep engine ready with remaining unclaimed drops
-      engine.isReady = true;
-      live.state.revision += 1;
-      live.dirty = true;
-      this.saveWorld(live, true);
-      this.savePlayer(account, true);
-      return {
-        ok: true,
-        partial: true,
-        engine,
-        claimedItems,
-        notice: `Claimed ${totalClaimed} blocks (Backpack full — clear space for remaining yield).`,
-      };
-    }
-
-    // Full claim: award XP, Gems, World XP, and restart production cycle
-    const engLevel = Math.max(1, engine.level || 1);
-    const xpGain = 15 * engLevel;
-    const gemBonus = 10 * engLevel;
-    account.gems += gemBonus;
-    const leveled = addXp(account.level, account.xp, xpGain);
-    account.level = leveled.level;
-    account.xp = leveled.xp;
-    const playerState = live.players.get(account.id);
-    if (playerState) playerState.level = account.level;
-
-    const branchTier: 1 | 2 | 3 | 4 | 5 =
-      engine.typeId === ITEM_IDS.MATTERAGEN_COSMIC
-        ? 5
-        : engine.typeId === ITEM_IDS.MATTERAGEN_ARCANE
-          ? 4
-          : engine.typeId === ITEM_IDS.MATTERAGEN_LUMINESCENT
-            ? 3
-            : engine.typeId === ITEM_IDS.MATTERAGEN_GEOMINERAL
-              ? 2
-              : 1;
-    const tokenEarned = this.tryAwardCoreToken(live, account, {
-      kind: 'matteragen_harvest',
-      branchTier,
-      level: engLevel,
-    });
-    const worldXpUpdate = this.awardWorldXp(live, account, 10 * engLevel);
-
-    engine.isReady = false;
-    engine.storedDrops = [];
-    engine.lastHarvestMs = now;
-    live.state.revision += 1;
-    live.dirty = true;
-    this.saveWorld(live, true);
-    this.savePlayer(account, true);
-
-    return {
-      ok: true,
-      partial: false,
-      engine,
-      claimedItems,
-      worldXpUpdate,
-      notice: `Claimed ${totalClaimed} blocks & +${gemBonus} Gems${tokenEarned ? ' (+1 Core Token!)' : ''}!`,
-    };
-  }
-
-  unlockWorldCoreFurnace(
-    live: LiveWorld,
-    account: PlayerAccount
-  ):
-    | {
-        ok: true;
-        tx: number;
-        ty: number;
-        furnace: FurnaceRecord;
-        coreTokens: number;
-        notice: string;
-      }
-    | { ok: false; message: string } {
-    if (!live.state.worldLock || live.state.worldLock.ownerId !== account.id) {
-      return { ok: false, message: 'Only the World Owner can unlock the WorldCore Smeltery Furnace.' };
-    }
-    const worldLvl = live.state.worldLevel ?? 1;
-    if (worldLvl < WORLDCORE_FURNACE_UNLOCK_LEVEL) {
-      return {
-        ok: false,
-        message: `Requires World Level ${WORLDCORE_FURNACE_UNLOCK_LEVEL} (currently Lv. ${worldLvl}).`,
-      };
-    }
-    if (live.state.hasWorldCoreFurnace) {
-      return { ok: false, message: 'WorldCore Smeltery Furnace is already unlocked.' };
-    }
-    const availableDb = Math.max(0, Math.floor(Number(account.alterbits ?? 0)));
-    if (availableDb < WORLDCORE_FURNACE_DIGIBIT_COST) {
-      return {
-        ok: false,
-        message: `Requires ${WORLDCORE_FURNACE_DIGIBIT_COST} Digibits (you have ${availableDb} DB).`,
-      };
-    }
-    const availableTokens = Math.max(0, Math.floor(Number(live.state.coreTokens ?? 0)));
-    if (availableTokens < WORLDCORE_FURNACE_TOKEN_COST) {
-      return {
-        ok: false,
-        message: `Requires ${WORLDCORE_FURNACE_TOKEN_COST} Core Tokens (WorldCore has ${availableTokens}).`,
-      };
-    }
-
-    account.alterbits = availableDb - WORLDCORE_FURNACE_DIGIBIT_COST;
-    live.state.coreTokens = availableTokens - WORLDCORE_FURNACE_TOKEN_COST;
-
-    const coreX = live.state.worldLock.x;
-    const coreY = live.state.worldLock.y;
-    const fx = coreX + 1;
-    const fy = Math.max(1, coreY - 1);
-    const idx = tileIndexIn(live.state, fx, fy);
-    const prevBg = live.state.bg[idx];
-    if (
-      prevBg !== ITEM_IDS.BG_SKY &&
-      prevBg !== ITEM_IDS.GP_ROCK_BACKGROUND &&
-      prevBg !== ITEM_IDS.STONE_FURNACE
-    ) {
-      const added = this.addInventoryPartial(account, prevBg, 1);
-      if (added <= 0) {
-        account.overflowVault = account.overflowVault ?? [];
-        this.pushToOverflowVault(account.overflowVault, { itemId: prevBg, qty: 1 });
-      }
-    }
-
-    live.state.bg[idx] = ITEM_IDS.STONE_FURNACE;
-    live.state.hasWorldCoreFurnace = true;
-    live.state.coreFurnacePos = { x: fx, y: fy };
-    live.state.furnaces = live.state.furnaces ?? {};
-    const fRecord: FurnaceRecord = {
-      x: fx,
-      y: fy,
-      ownerId: account.id,
-      recipeId: null,
-      startedAt: null,
-      finishesAt: null,
-      readyOutputItemId: 0,
-      readyOutputQty: 0,
-    };
-    live.state.furnaces[`${fx},${fy}`] = fRecord;
-    live.state.revision += 1;
-    live.dirty = true;
-    this.saveWorld(live, true);
-    this.savePlayer(account, true);
-
-    return {
-      ok: true,
-      tx: fx,
-      ty: fy,
-      furnace: fRecord,
-      coreTokens: live.state.coreTokens,
-      notice: `Unlocked WorldCore Smeltery Furnace at (${fx}, ${fy})!`,
+      notice: `Upgraded to Level ${engine.level} (-5% cycle time) using ${cost} Core Tokens!`,
     };
   }
 
@@ -4537,11 +4475,14 @@ export class AuthoritativeWorldStore {
   ):
     | { ok: true; targetX: number; targetY: number; remote: RemotePlayerState; notice: string }
     | { ok: false; message: string } {
+    if (live.state.name === 'NEXUS') {
+      return { ok: false, message: 'Use the NEXUS Gateway menu to choose a destination.' };
+    }
     const playerState = live.players.get(account.id);
     if (!playerState) return { ok: false, message: 'Player not in world.' };
     const link = live.state.doorLinks?.[`${tx},${ty}`];
     if (!link) {
-      return { ok: false, message: 'This Doorway is not linked yet. Use a Tinker Wrench to link target coordinates.' };
+      return { ok: false, message: 'This Doorway is not linked yet. Use a Tinker Wrench to configure target coordinates.' };
     }
     if (!inBoundsWorld(live.state, link.targetX, link.targetY)) {
       return { ok: false, message: 'Linked destination is out of bounds.' };

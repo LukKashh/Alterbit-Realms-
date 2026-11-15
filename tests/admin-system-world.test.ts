@@ -46,14 +46,14 @@ test('System worlds reject regular player edits but allow adminWorldEdit modific
   }
 });
 
-test('Seediary recipes resolve cleanly to valid catalogue items', () => {
-  assert.ok(SPLICE_RECIPES.length > 0);
-  for (const recipe of SPLICE_RECIPES) {
-    const seedA = getItemDef(recipe.seedA);
-    const seedB = getItemDef(recipe.seedB);
-    const result = CATALOG[recipe.resultSeedId];
-    assert.ok(seedA && seedA.name, `Missing Seed A definition for ${recipe.seedA}`);
-    assert.ok(seedB && seedB.name, `Missing Seed B definition for ${recipe.seedB}`);
-    assert.ok(result && result.name, `Missing Result definition for ${recipe.resultSeedId}`);
+test('Seediary splicing is retired and active Crop & Farmable seeds resolve cleanly to valid catalogue items', () => {
+  assert.equal(SPLICE_RECIPES.length, 0);
+  const activeSeeds = Object.values(CATALOG).filter((item) => item.category === 'seed');
+  assert.ok(activeSeeds.length > 0);
+  for (const seed of activeSeeds) {
+    assert.ok(seed.name, `Missing name for seed ${seed.id}`);
+    if (seed.producesTileId !== undefined) {
+      assert.ok(getItemDef(seed.producesTileId), `Missing producesTileId for seed ${seed.id}`);
+    }
   }
 });

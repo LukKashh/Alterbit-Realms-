@@ -397,16 +397,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   return (
     <div
       data-testid="admin-catalog-panel"
-      className="flex flex-col h-full w-full bg-[#161514] text-[#F5F3EE] select-none overflow-hidden"
+      className="flex flex-col h-full w-full bg-transparent text-[#091e3a] select-none overflow-hidden rounded-[8px]"
     >
       {/* Top Header Bar: Title + SysEdit Bypass + Quick Admin Actions */}
-      <div className="px-3 py-2 bg-[#1E1C1A] border-b border-[#2C2A28] flex flex-wrap items-center justify-between gap-2 shrink-0">
+      <div className="px-3 py-2 bg-[#c4e0f8]/60 border-b-2 border-[#2c5885] flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2">
-          <Shield size={15} className="text-[#D97757]" />
-          <span className="text-xs font-bold uppercase tracking-wider text-[#F5F3EE]">
+          <Shield size={15} className="text-[#c2410c]" />
+          <span className="text-xs font-bold uppercase tracking-wider text-[#091e3a]">
             Game Item Catalogue
           </span>
-          <span className="text-[10px] font-mono text-[#A39E93]">
+          <span className="text-[10px] font-mono text-[#23476d]">
             ({filteredItems.length}/{allItems.length})
           </span>
         </div>
@@ -418,10 +418,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             data-testid="admin-sysedit-toggle"
             onClick={() => onToggleAdminWorldEdit?.(!adminWorldEdit, adminBrushItemId)}
             title="Bypass world ownership & lock restrictions to edit any world freely"
-            className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border transition-colors flex items-center gap-1 cursor-pointer ${
+            className={`px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase tracking-wider border transition-colors flex items-center gap-1 cursor-pointer ${
               adminWorldEdit
-                ? 'bg-[#D97757]/20 text-[#D97757] border-[#D97757]/50'
-                : 'bg-[#242220] text-[#A39E93] border-[#383532] hover:text-white'
+                ? 'bg-[#fed7aa] text-[#9a3412] border-[#c2410c]'
+                : 'bg-white/80 text-[#091e3a] border-[#4172a3] hover:bg-white'
             }`}
           >
             <Wand2 size={11} />
@@ -434,7 +434,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               type="button"
               data-testid="admin-undo-batch-btn"
               onClick={handleUndoLastBatch}
-              className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-[#E5B869]/15 text-[#E5B869] border border-[#E5B869]/40 hover:bg-[#E5B869]/25 flex items-center gap-1 cursor-pointer"
+              className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase tracking-wider bg-[#fef3c7]/90 text-[#92400e] border border-[#b45309] hover:bg-[#fde68a] flex items-center gap-1 cursor-pointer"
               title="Undo last item or batch property update"
             >
               <Undo2 size={11} />
@@ -449,7 +449,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               onAdminAction?.({ action: 'grant_gems', gems: 500 });
               showToast('Granted +500 Gems');
             }}
-            className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-[#242220] text-[#E5B869] border border-[#383532] hover:border-[#E5B869]/50 cursor-pointer"
+            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase bg-white/80 text-[#92400e] border border-[#b45309] hover:bg-[#fef3c7] cursor-pointer"
           >
             +500G
           </button>
@@ -461,7 +461,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               onAdminAction?.({ action: 'grow_all_trees' });
               showToast(`Matured all plants in ${worldName ?? 'world'}`);
             }}
-            className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-[#242220] text-[#8CD99E] border border-[#383532] hover:border-[#8CD99E]/50 cursor-pointer"
+            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase bg-white/80 text-[#047857] border border-[#16a34a] hover:bg-[#dcfce7] cursor-pointer"
           >
             Grow
           </button>
@@ -474,7 +474,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               onAdminAction?.({ action: 'rebuild_nexus' });
               showToast('Rebuilt NEXUS hub to latest Sci-Fi deck layout');
             }}
-            className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-[#242220] text-[#78A9FF] border border-[#383532] hover:border-[#78A9FF]/50 flex items-center gap-1 cursor-pointer"
+            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase tracking-wider bg-white/80 text-[#0369a1] border border-[#0284c7] hover:bg-[#dbeafe] flex items-center gap-1 cursor-pointer"
             title="Re-stamp NEXUS Sci-Fi Floating Platform layout without wiping player worlds"
           >
             <RefreshCw size={10} />
@@ -489,7 +489,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               onAdminAction?.({ action: 'clear_inventory' });
               showToast('Cleared inventory (retained Fist & Wrench)');
             }}
-            className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-[#242220] text-[#E56B6F] border border-[#383532] hover:border-[#E56B6F]/50 flex items-center gap-1 cursor-pointer"
+            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase tracking-wider bg-white/80 text-[#b91c1c] border border-[#dc2626] hover:bg-[#fee2e2] flex items-center gap-1 cursor-pointer"
             title="Clear all items from your Backpack (retains Fist and Tinker Wrench)"
           >
             <Trash2 size={10} />
@@ -499,7 +499,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-[#A39E93] hover:text-white rounded cursor-pointer"
+            className="p-1 text-[#23476d] hover:text-[#091e3a] rounded-[6px] cursor-pointer"
             title="Close Catalogue"
           >
             <X size={15} />
@@ -509,12 +509,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Status Toast */}
       {statusToast && (
-        <div className="px-3 py-1.5 bg-[#5C9E6B]/20 border-b border-[#5C9E6B]/40 text-[#8CD99E] text-[11px] font-medium flex items-center justify-between shrink-0">
+        <div className="px-3 py-1.5 bg-[#dcfce7] border-b border-[#16a34a] text-[#14532d] text-[11px] font-medium flex items-center justify-between shrink-0">
           <span>{statusToast}</span>
           <button
             type="button"
             onClick={() => setStatusToast(null)}
-            className="text-[#8CD99E]/70 hover:text-white"
+            className="text-[#14532d]/70 hover:text-[#0f172a]"
           >
             <X size={12} />
           </button>
@@ -522,23 +522,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* Search Bar & Multi-Select Toggle */}
-      <div className="p-2.5 bg-[#1A1817] border-b border-[#2C2A28] flex flex-col gap-2 shrink-0">
+      <div className="p-2.5 bg-[#d4e8fb]/45 border-b border-[#4172a3]/60 flex flex-col gap-2 shrink-0">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#A39E93]" />
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#23476d]" />
             <input
               data-testid="admin-catalog-search"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search items by name or ID..."
-              className="w-full pl-8 pr-7 py-1.5 bg-[#121110] border border-[#2C2A28] rounded-lg text-xs text-[#F5F3EE] placeholder-[#6E6A63] focus:outline-none focus:border-[#D97757]"
+              className="hud-input w-full pl-8 pr-7 py-1.5 text-xs"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[#A39E93] hover:text-white"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[#23476d] hover:text-[#091e3a]"
               >
                 <X size={12} />
               </button>
@@ -557,10 +557,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 setInspectedItemId(null);
               }
             }}
-            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-[8px] text-[11px] font-bold uppercase tracking-wider border transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer ${
               multiSelectMode
-                ? 'bg-[#D97757] text-[#161514] border-[#D97757]'
-                : 'bg-[#242220] text-[#F5F3EE] border-[#383532] hover:border-[#D97757]/60'
+                ? 'bg-[#c2410c] text-white border-[#9a3412]'
+                : 'bg-white/80 text-[#091e3a] border-[#4172a3] hover:border-[#0284c7]'
             }`}
           >
             <Check size={12} />
@@ -590,10 +590,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               type="button"
               data-testid={`admin-filter-${tab.id}`}
               onClick={() => setCategoryFilter(tab.id)}
-              className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap border transition-colors cursor-pointer ${
+              className={`px-2 py-0.5 rounded-[6px] text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap border transition-colors cursor-pointer ${
                 categoryFilter === tab.id
-                  ? 'bg-[#D97757]/20 text-[#D97757] border-[#D97757]/50'
-                  : 'bg-[#22201E] text-[#A39E93] border-[#2C2A28] hover:text-[#F5F3EE]'
+                  ? 'bg-[#0284c7] text-white border-[#164e7a]'
+                  : 'bg-white/75 text-[#23476d] border-[#4172a3] hover:text-[#091e3a]'
               }`}
             >
               {tab.label}
@@ -606,10 +606,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {multiSelectMode && (
         <div
           data-testid="admin-multiselect-bar"
-          className="px-3 py-2 bg-[#261D19] border-b border-[#D97757]/40 flex items-center justify-between gap-2 shrink-0"
+          className="px-3 py-2 bg-[#fef3c7]/90 border-b border-[#b45309] flex items-center justify-between gap-2 shrink-0"
         >
           <div className="flex items-center gap-2 text-xs">
-            <span className="font-bold text-[#D97757]">{selectedIds.size} selected</span>
+            <span className="font-bold text-[#92400e]">{selectedIds.size} selected</span>
             <button
               type="button"
               onClick={() => {
@@ -619,7 +619,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   return next;
                 });
               }}
-              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#2C2A28] text-[#F5F3EE] hover:bg-[#383532] cursor-pointer"
+              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-[6px] bg-white/90 border border-[#4172a3] text-[#091e3a] hover:bg-white cursor-pointer"
             >
               +Filtered ({filteredItems.length})
             </button>
@@ -627,7 +627,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedIds(new Set())}
-                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#2C2A28] text-[#A39E93] hover:text-white cursor-pointer"
+                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-[6px] bg-white/90 border border-[#4172a3] text-[#23476d] hover:text-[#091e3a] cursor-pointer"
               >
                 Clear
               </button>
@@ -640,10 +640,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               data-testid="admin-multiset-btn"
               disabled={selectedIds.size === 0}
               onClick={openMultiSetModal}
-              className={`px-3 py-1 rounded text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
+              className={`px-3 py-1 rounded-[7px] text-[11px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
                 selectedIds.size > 0
-                  ? 'bg-[#5C9E6B] text-[#161514] hover:bg-[#6DB57D]'
-                  : 'bg-[#2C2A28] text-[#6E6A63] cursor-not-allowed'
+                  ? 'bg-[#16a34a] text-white hover:bg-[#15803d]'
+                  : 'bg-[#b8d4ee] text-[#23476d] cursor-not-allowed'
               }`}
             >
               Multi Set ({selectedIds.size})
@@ -655,7 +655,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 setSelectedIds(new Set());
                 setMultiSelectMode(false);
               }}
-              className="px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wider bg-[#2C2A28] text-[#A39E93] hover:text-white cursor-pointer"
+              className="px-2.5 py-1 rounded-[7px] text-[11px] font-bold uppercase tracking-wider bg-white/85 border border-[#4172a3] text-[#23476d] hover:text-[#091e3a] cursor-pointer"
             >
               Cancel
             </button>
@@ -680,21 +680,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 data-testid={`admin-catalog-tile-${item.id}`}
                 onClick={() => handleTileTap(item)}
                 title={`${item.name} (#${item.id}) — Hits: ${item.hardness}, XP: ${item.xpValue ?? 1}, Gems: ${item.gemValue ?? 0}`}
-                className={`relative group flex flex-col items-center justify-center p-1.5 rounded-lg border transition-all cursor-pointer ${
+                className={`relative group flex flex-col items-center justify-center p-1.5 rounded-[8px] border transition-all cursor-pointer ${
                   isSelected
-                    ? 'bg-[#D97757]/25 border-[#D97757] ring-1 ring-[#D97757]'
+                    ? 'bg-[#fef3c7]/90 border-[#b45309] ring-1 ring-[#b45309]'
                     : isBrush
-                    ? 'bg-[#78A9FF]/20 border-[#78A9FF]'
-                    : 'bg-[#1E1C1A] border-[#2C2A28] hover:border-[#4A4642] hover:bg-[#252321]'
+                    ? 'bg-[#dbeafe]/90 border-[#0284c7]'
+                    : 'bg-white/75 border-[#4172a3] hover:border-[#0284c7] hover:bg-white/95'
                 }`}
               >
                 {/* Selection Checkmark Badge */}
                 {multiSelectMode && (
                   <div
-                    className={`absolute top-1 right-1 w-3.5 h-3.5 rounded flex items-center justify-center border ${
+                    className={`absolute top-1 right-1 w-3.5 h-3.5 rounded-[4px] flex items-center justify-center border ${
                       isSelected
-                        ? 'bg-[#D97757] border-[#D97757] text-[#161514]'
-                        : 'bg-[#121110]/80 border-[#4A4642]'
+                        ? 'bg-[#b45309] border-[#92400e] text-white'
+                        : 'bg-white/80 border-[#4172a3]'
                     }`}
                   >
                     {isSelected && <Check size={10} strokeWidth={3} />}
@@ -704,7 +704,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Admin Edited Dot */}
                 {isEdited && !multiSelectMode && (
                   <span
-                    className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#E5B869]"
+                    className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#b45309]"
                     title="Modified override active"
                   />
                 )}
@@ -716,11 +716,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     alt={item.name}
                     className="w-8 h-8 object-contain"
                     style={{ imageRendering: 'pixelated' }}
+                    referrerPolicy="no-referrer"
                   />
                 </div>
 
                 {/* Minimized 1-line truncated name */}
-                <span className="w-full text-[9px] leading-tight text-[#D5D1C8] truncate text-center mt-1 font-medium">
+                <span className="w-full text-[9px] leading-tight text-[#091e3a] truncate text-center mt-1 font-semibold">
                   {item.name}
                 </span>
               </button>
@@ -729,7 +730,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         {filteredItems.length === 0 && (
-          <div className="py-12 text-center text-xs text-[#6E6A63]">
+          <div className="py-12 text-center text-xs text-[#23476d]">
             No items match your current filter.
           </div>
         )}
@@ -739,28 +740,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {inspectedItem && !multiSelectMode && (
         <div
           data-testid="admin-single-inspector"
-          className="border-t border-[#383532] bg-[#1E1C1A] p-3 flex flex-col gap-2.5 max-h-[65%] overflow-y-auto shadow-2xl shrink-0"
+          className="border-t-2 border-[#2c5885] bg-[#dcecfb]/92 backdrop-blur-md p-3 flex flex-col gap-2.5 max-h-[65%] overflow-y-auto shadow-xl shrink-0"
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-10 h-10 rounded-lg bg-[#141312] border border-[#2C2A28] flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-[8px] bg-white/85 border border-[#4172a3] flex items-center justify-center shrink-0">
                 <img
                   src={getItemIconUrl(inspectedItem.id)}
                   alt={inspectedItem.name}
                   className="w-8 h-8 object-contain"
                   style={{ imageRendering: 'pixelated' }}
+                  referrerPolicy="no-referrer"
                 />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-[#F5F3EE] truncate">
+                  <span className="text-xs font-bold text-[#091e3a] truncate">
                     {inspectedItem.name}
                   </span>
-                  <span className="text-[10px] font-mono text-[#A39E93]">
+                  <span className="text-[10px] font-mono text-[#23476d]">
                     #{inspectedItem.id}
                   </span>
                 </div>
-                <div className="text-[10px] text-[#A39E93] uppercase tracking-wider">
+                <div className="text-[10px] text-[#23476d] uppercase tracking-wider">
                   {inspectedItem.category}
                   {inspectedItem.farmableTier ? ` · Farmable T${inspectedItem.farmableTier}` : ''}
                 </div>
@@ -779,7 +781,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   });
                   showToast(`Granted 50× ${inspectedItem.name}`);
                 }}
-                className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-[#5C9E6B]/20 text-[#8CD99E] border border-[#5C9E6B]/40 hover:bg-[#5C9E6B]/30 cursor-pointer"
+                className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase bg-[#dcfce7] text-[#14532d] border border-[#16a34a] hover:bg-[#bbf7d0] cursor-pointer"
               >
                 +50
               </button>
@@ -794,7 +796,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   showToast(`Deleted ${inspectedItem.name} slot from Backpack`);
                 }}
                 title="Delete this item's slot from your Backpack"
-                className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-[#E56B6F]/20 text-[#E56B6F] border border-[#E56B6F]/40 hover:bg-[#E56B6F]/30 cursor-pointer"
+                className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase bg-[#fee2e2] text-[#991b1b] border border-[#dc2626] hover:bg-[#fecaca] cursor-pointer"
               >
                 Del Slot
               </button>
@@ -805,14 +807,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   onToggleAdminWorldEdit?.(true, inspectedItem.id);
                   showToast(`SysEdit brush set to ${inspectedItem.name}`);
                 }}
-                className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-[#78A9FF]/20 text-[#78A9FF] border border-[#78A9FF]/40 hover:bg-[#78A9FF]/30 cursor-pointer"
+                className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase bg-[#dbeafe] text-[#0369a1] border border-[#0284c7] hover:bg-[#bfdbfe] cursor-pointer"
               >
                 Brush
               </button>
               <button
                 type="button"
                 onClick={() => setInspectedItemId(null)}
-                className="p-1 text-[#A39E93] hover:text-white cursor-pointer"
+                className="p-1 text-[#23476d] hover:text-[#091e3a] cursor-pointer"
               >
                 <X size={15} />
               </button>
@@ -822,7 +824,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {/* Core Numeric Properties */}
           <div className="grid grid-cols-4 gap-2">
             <div>
-              <label className="block text-[9px] uppercase text-[#A39E93] mb-0.5">
+              <label className="block text-[9px] uppercase text-[#23476d] font-semibold mb-0.5">
                 Hardness (Hits)
               </label>
               <input
@@ -831,17 +833,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 max={20}
                 value={editHardness}
                 onChange={(e) => setEditHardness(Number(e.target.value))}
-                className="w-full px-2 py-1 bg-[#121110] border border-[#2C2A28] rounded text-xs font-mono text-[#F5F3EE]"
+                className="hud-input w-full px-2 py-1 text-xs font-mono"
               />
             </div>
             <div>
-              <label className="block text-[9px] uppercase text-[#A39E93] mb-0.5">
+              <label className="block text-[9px] uppercase text-[#23476d] font-semibold mb-0.5">
                 Rarity
               </label>
               <select
                 value={editRarity}
                 onChange={(e) => setEditRarity(e.target.value as ItemRarity)}
-                className="w-full px-1.5 py-1 bg-[#121110] border border-[#2C2A28] rounded text-xs text-[#F5F3EE]"
+                className="hud-input w-full px-1.5 py-1 text-xs"
               >
                 <option value="common">Common</option>
                 <option value="uncommon">Uncommon</option>
@@ -850,7 +852,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-[9px] uppercase text-[#A39E93] mb-0.5">
+              <label className="block text-[9px] uppercase text-[#23476d] font-semibold mb-0.5">
                 XP Value
               </label>
               <input
@@ -859,11 +861,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 max={200}
                 value={editXp}
                 onChange={(e) => setEditXp(Number(e.target.value))}
-                className="w-full px-2 py-1 bg-[#121110] border border-[#2C2A28] rounded text-xs font-mono text-[#F5F3EE]"
+                className="hud-input w-full px-2 py-1 text-xs font-mono"
               />
             </div>
             <div>
-              <label className="block text-[9px] uppercase text-[#A39E93] mb-0.5">
+              <label className="block text-[9px] uppercase text-[#23476d] font-semibold mb-0.5">
                 Gem Drop
               </label>
               <input
@@ -872,14 +874,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 max={100}
                 value={editGems}
                 onChange={(e) => setEditGems(Number(e.target.value))}
-                className="w-full px-2 py-1 bg-[#121110] border border-[#2C2A28] rounded text-xs font-mono text-[#F5F3EE]"
+                className="hud-input w-full px-2 py-1 text-xs font-mono"
               />
             </div>
           </div>
 
           {inspectedItem.category === 'seed' && (
             <div>
-              <label className="block text-[9px] uppercase text-[#A39E93] mb-0.5">
+              <label className="block text-[9px] uppercase text-[#23476d] font-semibold mb-0.5">
                 Growth Time (Seconds)
               </label>
               <input
@@ -888,15 +890,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 max={3600}
                 value={editGrowthTimeSec}
                 onChange={(e) => setEditGrowthTimeSec(Number(e.target.value))}
-                className="w-32 px-2 py-1 bg-[#121110] border border-[#2C2A28] rounded text-xs font-mono text-[#F5F3EE]"
+                className="hud-input w-32 px-2 py-1 text-xs font-mono"
               />
             </div>
           )}
 
           {/* Drop Table & Search-by-Name Extra Item Adder */}
-          <div className="border-t border-[#2C2A28] pt-2">
+          <div className="border-t border-[#4172a3]/35 pt-2">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#A39E93]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#23476d]">
                 Drop Table ({editDrops.length})
               </span>
               <button
@@ -908,7 +910,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     { itemId: inspectedItem.id, chance: 0.125, minQty: 1, maxQty: 1 },
                   ]);
                 }}
-                className="text-[10px] text-[#E5B869] hover:underline cursor-pointer"
+                className="text-[10px] font-semibold text-[#92400e] hover:underline cursor-pointer"
               >
                 Set 12.5% Baseline
               </button>
@@ -920,7 +922,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 return (
                   <div
                     key={`${drop.itemId}-${idx}`}
-                    className="flex items-center gap-1.5 bg-[#141312] px-2 py-1 rounded border border-[#2C2A28] text-[11px]"
+                    className="flex items-center gap-1.5 bg-white/85 px-2 py-1 rounded-[7px] border border-[#4172a3] text-[11px]"
                   >
                     {dropItem && (
                       <img
@@ -928,12 +930,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         alt={dropItem.name}
                         className="w-4 h-4 object-contain"
                         style={{ imageRendering: 'pixelated' }}
+                        referrerPolicy="no-referrer"
                       />
                     )}
-                    <span className="flex-1 truncate text-[#F5F3EE]">
+                    <span className="flex-1 truncate text-[#091e3a]">
                       {dropItem ? dropItem.name : `ID #${drop.itemId}`}
                     </span>
-                    <label className="text-[9px] text-[#A39E93]">Chance</label>
+                    <label className="text-[9px] text-[#23476d]">Chance</label>
                     <input
                       type="number"
                       step="0.005"
@@ -946,9 +949,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           prev.map((d, i) => (i === idx ? { ...d, chance: val } : d))
                         );
                       }}
-                      className="w-14 px-1 py-0.5 bg-[#1E1C1A] border border-[#383532] rounded text-[10px] font-mono text-right"
+                      className="hud-input w-14 px-1 py-0.5 text-[10px] font-mono text-right"
                     />
-                    <label className="text-[9px] text-[#A39E93]">Max</label>
+                    <label className="text-[9px] text-[#23476d]">Max</label>
                     <input
                       type="number"
                       min={1}
@@ -962,14 +965,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           )
                         );
                       }}
-                      className="w-10 px-1 py-0.5 bg-[#1E1C1A] border border-[#383532] rounded text-[10px] font-mono text-right"
+                      className="hud-input w-10 px-1 py-0.5 text-[10px] font-mono text-right"
                     />
                     <button
                       type="button"
                       onClick={() =>
                         setEditDrops((prev) => prev.filter((_, i) => i !== idx))
                       }
-                      className="text-[#E56B6F] hover:text-red-400 p-0.5 cursor-pointer"
+                      className="text-[#dc2626] hover:text-[#991b1b] p-0.5 cursor-pointer"
                     >
                       <Trash2 size={12} />
                     </button>
@@ -983,7 +986,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="relative">
                 <Search
                   size={12}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 text-[#A39E93]"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 text-[#23476d]"
                 />
                 <input
                   data-testid="inspector-extra-drop-search"
@@ -991,13 +994,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   value={extraDropSearch}
                   onChange={(e) => setExtraDropSearch(e.target.value)}
                   placeholder="Add extra drop item: Search by name..."
-                  className="w-full pl-7 pr-6 py-1 bg-[#121110] border border-[#2C2A28] rounded text-[11px] text-[#F5F3EE] placeholder-[#6E6A63] focus:outline-none focus:border-[#D97757]"
+                  className="hud-input w-full pl-7 pr-6 py-1 text-[11px]"
                 />
                 {extraDropSearch && (
                   <button
                     type="button"
                     onClick={() => setExtraDropSearch('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[#A39E93]"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[#23476d]"
                   >
                     <X size={11} />
                   </button>
@@ -1005,7 +1008,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
 
               {extraDropSearch.trim().length > 0 && (
-                <div className="mt-1 grid grid-cols-3 gap-1 max-h-24 overflow-y-auto p-1 bg-[#121110] border border-[#2C2A28] rounded">
+                <div className="mt-1 grid grid-cols-3 gap-1 max-h-24 overflow-y-auto p-1 bg-white/90 border border-[#4172a3] rounded-[8px]">
                   {extraDropMatches.map((match) => (
                     <button
                       key={match.id}
@@ -1018,13 +1021,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         ]);
                         setExtraDropSearch('');
                       }}
-                      className="flex items-center gap-1.5 p-1 rounded hover:bg-[#242220] text-left text-[10px] truncate cursor-pointer"
+                      className="flex items-center gap-1.5 p-1 rounded-[6px] hover:bg-[#dbeafe] text-left text-[10px] text-[#091e3a] truncate cursor-pointer"
                     >
                       <img
                         src={getItemIconUrl(match.id)}
                         alt={match.name}
                         className="w-4 h-4 object-contain shrink-0"
                         style={{ imageRendering: 'pixelated' }}
+                        referrerPolicy="no-referrer"
                       />
                       <span className="truncate">{match.name}</span>
                     </button>
@@ -1035,11 +1039,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
 
           {/* Save / Reset Actions */}
-          <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#2C2A28]">
+          <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#4172a3]/35">
             <button
               type="button"
               onClick={handleResetSingleItem}
-              className="px-2.5 py-1 rounded text-[10px] font-bold uppercase bg-[#242220] text-[#A39E93] hover:text-white border border-[#383532] flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1 rounded-[7px] text-[10px] font-bold uppercase bg-white/80 text-[#23476d] hover:text-[#091e3a] border border-[#4172a3] flex items-center gap-1 cursor-pointer"
             >
               <RotateCcw size={11} />
               Reset Default
@@ -1048,7 +1052,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               type="button"
               data-testid="inspector-save-btn"
               onClick={handleSaveSingleItem}
-              className="px-4 py-1 rounded text-[11px] font-bold uppercase bg-[#D97757] text-[#161514] hover:bg-[#E68868] cursor-pointer"
+              className="px-4 py-1 rounded-[7px] text-[11px] font-bold uppercase bg-[#0284c7] text-white hover:bg-[#0369a1] cursor-pointer"
             >
               Save Changes
             </button>
@@ -1060,13 +1064,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {showBatchModal && (
         <div
           data-testid="admin-batch-modal"
-          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-[#091e3a]/40 backdrop-blur-[2px] flex items-center justify-center p-4"
         >
-          <div className="w-full max-w-md bg-[#1C1A18] border border-[#383532] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-4 py-3 bg-[#242220] border-b border-[#383532] flex items-center justify-between">
+          <div className="w-full max-w-md pixel-box !rounded-[12px] overflow-hidden flex flex-col max-h-[90vh] text-[#091e3a]">
+            <div className="pixel-box-header px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sliders size={15} className="text-[#D97757]" />
-                <span className="text-xs font-bold uppercase tracking-wider">
+                <Sliders size={15} className="text-[#c2410c]" />
+                <span className="text-xs font-bold uppercase tracking-wider text-[#091e3a]">
                   Multi Set Batch Editor ({selectedIds.size} Items)
                 </span>
               </div>
@@ -1076,7 +1080,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   setShowBatchModal(false);
                   setBatchConfirmPending(false);
                 }}
-                className="text-[#A39E93] hover:text-white cursor-pointer"
+                className="text-[#23476d] hover:text-[#091e3a] cursor-pointer"
               >
                 <X size={16} />
               </button>
@@ -1084,12 +1088,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             <div className="p-4 space-y-3 overflow-y-auto text-xs">
               {/* 1-Click Standard Baseline Preset */}
-              <div className="p-2.5 rounded-lg bg-[#26211B] border border-[#E5B869]/35 flex items-center justify-between gap-2">
+              <div className="p-2.5 rounded-[8px] bg-[#fef3c7]/90 border border-[#b45309] flex items-center justify-between gap-2">
                 <div>
-                  <div className="font-bold text-[#E5B869] text-[11px]">
+                  <div className="font-bold text-[#92400e] text-[11px]">
                     Standard Block Baseline Preset
                   </div>
-                  <div className="text-[10px] text-[#A39E93]">
+                  <div className="text-[10px] text-[#78350f]">
                     Sets 12.5% Self-Drop (1× own ID), 0 Gems, 1 XP
                   </div>
                 </div>
@@ -1097,7 +1101,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   type="button"
                   data-testid="batch-preset-baseline-btn"
                   onClick={applyStandardBaselinePreset}
-                  className="px-2.5 py-1.5 rounded bg-[#E5B869] text-[#161514] font-bold text-[10px] uppercase tracking-wider shrink-0 hover:bg-[#F0C77B] cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-[7px] bg-[#b45309] text-white font-bold text-[10px] uppercase tracking-wider shrink-0 hover:bg-[#92400e] cursor-pointer"
                 >
                   Apply Baseline
                 </button>
@@ -1106,13 +1110,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               {/* Per-Field Checkboxes */}
               <div className="space-y-2">
                 {/* Hardness */}
-                <div className="flex items-center justify-between gap-2 p-2 rounded bg-[#141312] border border-[#2C2A28]">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <div className="hud-subpanel flex items-center justify-between gap-2 p-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-[#091e3a]">
                     <input
                       type="checkbox"
                       checked={applyHardness}
                       onChange={(e) => setApplyHardness(e.target.checked)}
-                      className="accent-[#D97757]"
+                      className="accent-[#0284c7]"
                     />
                     <span className="font-semibold">Hardness (Hits to Break)</span>
                   </label>
@@ -1123,18 +1127,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     disabled={!applyHardness}
                     value={batchHardness}
                     onChange={(e) => setBatchHardness(Number(e.target.value))}
-                    className="w-20 px-2 py-1 bg-[#1E1C1A] border border-[#383532] rounded font-mono text-right disabled:opacity-40"
+                    className="hud-input w-20 px-2 py-1 font-mono text-right disabled:opacity-45"
                   />
                 </div>
 
                 {/* Rarity */}
-                <div className="flex items-center justify-between gap-2 p-2 rounded bg-[#141312] border border-[#2C2A28]">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <div className="hud-subpanel flex items-center justify-between gap-2 p-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-[#091e3a]">
                     <input
                       type="checkbox"
                       checked={applyRarity}
                       onChange={(e) => setApplyRarity(e.target.checked)}
-                      className="accent-[#D97757]"
+                      className="accent-[#0284c7]"
                     />
                     <span className="font-semibold">Rarity Tier</span>
                   </label>
@@ -1142,7 +1146,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     disabled={!applyRarity}
                     value={batchRarity}
                     onChange={(e) => setBatchRarity(e.target.value as ItemRarity)}
-                    className="w-24 px-1.5 py-1 bg-[#1E1C1A] border border-[#383532] rounded text-xs disabled:opacity-40"
+                    className="hud-input w-24 px-1.5 py-1 text-xs disabled:opacity-45"
                   >
                     <option value="common">Common</option>
                     <option value="uncommon">Uncommon</option>
@@ -1152,14 +1156,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
 
                 {/* XP Value */}
-                <div className="flex items-center justify-between gap-2 p-2 rounded bg-[#141312] border border-[#2C2A28]">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <div className="hud-subpanel flex items-center justify-between gap-2 p-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-[#091e3a]">
                     <input
                       data-testid="batch-apply-xp"
                       type="checkbox"
                       checked={applyXp}
                       onChange={(e) => setApplyXp(e.target.checked)}
-                      className="accent-[#D97757]"
+                      className="accent-[#0284c7]"
                     />
                     <span className="font-semibold">XP Value</span>
                   </label>
@@ -1171,19 +1175,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     disabled={!applyXp}
                     value={batchXp}
                     onChange={(e) => setBatchXp(Number(e.target.value))}
-                    className="w-20 px-2 py-1 bg-[#1E1C1A] border border-[#383532] rounded font-mono text-right disabled:opacity-40"
+                    className="hud-input w-20 px-2 py-1 font-mono text-right disabled:opacity-45"
                   />
                 </div>
 
                 {/* Gem Value */}
-                <div className="flex items-center justify-between gap-2 p-2 rounded bg-[#141312] border border-[#2C2A28]">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <div className="hud-subpanel flex items-center justify-between gap-2 p-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-[#091e3a]">
                     <input
                       data-testid="batch-apply-gems"
                       type="checkbox"
                       checked={applyGems}
                       onChange={(e) => setApplyGems(e.target.checked)}
-                      className="accent-[#D97757]"
+                      className="accent-[#0284c7]"
                     />
                     <span className="font-semibold">Gem Drop Value</span>
                   </label>
@@ -1195,32 +1199,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     disabled={!applyGems}
                     value={batchGems}
                     onChange={(e) => setBatchGems(Number(e.target.value))}
-                    className="w-20 px-2 py-1 bg-[#1E1C1A] border border-[#383532] rounded font-mono text-right disabled:opacity-40"
+                    className="hud-input w-20 px-2 py-1 font-mono text-right disabled:opacity-45"
                   />
                 </div>
 
                 {/* Drop Table (Per-Item Self-Drop + Optional Extra Drops) */}
-                <div className="p-2.5 rounded bg-[#141312] border border-[#2C2A28] space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <div className="hud-subpanel p-2.5 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer text-[#091e3a]">
                     <input
                       data-testid="batch-apply-drops"
                       type="checkbox"
                       checked={applyDrops}
                       onChange={(e) => setApplyDrops(e.target.checked)}
-                      className="accent-[#D97757]"
+                      className="accent-[#0284c7]"
                     />
                     <span className="font-semibold">Overwrite Drop Table</span>
                   </label>
 
                   {applyDrops && (
-                    <div className="pl-5 space-y-2 pt-1 border-t border-[#2C2A28]">
+                    <div className="pl-5 space-y-2 pt-1 border-t border-[#4172a3]/35">
                       <div className="flex items-center justify-between gap-2">
-                        <label className="flex items-center gap-1.5 text-[11px] text-[#D5D1C8]">
+                        <label className="flex items-center gap-1.5 text-[11px] text-[#091e3a]">
                           <input
                             type="checkbox"
                             checked={batchSelfDropMode}
                             onChange={(e) => setBatchSelfDropMode(e.target.checked)}
-                            className="accent-[#5C9E6B]"
+                            className="accent-[#16a34a]"
                           />
                           Per-Item Self-Drop (Own ID)
                         </label>
@@ -1233,9 +1237,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             disabled={!batchSelfDropMode}
                             value={batchSelfDropChance}
                             onChange={(e) => setBatchSelfDropChance(Number(e.target.value))}
-                            className="w-16 px-1.5 py-0.5 bg-[#1E1C1A] border border-[#383532] rounded text-[11px] font-mono text-right"
+                            className="hud-input w-16 px-1.5 py-0.5 text-[11px] font-mono text-right"
                           />
-                          <span className="text-[10px] text-[#A39E93]">chance</span>
+                          <span className="text-[10px] text-[#23476d]">chance</span>
                         </div>
                       </div>
 
@@ -1247,9 +1251,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             return (
                               <div
                                 key={`${d.itemId}-${i}`}
-                                className="flex items-center justify-between bg-[#1E1C1A] px-2 py-1 rounded text-[10px]"
+                                className="flex items-center justify-between bg-white/85 border border-[#4172a3] px-2 py-1 rounded-[7px] text-[10px]"
                               >
-                                <span className="truncate">{it?.name || `#${d.itemId}`}</span>
+                                <span className="truncate text-[#091e3a]">{it?.name || `#${d.itemId}`}</span>
                                 <div className="flex items-center gap-1">
                                   <input
                                     type="number"
@@ -1265,7 +1269,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                         )
                                       );
                                     }}
-                                    className="w-12 px-1 bg-[#121110] border border-[#383532] rounded font-mono text-right"
+                                    className="hud-input w-12 px-1 font-mono text-right"
                                   />
                                   <button
                                     type="button"
@@ -1274,7 +1278,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                         prev.filter((_, idx) => idx !== i)
                                       )
                                     }
-                                    className="text-[#E56B6F]"
+                                    className="text-[#dc2626]"
                                   >
                                     <Trash2 size={11} />
                                   </button>
@@ -1292,10 +1296,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           value={batchDropSearch}
                           onChange={(e) => setBatchDropSearch(e.target.value)}
                           placeholder="Add shared extra drop by name..."
-                          className="w-full px-2 py-1 bg-[#1E1C1A] border border-[#383532] rounded text-[10px] text-[#F5F3EE]"
+                          className="hud-input w-full px-2 py-1 text-[10px]"
                         />
                         {batchDropSearch.trim().length > 0 && (
-                          <div className="mt-1 grid grid-cols-2 gap-1 max-h-24 overflow-y-auto p-1 bg-[#121110] border border-[#2C2A28] rounded">
+                          <div className="mt-1 grid grid-cols-2 gap-1 max-h-24 overflow-y-auto p-1 bg-white/90 border border-[#4172a3] rounded-[8px]">
                             {batchDropMatches.map((m) => (
                               <button
                                 key={m.id}
@@ -1307,13 +1311,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   ]);
                                   setBatchDropSearch('');
                                 }}
-                                className="flex items-center gap-1 p-1 rounded hover:bg-[#242220] text-left text-[10px] truncate cursor-pointer"
+                                className="flex items-center gap-1 p-1 rounded-[6px] hover:bg-[#dbeafe] text-left text-[10px] text-[#091e3a] truncate cursor-pointer"
                               >
                                 <img
                                   src={getItemIconUrl(m.id)}
                                   alt={m.name}
                                   className="w-3.5 h-3.5 object-contain"
                                   style={{ imageRendering: 'pixelated' }}
+                                  referrerPolicy="no-referrer"
                                 />
                                 <span className="truncate">{m.name}</span>
                               </button>
@@ -1328,12 +1333,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
               {/* Confirmation Summary Banner */}
               {batchConfirmPending && (
-                <div className="p-2.5 rounded-lg bg-[#D97757]/15 border border-[#D97757]/50 text-[11px] space-y-1">
-                  <div className="font-bold text-[#D97757] flex items-center gap-1.5">
+                <div className="p-2.5 rounded-[8px] bg-[#fef3c7]/90 border border-[#b45309] text-[11px] space-y-1">
+                  <div className="font-bold text-[#92400e] flex items-center gap-1.5">
                     <AlertTriangle size={13} />
                     Confirm Batch Update to {selectedIds.size} Selected Items?
                   </div>
-                  <div className="text-[#D5D1C8] text-[10px]">
+                  <div className="text-[#78350f] text-[10px]">
                     {[
                       applyHardness ? `Hardness = ${batchHardness}` : null,
                       applyRarity ? `Rarity = ${batchRarity}` : null,
@@ -1354,14 +1359,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               )}
             </div>
 
-            <div className="px-4 py-3 bg-[#242220] border-t border-[#383532] flex items-center justify-end gap-2">
+            <div className="px-4 py-3 bg-[#c4e0f8]/55 border-t border-[#2c5885] flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => {
                   setShowBatchModal(false);
                   setBatchConfirmPending(false);
                 }}
-                className="px-3 py-1.5 rounded text-xs font-bold uppercase bg-[#2C2A28] text-[#A39E93] hover:text-white cursor-pointer"
+                className="px-3 py-1.5 rounded-[8px] text-xs font-bold uppercase bg-white/85 border border-[#4172a3] text-[#23476d] hover:text-[#091e3a] cursor-pointer"
               >
                 Cancel
               </button>
@@ -1372,10 +1377,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   data-testid="batch-review-confirm-btn"
                   disabled={!anyBatchFieldChecked}
                   onClick={() => setBatchConfirmPending(true)}
-                  className={`px-4 py-1.5 rounded text-xs font-bold uppercase cursor-pointer ${
+                  className={`px-4 py-1.5 rounded-[8px] text-xs font-bold uppercase cursor-pointer ${
                     anyBatchFieldChecked
-                      ? 'bg-[#D97757] text-[#161514] hover:bg-[#E68868]'
-                      : 'bg-[#2C2A28] text-[#6E6A63] cursor-not-allowed'
+                      ? 'bg-[#0284c7] text-white hover:bg-[#0369a1]'
+                      : 'bg-[#b8d4ee] text-[#23476d] cursor-not-allowed'
                   }`}
                 >
                   Apply to {selectedIds.size} Items
@@ -1385,7 +1390,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   type="button"
                   data-testid="batch-execute-confirm-btn"
                   onClick={executeBatchUpdate}
-                  className="px-4 py-1.5 rounded text-xs font-bold uppercase bg-[#5C9E6B] text-[#161514] hover:bg-[#6DB57D] cursor-pointer"
+                  className="px-4 py-1.5 rounded-[8px] text-xs font-bold uppercase bg-[#16a34a] text-white hover:bg-[#15803d] cursor-pointer"
                 >
                   Confirm & Save ({selectedIds.size})
                 </button>

@@ -10,12 +10,14 @@ import {
   type FriendEntry,
   type FriendRequestEntry,
   type InventorySlot,
+  type PublicPlayerProfile,
   type UserRole,
   type WorldSummary,
 } from './game/network.ts';
 import { getItemDef, ITEM_IDS, type PlayerStatKey } from './game/catalog.ts';
-import { TILE_SIZE } from './game/constants.ts';
+import { DEFAULT_VIEW_SCALE, TILE_SIZE } from './game/constants.ts';
 import { cloneGameConfig, DEFAULT_GAME_CONFIG, type GameConfig } from './game/config.ts';
+import { sortInventorySlots } from './game/rules.ts';
 import type { EquippedWearables } from './game/pixelArt.ts';
 import { TitleScreen } from './components/TitleScreen.tsx';
 import { LoadingScreen } from './components/LoadingScreen.tsx';
@@ -33,6 +35,7 @@ import {
 type AppState = 'auth' | 'loading' | 'hub' | 'playing' | 'paused';
 
 const TOKEN_STORAGE_KEY = 'blockgrove_auth_token';
+const ZOOM_STORAGE_KEY = 'bg_player_zoom';
 
 function makeTxId(): string {
   return `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -86,7 +89,7 @@ export default function App() {
 
   const [playerId, setPlayerId] = useState<string>('');
   const [playerName, setPlayerName] = useState<string>('Explorer');
-  const [, setEmail] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
   const [role, setRole] = useState<UserRole>('player');
   const [worldName, setWorldName] = useState<string>('NEXUS');
   const [worldOwner, setWorldOwner] = useState<string | null>(null);
@@ -99,15 +102,15 @@ export default function App() {
   const [hasClaimedStarterLootbox, setHasClaimedStarterLootbox] = useState<boolean>(false);
   const [xp, setXp] = useState<number>(0);
   const [level, setLevel] = useState<number>(1);
-  const [cropMasteryLevel, setCropMasteryLevel] = useState<number>(1);
-  const [cropMasteryXp, setCropMasteryXp] = useState<number>(0);
-  const [farmablockMasteryLevel, setFarmablockMasteryLevel] = useState<number>(1);
-  const [farmablockMasteryXp, setFarmablockMasteryXp] = useState<number>(0);
-  const [overflowVault, setOverflowVault] = useState<InventorySlot[]>([]);
   const [worldXp, setWorldXp] = useState<number>(0);
   const [worldLevel, setWorldLevel] = useState<number>(1);
   const [worldCoreTokens, setWorldCoreTokens] = useState<number>(0);
-  const [hasWorldCoreFurnace, setHasWorldCoreFurnace] = useState<boolean>(false);
+  const [worldHasFurnaceExpansion, setWorldHasFurnaceExpansion] = useState<boolean>(false);
+  const [cropMasteryXp, setCropMasteryXp] = useState<number>(0);
+  const [cropMasteryLevel, setCropMasteryLevel] = useState<number>(1);
+  const [farmablockMasteryXp, setFarmablockMasteryXp] = useState<number>(0);
+  const [farmablockMasteryLevel, setFarmablockMasteryLevel] = useState<number>(1);
+  const [publicProfile, setPublicProfile] = useState<PublicPlayerProfile | null>(null);
   const [inventory, setInventory] = useState<InventorySlot[]>([
     { itemId: ITEM_IDS.FIST, qty: 1 },
     { itemId: ITEM_IDS.WRENCH, qty: 1 },
@@ -140,13 +143,24 @@ export default function App() {
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inspectInfo, setInspectInfo] = useState<TileInspectInfo | null>(null);
-  const [inspectedPlayer, setInspectedPlayer] = useState<import('./game/network.ts').RemotePlayerState | null>(null);
-  const [panelViewEnabled, setPanelViewEnabled] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean>(false);
   const [adminWorldEdit, setAdminWorldEdit] = useState<boolean>(false);
   const [adminBrushItemId, setAdminBrushItemId] = useState<number | null>(null);
+  const [viewZoom, setViewZoom] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem(ZOOM_STORAGE_KEY));
+      if (Number.isFinite(saved) && saved >= 0.75 && saved <= 2.25) {
+        return Math.round(saved * 100) / 100;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return DEFAULT_VIEW_SCALE;
+  });
+
+
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -157,25 +171,24 @@ export default function App() {
 
   const syncHotbarWithInventory = useCallback((inv: InventorySlot[]) => {
     setHotbarItemIds((prev) => {
-      const next = prev.length === 5 ? [...prev] : [...EMPTY_HOTBAR];
-      if (next[0] !== ITEM_IDS.FIST && next[0] !== ITEM_IDS.WRENCH) {
-        next[0] = ITEM_IDS.FIST;
+      const next = prev.slice(0, EMPTY_HOTBAR.length);
+      while (next.length < EMPTY_HOTBAR.length) {
+        next.push(ITEM_IDS.AIR);
       }
+      next[0] = prev[0] === ITEM_IDS.WRENCH ? ITEM_IDS.WRENCH : ITEM_IDS.FIST;
 
-      // Clear hotbar slots 2..5 if quantity dropped to 0 or item is FIST/WRENCH
+      // Clear hotbar quick slots 2..5 if quantity dropped to 0 or item ID was pruned from CATALOG
       for (let i = 1; i < next.length; i++) {
         const id = next[i];
         if (
-          id === ITEM_IDS.FIST ||
-          id === ITEM_IDS.WRENCH ||
-          (id !== ITEM_IDS.AIR &&
-            (!getItemDef(id) || !inv.some((s) => s.itemId === id && s.qty > 0)))
+          id !== ITEM_IDS.AIR &&
+          (!getItemDef(id) || !inv.some((s) => s.itemId === id && s.qty > 0))
         ) {
           next[i] = ITEM_IDS.AIR;
         }
       }
 
-      // Auto-populate empty slots 2..5 with newly acquired placeables, tools, or consumables
+      // Auto-populate empty quick slots 2..5 with newly acquired placeables, tools, or consumables
       for (const slot of inv) {
         if (slot.qty <= 0 || slot.itemId === ITEM_IDS.FIST || slot.itemId === ITEM_IDS.WRENCH) continue;
         const def = getItemDef(slot.itemId);
@@ -212,12 +225,13 @@ export default function App() {
       setHasClaimedStarterLootbox(Boolean(user.hasClaimedStarterLootbox));
       setXp(user.xp);
       setLevel(user.level);
-      setCropMasteryLevel(user.cropMasteryLevel ?? 1);
       setCropMasteryXp(user.cropMasteryXp ?? 0);
-      setFarmablockMasteryLevel(user.farmablockMasteryLevel ?? 1);
+      setCropMasteryLevel(user.cropMasteryLevel ?? 1);
       setFarmablockMasteryXp(user.farmablockMasteryXp ?? 0);
-      setOverflowVault(user.overflowVault ?? []);
-      const cleanInv = (user.inventory ?? []).filter((s) => Boolean(getItemDef(s.itemId)));
+      setFarmablockMasteryLevel(user.farmablockMasteryLevel ?? 1);
+      const cleanInv = sortInventorySlots(
+        (user.inventory ?? []).filter((s) => Boolean(getItemDef(s.itemId)))
+      );
       setInventory(cleanInv);
       syncHotbarWithInventory(cleanInv);
       setEquipped(user.equipped);
@@ -230,7 +244,13 @@ export default function App() {
       const buffs = user.activeBuffs ?? [];
       setActiveBuffs(buffs);
       setUnclaimedWl(user.unclaimedWl ?? 0);
-      engineRef.current?.setLocalIdentity(user.playerId, user.playerName, '#3f8fd9', user.equipped, user.role);
+      engineRef.current?.setLocalIdentity(
+        user.playerId,
+        user.playerName,
+        '#3f8fd9',
+        user.equipped,
+        user.role
+      );
       engineRef.current?.setActiveBuffs(buffs);
       if (user.role !== 'admin') {
         setAdminWorldEdit(false);
@@ -257,6 +277,15 @@ export default function App() {
       soundEngine.startMenuTheme();
     }
   }, [appState]);
+  useEffect(() => {
+    engineRef.current?.setPlayerZoomScale(viewZoom);
+    try {
+      localStorage.setItem(ZOOM_STORAGE_KEY, String(viewZoom));
+    } catch {
+      // ignore storage errors
+    }
+  }, [viewZoom]);
+
 
   const fetchWorldsList = useCallback(async () => {
     try {
@@ -314,21 +343,23 @@ export default function App() {
         socket.send({ type: 'plow_tile', tx, ty, ...(adminEdit ? { adminEdit: true } : {}) }),
       onPickupDrop: (dropId) => socket.send({ type: 'pickup_drop', dropId }),
       onInspectTile: (info) => setInspectInfo(info),
-      onInspectPlayer: (player) => setInspectedPlayer(player),
+      onInspectPlayer: (targetPlayerId) =>
+        socket.send({ type: 'inspect_player', targetPlayerId }),
       onCoordsChange: (tx, ty) => setCoords({ tx, ty }),
       onCastFishing: (tx, ty, rodItemId) =>
         socket.send({ type: 'cast_fishing', tx, ty, rodItemId }),
       onReelFishing: () => socket.send({ type: 'reel_fishing' }),
       onUseConsumable: (itemId) => socket.send({ type: 'use_consumable', itemId }),
       onUseDoor: (tx, ty) => socket.send({ type: 'use_door', tx, ty }),
+      onUseEntrancePortal: () => socket.send({ type: 'use_entrance_portal' }),
       onHazardHit: (hazard) =>
-        showToast(
-          hazard === 'acid'
-            ? 'Burned by Acid pool! Returned to Entrance Portal.'
-            : 'Hit Spikes! Returned to Entrance Portal.'
+        engineRef.current?.queuePlayerAnnouncement(
+          hazard === 'acid' ? 'Burned by Acid!' : 'Hit Spikes!',
+          'ruby'
         ),
     });
     engineRef.current = engine;
+    engine.setPlayerZoomScale(viewZoom);
     engine.setMode('title');
 
     let wasDisconnectedWhilePlaying = false;
@@ -353,11 +384,10 @@ export default function App() {
             alterbits: msg.alterbits ?? 0,
             xp: msg.xp,
             level: msg.level,
-            cropMasteryLevel: msg.cropMasteryLevel ?? 1,
             cropMasteryXp: msg.cropMasteryXp ?? 0,
-            farmablockMasteryLevel: msg.farmablockMasteryLevel ?? 1,
+            cropMasteryLevel: msg.cropMasteryLevel ?? 1,
             farmablockMasteryXp: msg.farmablockMasteryXp ?? 0,
-            overflowVault: msg.overflowVault ?? [],
+            farmablockMasteryLevel: msg.farmablockMasteryLevel ?? 1,
             inventory: msg.inventory,
             equipped: msg.equipped,
             stats: msg.stats,
@@ -400,7 +430,7 @@ export default function App() {
         case 'config_updated':
           setGameConfig(msg.gameConfig);
           engine.applyGameConfig(msg.gameConfig);
-          if (msg.notice) showToast(msg.notice);
+          if (msg.notice) engine.queuePlayerAnnouncement(msg.notice, 'info');
           break;
         case 'world_joined': {
           const isReconnectSameWorld =
@@ -410,14 +440,14 @@ export default function App() {
           setErrorMessage(null);
           if (!isReconnectSameWorld) {
             setInspectInfo(null);
-            setInspectedPlayer(null);
+            setPublicProfile(null);
           }
           setWorldName(msg.world.name);
           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
           setWorldXp(msg.world.worldXp ?? 0);
           setWorldLevel(msg.world.worldLevel ?? 1);
           setWorldCoreTokens(msg.world.coreTokens ?? 0);
-          setHasWorldCoreFurnace(Boolean(msg.world.hasWorldCoreFurnace));
+          setWorldHasFurnaceExpansion(Boolean(msg.world.hasFurnaceExpansion));
           setWorldKind(msg.world.worldKind ?? 'standard');
           setMineExpiresAt(msg.world.expiresAt ?? null);
           setFishingCast(null);
@@ -442,7 +472,7 @@ export default function App() {
             setPlayerCount(msg.players.length);
           }
           break;
-        case 'world_error':
+                        case 'world_error':
           if (modeRef.current === 'loading') {
             setAppState('hub');
             showToast(msg.message);
@@ -488,11 +518,6 @@ export default function App() {
             msg.vaultbox,
             msg.doorLink
           );
-          if (msg.bg === ITEM_IDS.STONE_FURNACE) {
-            setHasWorldCoreFurnace(true);
-            engine.getWorldState().hasWorldCoreFurnace = true;
-            engine.getWorldState().coreFurnacePos = { x: msg.tx, y: msg.ty };
-          }
           if (msg.worldLock !== undefined) {
             setWorldOwner(msg.worldLock?.ownerName ?? null);
           }
@@ -520,14 +545,15 @@ export default function App() {
           }
           setXp(msg.xp);
           setLevel(msg.level);
-          if (msg.cropMasteryLevel !== undefined) setCropMasteryLevel(msg.cropMasteryLevel);
-          if (msg.cropMasteryXp !== undefined) setCropMasteryXp(msg.cropMasteryXp);
-          if (msg.farmablockMasteryLevel !== undefined) setFarmablockMasteryLevel(msg.farmablockMasteryLevel);
-          if (msg.farmablockMasteryXp !== undefined) setFarmablockMasteryXp(msg.farmablockMasteryXp);
-          if (msg.overflowVault !== undefined) setOverflowVault(msg.overflowVault);
+          setCropMasteryXp(msg.cropMasteryXp ?? 0);
+          setCropMasteryLevel(msg.cropMasteryLevel ?? 1);
+          setFarmablockMasteryXp(msg.farmablockMasteryXp ?? 0);
+          setFarmablockMasteryLevel(msg.farmablockMasteryLevel ?? 1);
           setRole(msg.role);
           setEmail(msg.email);
-          const cleanInv = (msg.inventory ?? []).filter((s) => Boolean(getItemDef(s.itemId)));
+          const cleanInv = sortInventorySlots(
+            (msg.inventory ?? []).filter((s) => Boolean(getItemDef(s.itemId)))
+          );
           setInventory(cleanInv);
           syncHotbarWithInventory(cleanInv);
           setEquipped(msg.equipped);
@@ -541,7 +567,7 @@ export default function App() {
           setUnclaimedWl(msg.unclaimedWl ?? 0);
           engine.setLocalEquipped(msg.equipped);
           engine.setActiveBuffs(msg.activeBuffs ?? []);
-          if (msg.notice) showToast(msg.notice);
+          if (msg.notice) engine.queuePlayerAnnouncement(msg.notice, 'info');
           break;
         }
         case 'world_xp_updated':
@@ -552,12 +578,18 @@ export default function App() {
             if (typeof msg.coreTokens === 'number') {
               setWorldCoreTokens(msg.coreTokens);
             }
+            if (typeof msg.hasFurnaceExpansion === 'boolean') {
+              setWorldHasFurnaceExpansion(msg.hasFurnaceExpansion);
+            }
           }
+          break;
+        case 'player_profile':
+          setPublicProfile(msg.profile);
           break;
         case 'player_teleported':
           engine.teleportLocalPlayer(msg.tx, msg.ty);
           socket.updateLocalPose(engine.getLocalPose());
-          if (msg.notice) showToast(msg.notice);
+          if (msg.notice) engine.queuePlayerAnnouncement(msg.notice, 'info');
           break;
         case 'chat_message':
           setChatMessages((prev) => [...prev.slice(-39), msg.message]);
@@ -589,7 +621,7 @@ export default function App() {
           if (msg.playerId === playerIdRef.current) {
             soundEngine.fishingBite();
             setFishingBiting(true);
-            showToast('! Fish biting! Tap Reel Catch!');
+            engine.queuePlayerAnnouncement('! Fish biting! Tap Reel!', 'gold');
           }
           break;
         case 'fishing_ended':
@@ -600,9 +632,9 @@ export default function App() {
             setFishingProgress(0);
             setFishingLineTension(0.15);
             setFishingFightPattern('darting');
-                        if (msg.caughtName) {
+            if (msg.caughtName) {
               soundEngine.unlock();
-              showToast(`Caught ${msg.caughtName}!`);
+              engine.queuePlayerAnnouncement(`Caught ${msg.caughtName}!`, 'emerald');
             }
           }
           break;
@@ -809,15 +841,32 @@ export default function App() {
   const handleSelectItem = useCallback((itemId: number) => {
     setAdminBrushItemId(null);
     setSelectedItemId(itemId);
+    if (itemId === ITEM_IDS.WRENCH) {
+      setHotbarItemIds((prev) => (prev[0] === ITEM_IDS.WRENCH ? prev : [ITEM_IDS.WRENCH, ...prev.slice(1)]));
+    } else {
+      setHotbarItemIds((prev) => (prev[0] === ITEM_IDS.FIST ? prev : [ITEM_IDS.FIST, ...prev.slice(1)]));
+    }
     engineRef.current?.setAdminBrushItem(null);
     engineRef.current?.setSelectedItem(itemId);
     soundEngine.uiClick();
   }, []);
 
-  // Global keyboard shortcuts (hotbar 1-6, Pause Esc/P, Mute M)
+  const handleTapPrimarySlot = useCallback(() => {
+    setAdminBrushItemId(null);
+    engineRef.current?.setAdminBrushItem(null);
+    setSelectedItemId((cur) => {
+      const nextId = cur === ITEM_IDS.FIST ? ITEM_IDS.WRENCH : ITEM_IDS.FIST;
+      setHotbarItemIds((prev) => [nextId, ...prev.slice(1)]);
+      engineRef.current?.setSelectedItem(nextId);
+      return nextId;
+    });
+    soundEngine.uiClick();
+  }, []);
+
+  // Global keyboard shortcuts (hotbar 1-5, Pause Esc/P, Mute M)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-            const tag = (e.target as HTMLElement | null)?.tagName;
+      const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
       if (modeRef.current === 'playing' || modeRef.current === 'paused') {
@@ -833,7 +882,9 @@ export default function App() {
         }
         if (modeRef.current === 'playing' && e.code.startsWith('Digit')) {
           const num = Number(e.code.replace('Digit', ''));
-          if (num >= 1 && num <= 6) {
+          if (num === 1) {
+            handleTapPrimarySlot();
+          } else if (num >= 2 && num <= EMPTY_HOTBAR.length) {
             const id = hotbarItemIds[num - 1];
             if (id && id !== ITEM_IDS.AIR) handleSelectItem(id);
           }
@@ -842,7 +893,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSelectItem, hotbarItemIds]);
+  }, [handleSelectItem, handleTapPrimarySlot, hotbarItemIds]);
 
   // Live Firestore world presence heartbeat & subscription when in a world
   useEffect(() => {
@@ -929,12 +980,19 @@ export default function App() {
           worldXp={worldXp}
           worldLevel={worldLevel}
           worldCoreTokens={worldCoreTokens}
+          worldHasFurnaceExpansion={worldHasFurnaceExpansion}
           playerCount={playerCount}
           coords={coords}
           gems={gems}
           alterbits={alterbits}
           xp={xp}
           level={level}
+          cropMasteryXp={cropMasteryXp}
+          cropMasteryLevel={cropMasteryLevel}
+          farmablockMasteryXp={farmablockMasteryXp}
+          farmablockMasteryLevel={farmablockMasteryLevel}
+          publicProfile={publicProfile}
+          onDismissPublicProfile={() => setPublicProfile(null)}
           inventory={inventory}
           equipped={equipped}
           stats={stats}
@@ -946,7 +1004,9 @@ export default function App() {
           hotbarItemIds={hotbarItemIds}
           selectedItemId={selectedItemId}
           onSelectItem={handleSelectItem}
+          onTapPrimarySlot={handleTapPrimarySlot}
           onAssignHotbar={(slotIndex, itemId) => {
+            if (slotIndex < 1) return;
             setHotbarItemIds((prev) => {
               const next = [...prev];
               next[slotIndex] = itemId;
@@ -1041,6 +1101,15 @@ export default function App() {
           onUpgradeMatteragen={(tx, ty) =>
             socketRef.current?.send({ type: 'upgrade_matteragen', tx, ty })
           }
+          onClaimMatteragen={(tx, ty) =>
+            socketRef.current?.send({ type: 'claim_matteragen', tx, ty })
+          }
+          onUnlockWorldCoreFurnace={() =>
+            socketRef.current?.send({ type: 'unlock_worldcore_furnace' })
+          }
+          onTrashInventoryItem={(opts) =>
+            socketRef.current?.send({ type: 'trash_inventory_item', ...opts })
+          }
           onConfigureVaultbox={(tx, ty, opts) =>
             socketRef.current?.send({ type: 'configure_vaultbox', tx, ty, ...opts })
           }
@@ -1056,6 +1125,10 @@ export default function App() {
           }
           onNexusTeleport={(targetX, targetY, label) =>
             socketRef.current?.send({ type: 'nexus_teleport', targetX, targetY, label })
+          }
+          viewZoom={viewZoom}
+          onChangeViewZoom={(nextZoom) =>
+            setViewZoom(Math.max(0.75, Math.min(2.25, Math.round(nextZoom * 100) / 100)))
           }
         />
       )}

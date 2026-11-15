@@ -3,6 +3,8 @@ import { Coins, Plus, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
 import { getItemDef, ITEM_IDS } from '../game/catalog.ts';
 import type { ExchangeSnapshot, InventorySlot } from '../game/network.ts';
 import { getItemIconUrl } from '../game/pixelArt.ts';
+import { formatHudFixed, formatHudNumber } from '../game/format.ts';
+import { RedGemIcon } from './RedGemIcon.tsx';
 
 interface ExchangeModalProps {
   playerId: string;
@@ -108,7 +110,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
   return (
     <div
       data-testid="global-exchange-panel"
-      className="flex flex-col h-full min-h-0 gap-2.5 text-[#f7f4eb]"
+      className="flex flex-col h-full min-h-0 gap-2.5 text-[#091e3a]"
     >
       {/* Header Summary Strip */}
       <div className="pixel-box-header -mx-3 -mt-3 flex flex-wrap items-center justify-between gap-2 px-3 py-2 shrink-0">
@@ -120,12 +122,15 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
             referrerPolicy="no-referrer"
           />
           <div className="min-w-0">
-            <h2 className="ui-pixel-heading text-xs text-[#ffe18c] truncate">Global WL Exchange</h2>
-            <p className="text-[11px] font-mono-num text-[#9cb5cc]">
-              Wallet: <strong className="text-[#ffe18c]">{wlInBag} WL</strong> ·{' '}
-              <strong className="text-[#8cf7ee]">{Math.round(gems)} G</strong> · Burned:{' '}
-              <strong className="text-[#ffad85]">{exchange.totalWlBurned} WL</strong> /{' '}
-              {exchange.totalGemsCleared} G
+            <h2 className="ui-pixel-heading text-xs text-[#091e3a] truncate">Global WL Exchange</h2>
+            <p className="text-[11px] font-mono-num text-[#23476d]">
+              Wallet: <strong className="text-[#92400e]">{formatHudNumber(wlInBag)} WL</strong> ·{' '}
+              <strong className="inline-flex items-center gap-0.5 text-[#991b1b]">
+                <RedGemIcon className="w-3 h-3 shrink-0" />
+                <span>{formatHudNumber(gems)}</span>
+              </strong>{' '}
+              · Burned: <strong className="text-[#b91c1c]">{formatHudNumber(exchange.totalWlBurned)} WL</strong> /{' '}
+              {formatHudNumber(exchange.totalGemsCleared)} G
             </p>
           </div>
         </div>
@@ -138,7 +143,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
               onClick={onClaimWl}
               className="pixel-btn pixel-btn-emerald !py-1.5 !px-3 !text-xs font-mono-num"
             >
-              Claim {unclaimedWl} WL
+              Claim {formatHudNumber(unclaimedWl)} WL
             </button>
           )}
           <button
@@ -175,10 +180,10 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`py-2 px-2 text-[11px] font-pixel uppercase cursor-pointer border-2 ${
+            className={`py-2 px-2 rounded-[8px] text-[11px] font-pixel uppercase cursor-pointer border-2 transition-colors ${
               tab === id
-                ? 'bg-[#2a2210] border-[#facc15] text-[#fde047]'
-                : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:text-white'
+                ? 'bg-white/90 border-[#0284c7] text-[#091e3a]'
+                : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d] hover:text-[#091e3a]'
             }`}
           >
             {label}
@@ -191,13 +196,13 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
         <div className="flex-1 min-h-0 flex flex-col gap-2">
           <div className="flex flex-col sm:flex-row gap-1.5 shrink-0">
             <div className="relative flex-1">
-              <Search className="w-3.5 h-3.5 text-[#7897b5] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-3.5 h-3.5 text-[#23476d] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search item, seller, or #ID..."
-                className="w-full pl-8 pr-3 py-2 rounded bg-[#060d14] border border-[#2d4863] text-xs text-white focus:outline-none focus:border-[#f2b738]"
+                className="hud-input w-full pl-8 pr-3 py-2 text-xs"
               />
             </div>
             <div className="flex flex-wrap gap-1">
@@ -206,10 +211,10 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                   key={cat}
                   type="button"
                   onClick={() => setCategory(cat)}
-                  className={`px-2.5 py-1.5 rounded text-[11px] font-bold capitalize border cursor-pointer ${
+                  className={`px-2.5 py-1.5 rounded-[8px] text-[11px] font-bold capitalize border cursor-pointer transition-colors ${
                     category === cat
-                      ? 'bg-[#1c3d5c] border-[#78c8f5] text-white'
-                      : 'bg-[#09131d] border-[#263c52] text-[#9cb5cc]'
+                      ? 'bg-[#0284c7] border-[#164e7a] text-white'
+                      : 'bg-[#d8ecfc]/75 border-[#4172a3] text-[#23476d] hover:text-[#091e3a]'
                   }`}
                 >
                   {cat}
@@ -220,7 +225,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
 
           <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
             {filteredListings.length === 0 ? (
-              <div className="pixel-slot p-4 text-center text-xs text-[#8aa4bd]">
+              <div className="pixel-slot p-4 text-center text-xs text-[#23476d]">
                 No World Lock bundles match this filter. Switch to Post Bundle to list items!
               </div>
             ) : (
@@ -229,7 +234,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                 const stat = exchange.priceStats[l.itemId];
                 const isOwn = l.sellerId === playerId;
                 const canAfford = wlInBag >= l.priceWl;
-                const unitWl = (l.priceWl / l.bundleSize).toFixed(2);
+                const unitWl = formatHudFixed(l.priceWl / l.bundleSize, 2);
                 return (
                   <div
                     key={l.id}
@@ -239,19 +244,19 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                       <img
                         src={getItemIconUrl(l.itemId)}
                         alt={def?.name ?? 'Item'}
-                        className="w-8 h-8 pixelated shrink-0 bg-[#05080e] p-0.5 border border-[#243b52]"
+                        className="w-8 h-8 rounded-[6px] pixelated shrink-0 bg-white/80 p-0.5 border border-[#4172a3]"
                         referrerPolicy="no-referrer"
                       />
                       <div className="min-w-0">
-                        <div className="text-xs font-bold text-[#f7f4eb] truncate">
-                          {l.bundleSize}× {def?.name ?? `#${l.itemId}`}
+                        <div className="text-xs font-bold text-[#091e3a] truncate">
+                          {formatHudNumber(l.bundleSize)}× {def?.name ?? `#${l.itemId}`}
                         </div>
-                        <div className="text-[11px] font-mono-num text-[#9cb5cc]">
-                          Seller: {l.sellerName} · Stock: {l.bundlesAvailable} bundle(s) · {unitWl} WL/ea
+                        <div className="text-[11px] font-mono-num text-[#23476d]">
+                          Seller: {l.sellerName} · Stock: {formatHudNumber(l.bundlesAvailable)} bundle(s) · {unitWl} WL/ea
                         </div>
                         {stat && (
-                          <div className="text-[10px] font-mono-num text-[#8cf7ee]">
-                            Avg {stat.avgUnitWl.toFixed(2)} WL/unit · Vol {stat.volumeSold}
+                          <div className="text-[10px] font-mono-num text-[#0e7490] font-semibold">
+                            Avg {formatHudFixed(stat.avgUnitWl, 2)} WL/unit · Vol {formatHudNumber(stat.volumeSold)}
                           </div>
                         )}
                       </div>
@@ -264,7 +269,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                           onClick={() => onCancelListing(l.id)}
                           className="pixel-btn pixel-btn-ruby !py-1.5 !px-3 !text-xs"
                         >
-                          Cancel ({l.priceWl} WL)
+                          Cancel ({formatHudNumber(l.priceWl)} WL)
                         </button>
                       ) : (
                         <button
@@ -273,7 +278,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                           onClick={() => onBuyListing(l.id)}
                           className="pixel-btn pixel-btn-gold !py-1.5 !px-3.5 !text-xs font-mono-num disabled:opacity-40"
                         >
-                          Buy · {l.priceWl} WL
+                          Buy · {formatHudNumber(l.priceWl)} WL
                         </button>
                       )}
                     </div>
@@ -287,30 +292,30 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
 
       {/* POST LISTING TAB */}
       {tab === 'sell' && (
-        <div className="bg-[#09131d] border border-[#263c52] rounded-md p-3 flex flex-col gap-3 overflow-y-auto">
+        <div className="hud-subpanel !rounded-[10px] p-3 flex flex-col gap-3 overflow-y-auto">
           {listableItems.length === 0 ? (
-            <p className="text-xs text-[#9cb5cc]">
+            <p className="text-xs text-[#23476d]">
               You have no stackable tradeable items in your Backpack yet. Gather blocks, seeds, ores, or fish first!
             </p>
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <label className="flex flex-col gap-1 text-xs text-[#9cb5cc]">
+                <label className="flex flex-col gap-1 text-xs text-[#091e3a] font-semibold">
                   <span>Item to Escrow</span>
                   <select
                     value={activeSellItemId}
                     onChange={(e) => setSellItemId(Number(e.target.value))}
-                    className="px-2.5 py-2 rounded bg-[#060d14] border border-[#2d4863] text-xs font-bold text-white"
+                    className="hud-input px-2.5 py-2 text-xs font-bold"
                   >
                     {listableItems.map((s, idx) => (
                       <option key={s.rodInstanceId ?? `${s.itemId}-${idx}`} value={s.itemId}>
-                        {getItemDef(s.itemId)?.name} ({s.qty} owned)
+                        {getItemDef(s.itemId)?.name} ({formatHudNumber(s.qty)} owned)
                       </option>
                     ))}
                   </select>
                 </label>
 
-                <label className="flex flex-col gap-1 text-xs text-[#9cb5cc]">
+                <label className="flex flex-col gap-1 text-xs text-[#091e3a] font-semibold">
                   <span>Items per Bundle</span>
                   <input
                     type="number"
@@ -318,11 +323,11 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                     max={200}
                     value={bundleSize}
                     onChange={(e) => setBundleSize(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
-                    className="px-2.5 py-2 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-white"
+                    className="hud-input px-2.5 py-2 text-xs font-mono-num font-bold"
                   />
                 </label>
 
-                <label className="flex flex-col gap-1 text-xs text-[#9cb5cc]">
+                <label className="flex flex-col gap-1 text-xs text-[#091e3a] font-semibold">
                   <span>Number of Bundles</span>
                   <input
                     type="number"
@@ -330,11 +335,11 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                     max={25}
                     value={bundles}
                     onChange={(e) => setBundles(Math.max(1, Math.min(25, Number(e.target.value) || 1)))}
-                    className="px-2.5 py-2 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-white"
+                    className="hud-input px-2.5 py-2 text-xs font-mono-num font-bold"
                   />
                 </label>
 
-                <label className="flex flex-col gap-1 text-xs text-[#ffe18c]">
+                <label className="flex flex-col gap-1 text-xs text-[#92400e] font-semibold">
                   <span>Price per Bundle (WL)</span>
                   <input
                     type="number"
@@ -342,26 +347,26 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                     max={999}
                     value={priceWl}
                     onChange={(e) => setPriceWl(Math.max(1, Math.min(999, Number(e.target.value) || 1)))}
-                    className="px-2.5 py-2 rounded bg-[#060d14] border border-[#2d4863] text-xs font-mono-num font-bold text-[#ffe18c]"
+                    className="hud-input px-2.5 py-2 text-xs font-mono-num font-bold text-[#92400e]"
                   />
                 </label>
               </div>
 
-              <div className="bg-[#060f18] border border-[#223952] rounded p-2.5 text-xs flex flex-col gap-1">
-                <div className="flex items-center gap-1.5 font-bold text-[#8cf7ee]">
+              <div className="bg-[#dff1ff]/80 border border-[#2c5885] rounded-[8px] p-2.5 text-xs flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 font-bold text-[#0369a1]">
                   <ShieldCheck className="w-4 h-4 shrink-0" />
                   <span>Market Sink &amp; Escrow Summary</span>
                 </div>
-                <p className="text-[11px] font-mono-num text-[#b5cde3]">
-                  Escrow Total: {bundleSize * bundles}× {getItemDef(activeSellItemId)?.name ?? 'Item'}
+                <p className="text-[11px] font-mono-num text-[#091e3a]">
+                  Escrow Total: {formatHudNumber(bundleSize * bundles)}× {getItemDef(activeSellItemId)?.name ?? 'Item'}
                 </p>
                 {priceWl === 1 ? (
-                  <p className="text-[11px] font-mono-num text-[#ffad85]">
-                    1-WL Clearing Fee (upfront): {previewClearingGems} Gems ({bundles} bundle × 10 G) · 0 WL tax on sale
+                  <p className="text-[11px] font-mono-num text-[#b91c1c] font-semibold">
+                    1-WL Clearing Fee (upfront): {formatHudNumber(previewClearingGems)} Gems ({bundles} bundle × 10 G) · 0 WL tax on sale
                   </p>
                 ) : (
-                  <p className="text-[11px] font-mono-num text-[#ffe18c]">
-                    5% WL Sink on Sale: {previewTaxWl} WL burned · You claim {priceWl - previewTaxWl} WL per bundle
+                  <p className="text-[11px] font-mono-num text-[#92400e] font-semibold">
+                    5% WL Sink on Sale: {formatHudNumber(previewTaxWl)} WL burned · You claim {formatHudNumber(priceWl - previewTaxWl)} WL per bundle
                   </p>
                 )}
               </div>
@@ -377,7 +382,7 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                     priceWl,
                   })
                 }
-                className="flex items-center justify-center gap-1.5 py-2.5 px-4 rounded bg-[#4aa64d] hover:bg-[#57ba5a] border-2 border-[#82e068] text-[#081709] font-bold text-xs cursor-pointer"
+                className="pixel-btn pixel-btn-emerald flex items-center justify-center gap-1.5 py-2.5 px-4 text-xs"
               >
                 <Plus className="w-4 h-4" />
                 <span>Post Escrow Listing</span>
@@ -390,32 +395,32 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
       {/* MY ACTIVE ORDERS TAB */}
       {tab === 'orders' && (
         <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
-          <div className="flex items-center justify-between bg-[#09131d] border border-[#28425e] rounded p-2.5">
-            <div className="flex items-center gap-2 text-xs">
-              <Coins className="w-4 h-4 text-[#ffe18c]" />
+          <div className="hud-subpanel flex items-center justify-between p-2.5">
+            <div className="flex items-center gap-2 text-xs text-[#091e3a]">
+              <Coins className="w-4 h-4 text-[#b45309]" />
               <span>
-                Claim Vault: <strong className="font-mono-num text-[#ffe18c]">{unclaimedWl} WL</strong>
+                Claim Vault: <strong className="font-mono-num text-[#92400e]">{formatHudNumber(unclaimedWl)} WL</strong>
               </span>
             </div>
             <button
               type="button"
               disabled={unclaimedWl <= 0}
               onClick={onClaimWl}
-              className="px-3 py-1.5 rounded bg-[#4aa64d] disabled:bg-[#192836] disabled:text-[#65849c] text-[#081709] font-bold text-xs cursor-pointer"
+              className="pixel-btn pixel-btn-emerald !py-1.5 !px-3 !text-xs disabled:opacity-45"
             >
               Claim All
             </button>
           </div>
 
           {myOrders.length === 0 ? (
-            <div className="bg-[#09131d] border border-[#263c52] rounded p-4 text-center text-xs text-[#8aa4bd]">
+            <div className="pixel-slot p-4 text-center text-xs text-[#23476d]">
               You have no active listings on the Global Exchange.
             </div>
           ) : (
             myOrders.map((l) => (
               <div
                 key={l.id}
-                className="flex items-center justify-between gap-2 bg-[#09131d] border border-[#263c52] rounded p-2.5"
+                className="pixel-slot flex items-center justify-between gap-2 p-2.5"
               >
                 <div className="flex items-center gap-2">
                   <img
@@ -425,18 +430,18 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                     referrerPolicy="no-referrer"
                   />
                   <div>
-                    <div className="text-xs font-bold text-white">
-                      {l.bundleSize}× {getItemDef(l.itemId)?.name} ({l.bundlesAvailable} left)
+                    <div className="text-xs font-bold text-[#091e3a]">
+                      {formatHudNumber(l.bundleSize)}× {getItemDef(l.itemId)?.name} ({formatHudNumber(l.bundlesAvailable)} left)
                     </div>
-                    <div className="text-[11px] font-mono-num text-[#ffe18c]">
-                      {l.priceWl} WL / bundle
+                    <div className="text-[11px] font-mono-num font-bold text-[#92400e]">
+                      {formatHudNumber(l.priceWl)} WL / bundle
                     </div>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => onCancelListing(l.id)}
-                  className="px-3 py-1.5 rounded bg-[#3b1b1f] hover:bg-[#52242a] border border-[#7a343d] text-[#ffd4d4] font-bold text-xs cursor-pointer"
+                  className="pixel-btn pixel-btn-ruby !py-1.5 !px-3 !text-xs"
                 >
                   Cancel &amp; Refund
                 </button>

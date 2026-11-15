@@ -5,7 +5,9 @@ import {
   FARMABLE_SPECS,
   FURNACE_RECIPES,
   GEM_STORE_LISTINGS,
+  getEffectiveMatteragenIntervalMs,
   getMatteragenBranch,
+  getMatteragenGenerationPool,
   getMatteragenIntervalMs,
   isFarmableSeed,
   ITEM_IDS,
@@ -58,9 +60,9 @@ test('40 Farmable Crops registry synced with catalog and general block seeds ret
   );
   assert.deepEqual(Array.from(tiers).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
 
-  // All non-farmable seeds are disabled & purged from general block drops
-  assert.equal(CATALOG[ITEM_IDS.GP_SEED_DIRT].placeable, false);
-  assert.equal(CATALOG[ITEM_IDS.SEED_DESERT_SAND].placeable, false);
+  // All non-farmable seeds are pruned & purged from general block drops
+  assert.equal(CATALOG[ITEM_IDS.GP_SEED_DIRT], undefined);
+  assert.equal(CATALOG[ITEM_IDS.SEED_DESERT_SAND], undefined);
   assert.equal(isFarmableSeed(ITEM_IDS.GP_SEED_DIRT), false);
 
   const dirtDrops = CATALOG[ITEM_IDS.GP_DIRT].drops ?? [];
@@ -71,15 +73,15 @@ test('40 Farmable Crops registry synced with catalog and general block seeds ret
   );
 });
 
-test('personal world generation is 30x50 with ~20% underground fill, WorldCore lock, and 1 per user limit', () => {
+test('personal world generation is 50x40 plain dirt preset, WorldCore lock, and 1 per user limit', () => {
   const personal = generateWorld('MY_SANCTUARY', false, { isPersonalWorld: true });
-  assert.equal(personal.width, 30);
-  assert.equal(personal.height, 50);
-  assert.equal(personal.fg.length, 1500);
-  assert.equal(personal.bg.length, 1500);
+  assert.equal(personal.width, 50);
+  assert.equal(personal.height, 40);
+  assert.equal(personal.fg.length, 2000);
+  assert.equal(personal.bg.length, 2000);
 
-  // Measure underground block fill ratio below surface horizon up to bedrock
-  const undergroundStartY = Math.max(personal.spawnY + 2, 16);
+  // Measure underground dirt fill ratio below surface y=20 up to bedrock
+  const undergroundStartY = 20;
   const undergroundEndY = personal.height - BEDROCK_ROWS;
   let totalUnderground = 0;
   let solidUnderground = 0;
@@ -91,11 +93,7 @@ test('personal world generation is 30x50 with ~20% underground fill, WorldCore l
       }
     }
   }
-  const fillRatio = solidUnderground / totalUnderground;
-  assert.ok(
-    fillRatio >= 0.14 && fillRatio <= 0.27,
-    `Underground fill ratio should be ~20% (got ${(fillRatio * 100).toFixed(1)}%)`
-  );
+  assert.equal(solidUnderground, totalUnderground, 'Personal world underground is solid plain dirt');
 
   // Store enforces 1 personal sanctuary per user and locks via WorldCore
   const store = new AuthoritativeWorldStore();
@@ -121,8 +119,8 @@ test('personal world generation is 30x50 with ~20% underground fill, WorldCore l
   const joined = store.joinWorld(reg.account, firstRealmName);
   assert.equal(joined.ok, true);
   if (!joined.ok) return;
-  assert.equal(joined.world.state.width, 30);
-  assert.equal(joined.world.state.height, 50);
+  assert.equal(joined.world.state.width, 50);
+  assert.equal(joined.world.state.height, 40);
   assert.equal(joined.world.state.worldLock?.lockItemId, ITEM_IDS.WORLD_CORE);
   assert.equal(joined.world.state.worldLock?.ownerId, reg.account.id);
 
@@ -245,19 +243,24 @@ test('Seed Pots cost 500 Gems with no crafting recipe and strictly hold 1 farmab
   store.leaveWorld(realmName, relogin.account.id, true);
 });
 
-test('Matteragen Engines: 5 tiers/intervals, LV1-5 upgrades, 20 total world cap, single-yield latch & punch collect', () => {
+test('Matteragen Engines: 5 tiers/intervals (-5%/lvl), LV1-5 Core Token upgrades, 20 world cap, single-yield latch & Claim UI collect', () => {
   assert.equal(getMatteragenIntervalMs(ITEM_IDS.MATTERAGEN_BOTANICAL), 10 * 60 * 1000);
   assert.equal(getMatteragenIntervalMs(ITEM_IDS.MATTERAGEN_GEOMINERAL), 30 * 60 * 1000);
   assert.equal(getMatteragenIntervalMs(ITEM_IDS.MATTERAGEN_LUMINESCENT), 60 * 60 * 1000);
   assert.equal(getMatteragenIntervalMs(ITEM_IDS.MATTERAGEN_ARCANE), 120 * 60 * 1000);
   assert.equal(getMatteragenIntervalMs(ITEM_IDS.MATTERAGEN_COSMIC), 300 * 60 * 1000);
 
+  // Each upgrade reduces production time by 5% (Lv.5 = -20%)
+  assert.equal(getEffectiveMatteragenIntervalMs(ITEM_IDS.MATTERAGEN_BOTANICAL, 1), 600_000);
+  assert.equal(getEffectiveMatteragenIntervalMs(ITEM_IDS.MATTERAGEN_BOTANICAL, 2), 570_000);
+  assert.equal(getEffectiveMatteragenIntervalMs(ITEM_IDS.MATTERAGEN_BOTANICAL, 5), 480_000);
+
   assert.equal(getMatteragenBranch(ITEM_IDS.MATTERAGEN_BOTANICAL), 'botanical');
   assert.equal(getMatteragenBranch(ITEM_IDS.MATTERAGEN_GEOMINERAL), 'geomineral');
   assert.equal(getMatteragenBranch(ITEM_IDS.MATTERAGEN_LUMINESCENT), 'luminescent');
   assert.equal(getMatteragenBranch(ITEM_IDS.MATTERAGEN_ARCANE), 'arcane');
   assert.equal(getMatteragenBranch(ITEM_IDS.MATTERAGEN_COSMIC), 'cosmic');
-  assert.deepEqual(MATTERAGEN_UPGRADE_COSTS, { 1: 250, 2: 500, 3: 1000, 4: 2000 });
+  assert.deepEqual(MATTERAGEN_UPGRADE_COSTS, { 1: 3, 2: 6, 3: 10, 4: 15 });
 
   const store = new AuthoritativeWorldStore();
   const suffix = Math.random().toString(36).slice(2, 8);
@@ -315,7 +318,8 @@ test('Matteragen Engines: 5 tiers/intervals, LV1-5 upgrades, 20 total world cap,
   assert.equal(blocked21.ok, false);
   assert.match(blocked21.reason ?? '', /20 Matteragen Engines/i);
 
-  // Test upgrading one Botanical engine from LV 1 -> LV 5
+  // Test upgrading one Botanical engine from LV 1 -> LV 5 using WorldCore Core Tokens
+  world.state.coreTokens = 50;
   const firstKey = Object.keys(world.state.matteragenEngines!)[0];
   const targetEng = world.state.matteragenEngines![firstKey];
   for (let expectedLvl = 2; expectedLvl <= 5; expectedLvl++) {
@@ -326,26 +330,28 @@ test('Matteragen Engines: 5 tiers/intervals, LV1-5 upgrades, 20 total world cap,
   const overUpgrade = store.upgradeMatteragenEngine(acct, realmName, targetEng.x, targetEng.y);
   assert.equal(overUpgrade.ok, false);
 
-  // Single-yield synthesis latch + punch collection
-  const interval = getMatteragenIntervalMs(targetEng.typeId);
+  // Single-yield synthesis latch (-20% time at Lv.5) + UI Claim collection
+  const interval = getEffectiveMatteragenIntervalMs(targetEng.typeId, targetEng.level);
   const baseTime = Date.now();
   targetEng.lastHarvestMs = baseTime - interval - 1000;
   const tick1 = store.tickAllWorlds(baseTime);
   assert.ok(
     tick1.completedEngines.some((e) => e.tx === targetEng.x && e.ty === targetEng.y),
-    'Engine must complete cycle once interval elapses'
+    'Engine must complete cycle once effective interval elapses'
   );
   assert.equal(targetEng.isReady, true);
   const firstDropsSnapshot = JSON.stringify(targetEng.storedDrops);
-  assert.ok((targetEng.storedDrops?.length ?? 0) >= 1);
+  assert.ok((targetEng.storedDrops?.length ?? 0) >= 1 && (targetEng.storedDrops?.length ?? 0) <= 3);
 
-  // Verify branch correctness of generated drops
+  // Verify universal pool bounds & 1-10 total blocks across 1-3 types
+  const pool = getMatteragenGenerationPool(targetEng.typeId);
+  const totalYieldBlocks = (targetEng.storedDrops ?? []).reduce((sum, d) => sum + d.count, 0);
+  assert.ok(totalYieldBlocks >= 1 && totalYieldBlocks <= 10, `Total yield ${totalYieldBlocks} must be 1..10`);
   for (const d of targetEng.storedDrops ?? []) {
-    const spec = FARMABLE_SPECS.find((s) => s.id === d.itemId || s.seedId === d.itemId);
-    assert.equal(spec?.branch, getMatteragenBranch(targetEng.typeId));
+    assert.ok(pool.some((spec) => spec.id === d.itemId), `Yielded item ${d.itemId} must be in Gen pool`);
   }
 
-  // Subsequent ticks do NOT generate past the single yield until collected
+  // Subsequent ticks do NOT generate past the single yield until claimed
   const tick2 = store.tickAllWorlds(baseTime + interval * 3);
   assert.equal(
     tick2.completedEngines.some((e) => e.tx === targetEng.x && e.ty === targetEng.y),
@@ -353,16 +359,17 @@ test('Matteragen Engines: 5 tiers/intervals, LV1-5 upgrades, 20 total world cap,
   );
   assert.equal(JSON.stringify(targetEng.storedDrops), firstDropsSnapshot);
 
-  // Move player within reach & punch ready engine -> collects drops, keeps engine, clears isReady
+  // Punching a ready engine redirects to interact UI instead of breaking or dropping inside the block
   pState.x = targetEng.x * TILE_SIZE;
   pState.y = (targetEng.y - 1) * TILE_SIZE;
   store['lastPunchAt'].delete(acct.id);
-  const collectPunch = store.handlePunchTile(world, acct, targetEng.x, targetEng.y);
-  assert.equal(collectPunch.ok, true);
-  if (collectPunch.ok) {
-    assert.equal(collectPunch.broken, false, 'Punching a ready engine collects yield without breaking engine');
-    assert.ok(collectPunch.drops.length >= 1);
-  }
+  const readyPunch = store.handlePunchTile(world, acct, targetEng.x, targetEng.y);
+  assert.equal(readyPunch.ok, false);
+  assert.equal(targetEng.isReady, true);
+
+  // Claim yield directly via Claim UI handler -> transfers items to Backpack & clears isReady
+  const claimRes = store.claimMatteragenEngine(acct, realmName, targetEng.x, targetEng.y);
+  assert.equal(claimRes.ok, true);
   assert.equal(targetEng.isReady, false);
   assert.deepEqual(targetEng.storedDrops, []);
   assert.equal(

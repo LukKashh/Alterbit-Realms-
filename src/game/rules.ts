@@ -8,15 +8,7 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from './constants.ts';
-import {
-  getItemDef,
-  isCropSeed,
-  isFarmableSeed,
-  isForegroundSolid,
-  ITEM_IDS,
-  SPLICE_RECIPES,
-  xpForNextMasteryLevel,
-} from './catalog.ts';
+import { getCropSpec, getFarmableSpec, getItemDef, isCropSeed, isFarmableSeed, ITEM_IDS, SPLICE_RECIPES } from './catalog.ts';
 import type { AreaLockRecord, PlantedTree, WorldState, ShareLockRecord } from './worldGen.ts';
 import { getShareLockSpec, rectanglesOverlap, type ShareLockPermissionKey } from './shareLocks.ts';
 import { isSystemWorld } from './expansion.ts';
@@ -197,7 +189,11 @@ export function isIndestructiblePregenTile(world: WorldState, tx: number, ty: nu
 }
 
 export function isDoorBlock(itemId: number): boolean {
-  return itemId === ITEM_IDS.GP_DOOR || itemId === ITEM_IDS.GP_DUNGEON_DOOR;
+  return (
+    itemId === ITEM_IDS.GP_DOOR ||
+    itemId === ITEM_IDS.GP_DUNGEON_DOOR ||
+    itemId === ITEM_IDS.SCIFI_AIRLOCK_DOOR
+  );
 }
 
 export function canPlowTile(
@@ -325,12 +321,6 @@ export function canBreakTile(
           return { ok: false, reason: 'Empty all Vaultbox storage slots with Wrench before breaking.' };
         }
       }
-      if (fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC) {
-        const engine = world.matteragenEngines?.[key];
-        if (engine && engine.isReady && (engine.storedDrops?.length ?? 0) > 0) {
-          return { ok: false, reason: 'Claim ready yield from this Matteragen Engine before picking it up.' };
-        }
-      }
     }
     return { ok: true, layer: 'fg' };
   }
@@ -342,13 +332,8 @@ export function canBreakTile(
 
   const bgId = world.bg[idx];
   if (bgId !== ITEM_IDS.BG_SKY) {
-    if (
-      !adminEdit &&
-      bgId === ITEM_IDS.STONE_FURNACE &&
-      (world.hasWorldCoreFurnace ||
-        (world.coreFurnacePos && world.coreFurnacePos.x === tx && world.coreFurnacePos.y === ty))
-    ) {
-      return { ok: false, reason: 'The WorldCore Smeltery Furnace is permanent and indestructible.' };
+    if (!adminEdit && bgId === ITEM_IDS.STONE_FURNACE) {
+      return { ok: false, reason: 'WorldCore Furnace is permanently fused to the WorldCore.' };
     }
     const bgDef = getItemDef(bgId);
     if (!adminEdit && (!bgDef || !bgDef.breakable)) {
@@ -408,10 +393,9 @@ export function canPlaceTile(
     !adminEdit &&
     (itemId === ITEM_IDS.WORLD_CORE ||
       itemId === ITEM_IDS.LANDLORD_NPC ||
-      itemId === ITEM_IDS.GREENS_VENDOR_NPC ||
-      itemId === ITEM_IDS.STONE_FURNACE)
+      itemId === ITEM_IDS.GREENS_VENDOR_NPC)
   ) {
-    return { ok: false, reason: 'This special world object cannot be placed manually.' };
+    return { ok: false, reason: 'This special world object cannot be placed.' };
   }
   const def = getItemDef(itemId);
   if (
@@ -499,6 +483,9 @@ export function canPlaceTile(
   if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
     return { ok: false, reason: 'Foreground tile already occupied.' };
   }
+  if (!adminEdit && world.bg[idx] === ITEM_IDS.STONE_FURNACE) {
+    return { ok: false, reason: 'Space in front of WorldCore Furnace must remain clear.' };
+  }
 
   if (!adminEdit && def.collision === 'solid' && playerOverlapsTile(player, tx, ty)) {
     return { ok: false, reason: 'Cannot place solid block on yourself.' };
@@ -555,18 +542,19 @@ export type GrowthStage = 'planted' | 'sprout' | 'young' | 'developing' | 'matur
 export function getPlantGrowthState(
   plant: PlantedTree,
   nowMs: number
-): { stage: GrowthStage; visualStageIndex: 0 | 1 | 2 | 3; progress: number; remainingMs: number } {
+): { stage: GrowthStage; progress: number; remainingMs: number } {
   if (nowMs >= plant.maturityAt) {
-    return { stage: 'mature', visualStageIndex: 3, progress: 1, remainingMs: 0 };
+    return { stage: 'mature', progress: 1, remainingMs: 0 };
   }
   const total = Math.max(1000, plant.maturityAt - plant.plantedAt || PLANT_DEFAULT_GROWTH_MS);
   const elapsed = Math.max(0, nowMs - plant.plantedAt);
   const progress = Math.min(1, elapsed / total);
-  const remainingMs = Math.max(0, plant.maturityAt - nowMs);
-  if (progress >= 1) return { stage: 'mature', visualStageIndex: 3, progress: 1, remainingMs: 0 };
-  if (progress >= 0.6) return { stage: 'developing', visualStageIndex: 2, progress, remainingMs };
-  if (progress >= 0.25) return { stage: 'sprout', visualStageIndex: 1, progress, remainingMs };
-  return { stage: 'planted', visualStageIndex: 0, progress, remainingMs };
+  const remainingMs = Math.max(0, plant.maturityAt - Math.max(nowMs, plant.plantedAt));
+  if (progress >= 1) return { stage: 'mature', progress: 1, remainingMs: 0 };
+  if (progress >= 0.6) return { stage: 'developing', progress, remainingMs };
+  if (progress >= 0.3) return { stage: 'young', progress, remainingMs };
+  if (progress >= 0.1) return { stage: 'sprout', progress, remainingMs };
+  return { stage: 'planted', progress, remainingMs };
 }
 
 export function resolveSplice(seedA: number, seedB: number): number | null {
@@ -622,22 +610,6 @@ export function addXp(
   return { level: curLevel, xp: curXp, leveledUp };
 }
 
-export function addMasteryXp(
-  level: number,
-  xp: number,
-  gained: number
-): { level: number; xp: number; leveledUp: boolean } {
-  let curLevel = Math.max(1, level);
-  let curXp = Math.max(0, xp) + Math.max(0, gained);
-  let leveledUp = false;
-  while (curXp >= xpForNextMasteryLevel(curLevel)) {
-    curXp -= xpForNextMasteryLevel(curLevel);
-    curLevel += 1;
-    leveledUp = true;
-  }
-  return { level: curLevel, xp: curXp, leveledUp };
-}
-
 export function worldXpForNextLevel(level: number): number {
   return 100 + (Math.max(1, level) - 1) * 75;
 }
@@ -657,4 +629,91 @@ export function addWorldXp(
   }
   return { level: curLevel, xp: curXp, leveledUp };
 }
+
+export function masteryXpForNextLevel(level: number): number {
+  return 40 + (Math.max(1, level) - 1) * 30;
+}
+
+export function addMasteryXp(
+  level: number,
+  xp: number,
+  gained: number
+): { level: number; xp: number; leveledUp: boolean } {
+  let curLevel = Math.max(1, level);
+  let curXp = Math.max(0, xp) + Math.max(0, gained);
+  let leveledUp = false;
+  while (curXp >= masteryXpForNextLevel(curLevel)) {
+    curXp -= masteryXpForNextLevel(curLevel);
+    curLevel += 1;
+    leveledUp = true;
+  }
+  return { level: curLevel, xp: curXp, leveledUp };
+}
+
+const CROP_MASTERY_UNLOCKS: Record<number, number> = {
+  [ITEM_IDS.CROP_SEED_RADISH]: 1,
+  [ITEM_IDS.CROP_SEED_CARROT]: 1,
+  [ITEM_IDS.CROP_SEED_CABBAGE]: 2,
+  [ITEM_IDS.CROP_SEED_TOMATO]: 3,
+  [ITEM_IDS.CROP_SEED_CORN]: 5,
+  [ITEM_IDS.CROP_SEED_MELON]: 7,
+};
+
+export function getCropMasteryRequiredLevel(itemId: number): number {
+  const spec = getCropSpec(itemId);
+  const seedId = spec?.seedId ?? itemId;
+  return CROP_MASTERY_UNLOCKS[seedId] ?? 1;
+}
+
+const FARMABLE_TIER_MASTERY_UNLOCKS: Record<number, number> = {
+  1: 1,
+  2: 2,
+  3: 3,
+  4: 5,
+  5: 7,
+  6: 9,
+  7: 11,
+  8: 13,
+};
+
+export function getFarmableMasteryRequiredLevel(itemId: number): number {
+  const spec = getFarmableSpec(itemId);
+  if (!spec) return 1;
+  return FARMABLE_TIER_MASTERY_UNLOCKS[spec.tier] ?? 1;
+}
+
+export function getInventorySortRank(itemId: number): number {
+  if (itemId === ITEM_IDS.FIST) return 0;
+  if (itemId === ITEM_IDS.WRENCH) return 1;
+  const def = getItemDef(itemId);
+  if (!def) return 999;
+  if (def.category === 'tool') return 10;
+  if (def.category === 'lock' || isDoorBlock(itemId)) return 20;
+  if (itemId === ITEM_IDS.SEED_POT) return 30;
+  if (def.category === 'interactive') return 25;
+  if (def.category === 'seed') return 35;
+  if (def.category === 'farmable' || Boolean(def.farmableTier)) return 40;
+  if (def.cropSellAlterbits !== undefined || def.key.startsWith('crop_')) return 45;
+  if (def.category === 'foreground') return 50;
+  if (def.category === 'background') return 60;
+  if (def.category === 'material') return 70;
+  if (def.category === 'fluid') return 75;
+  if (def.category === 'consumable') return 80;
+  if (def.category === 'wearable') return 90;
+  return 95;
+}
+
+export function sortInventorySlots<T extends { itemId: number; rodUpgradeLevel?: number }>(slots: T[]): T[] {
+  return [...slots].sort((a, b) => {
+    const rankDiff = getInventorySortRank(a.itemId) - getInventorySortRank(b.itemId);
+    if (rankDiff !== 0) return rankDiff;
+    const defA = getItemDef(a.itemId);
+    const defB = getItemDef(b.itemId);
+    const tierDiff = (defA?.farmableTier ?? 0) - (defB?.farmableTier ?? 0);
+    if (tierDiff !== 0) return tierDiff;
+    if (a.itemId !== b.itemId) return a.itemId - b.itemId;
+    return (b.rodUpgradeLevel ?? 0) - (a.rodUpgradeLevel ?? 0);
+  });
+}
+
 

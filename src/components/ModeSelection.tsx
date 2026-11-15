@@ -1,4 +1,6 @@
 import React from 'react';
+import { formatHudNumber } from '../game/format.ts';
+import { RedGemIcon } from './RedGemIcon.tsx';
 
 interface ModeSelectionProps {
   playerName: string;
@@ -27,7 +29,7 @@ const ModeArtwork: React.FC<{ modeId: (typeof MODES)[number]['id'] }> = ({ modeI
   return (
     <svg
       viewBox="0 0 240 68"
-      className="w-full h-20 rounded border border-[#2b4d6e] bg-[#0a1826] mb-3"
+      className="w-full h-20 rounded-[8px] border-2 border-[#2c5885] bg-[#0a1826] mb-3"
       aria-hidden="true"
     >
       <rect width="240" height="68" fill="#183b5c" />
@@ -67,20 +69,24 @@ export const ModeSelection: React.FC<ModeSelectionProps> = ({
   onEnterWorld,
   onSignOut,
 }) => (
-  <div className="fixed inset-0 z-20 flex flex-col overflow-y-auto bg-[#07101a]/95 p-3 sm:p-6">
+  <div className="fixed inset-0 z-20 flex flex-col overflow-y-auto bg-[#091e3a]/55 backdrop-blur-sm p-3 sm:p-6">
     <main className="my-auto mx-auto w-full max-w-4xl pixel-box p-4 sm:p-6">
       <header className="pixel-box-header -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 px-4 sm:px-6 py-4 mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="font-pixel text-[10px] tracking-widest text-[#78c8f5]">BLOCKGROVE REALMS</p>
-          <h1 className="mt-1 ui-pixel-heading text-lg text-[#fff8e8]">Choose Your Realm</h1>
-          <p className="mt-1 text-xs font-mono-num text-[#b9d2e8]">
-            {playerName} · Level {level} · {Math.round(gems)} Gems
+          <p className="font-pixel text-[10px] tracking-widest text-[#0369a1]">BLOCKGROVE REALMS</p>
+          <h1 className="mt-1 ui-pixel-heading text-lg text-[#091e3a]">Choose Your Realm</h1>
+          <p className="mt-1 text-xs font-mono-num text-[#23476d] flex flex-wrap items-center gap-1.5">
+            <span>{playerName} · Level {formatHudNumber(level)} ·</span>
+            <span className="inline-flex items-center gap-1 font-bold text-[#091e3a]">
+              <RedGemIcon className="w-3.5 h-3.5 shrink-0" />
+              <span>{formatHudNumber(gems)}</span>
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-2.5">
           <span
             className={`text-xs font-bold ${
-              connected ? 'text-[#8ef0a4]' : 'text-[#ffb0b0]'
+              connected ? 'text-[#047857]' : 'text-[#b91c1c]'
             }`}
           >
             {connected ? 'Connected' : 'Reconnecting'}
@@ -114,11 +120,11 @@ export const ModeSelection: React.FC<ModeSelectionProps> = ({
           >
             <div>
               <ModeArtwork modeId={mode.id} />
-              <span className="ui-pixel-heading text-xs text-[#fff8e8] block">{mode.title}</span>
-              <span className="mt-2 block text-sm font-semibold text-[#e6f1fa]">
+              <span className="ui-pixel-heading text-xs text-[#091e3a] block">{mode.title}</span>
+              <span className="mt-2 block text-sm font-semibold text-[#091e3a]">
                 {mode.subtitle}
               </span>
-              <span className="mt-1.5 block text-xs text-[#9cb5cc]">{mode.detail}</span>
+              <span className="mt-1.5 block text-xs text-[#23476d]">{mode.detail}</span>
             </div>
             <div className="mt-4 flex items-center justify-between">
               <span className="pixel-btn pixel-btn-primary !py-1.5 !px-3.5 !text-xs whitespace-nowrap">
@@ -128,7 +134,7 @@ export const ModeSelection: React.FC<ModeSelectionProps> = ({
           </button>
         ))}
       </section>
-      <p className="mt-4 text-center text-xs text-[#7d9bb8]">
+      <p className="mt-4 text-center text-xs text-[#23476d]">
         Your account is shared across all modes · Personal realms are 30×50 hard-locked sanctuaries.
       </p>
     </main>

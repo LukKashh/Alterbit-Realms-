@@ -108,8 +108,6 @@ export interface RemotePlayerState {
   placing?: boolean;
   shirtColor: string;
   level: number;
-  cropMasteryLevel?: number;
-  farmablockMasteryLevel?: number;
   equipped?: EquippedWearables;
   role?: UserRole;
 }
@@ -154,12 +152,11 @@ export interface AuthUserProfile {
   alterbits: number;
   xp: number;
   level: number;
-  cropMasteryLevel?: number;
-  cropMasteryXp?: number;
-  farmablockMasteryLevel?: number;
-  farmablockMasteryXp?: number;
+  cropMasteryXp: number;
+  cropMasteryLevel: number;
+  farmablockMasteryXp: number;
+  farmablockMasteryLevel: number;
   inventory: InventorySlot[];
-  overflowVault?: InventorySlot[];
   equipped: EquippedWearables;
   stats: Record<PlayerStatKey, number>;
   claimedAchievements: string[];
@@ -170,6 +167,21 @@ export interface AuthUserProfile {
   activeBuffs: ActiveBuff[];
   unclaimedWl: number;
   hasClaimedStarterLootbox?: boolean;
+}
+
+export interface PublicPlayerProfile {
+  playerId: string;
+  playerName: string;
+  role: UserRole;
+  level: number;
+  cropMasteryLevel: number;
+  cropMasteryXp: number;
+  farmablockMasteryLevel: number;
+  farmablockMasteryXp: number;
+  ownedWorldName: string | null;
+  claimedAchievementsCount: number;
+  totalAchievementsCount: number;
+  equipped: EquippedWearables;
 }
 
 export interface ResumePosition {
@@ -187,6 +199,7 @@ export type ClientMessage =
   | { type: 'join_world'; worldName: string; resumePosition?: ResumePosition }
   | { type: 'create_world'; worldName: string; terraBlast?: boolean }
   | { type: 'leave_world' }
+  | { type: 'use_entrance_portal' }
 
   | {
       type: 'move';
@@ -291,7 +304,8 @@ export type ClientMessage =
   | { type: 'upgrade_matteragen'; tx: number; ty: number }
   | { type: 'claim_matteragen'; tx: number; ty: number }
   | { type: 'unlock_worldcore_furnace' }
-  | { type: 'claim_overflow_vault'; itemId?: number }
+  | { type: 'inspect_player'; targetPlayerId: string }
+  | { type: 'trash_inventory_item'; itemId: number; qty?: number; rodInstanceId?: string }
   | {
       type: 'configure_vaultbox';
       tx: number;
@@ -343,12 +357,11 @@ export type ServerMessage =
       alterbits: number;
       xp: number;
       level: number;
-      cropMasteryLevel?: number;
-      cropMasteryXp?: number;
-      farmablockMasteryLevel?: number;
-      farmablockMasteryXp?: number;
+      cropMasteryXp: number;
+      cropMasteryLevel: number;
+      farmablockMasteryXp: number;
+      farmablockMasteryLevel: number;
       inventory: InventorySlot[];
-      overflowVault?: InventorySlot[];
       equipped: EquippedWearables;
       stats: Record<PlayerStatKey, number>;
       claimedAchievements: string[];
@@ -431,14 +444,13 @@ export type ServerMessage =
       alterbits: number;
       xp: number;
       level: number;
-      cropMasteryLevel?: number;
-      cropMasteryXp?: number;
-      farmablockMasteryLevel?: number;
-      farmablockMasteryXp?: number;
+      cropMasteryXp: number;
+      cropMasteryLevel: number;
+      farmablockMasteryXp: number;
+      farmablockMasteryLevel: number;
       role: UserRole;
       email: string;
       inventory: InventorySlot[];
-      overflowVault?: InventorySlot[];
       equipped: EquippedWearables;
       stats: Record<PlayerStatKey, number>;
       claimedAchievements: string[];
@@ -451,15 +463,8 @@ export type ServerMessage =
       hasClaimedStarterLootbox?: boolean;
       notice?: string;
     }
-  | {
-      type: 'world_xp_updated';
-      worldName: string;
-      worldXp: number;
-      worldLevel: number;
-      coreTokens?: number;
-      hasWorldCoreFurnace?: boolean;
-      coreFurnacePos?: { x: number; y: number };
-    }
+  | { type: 'player_profile'; profile: PublicPlayerProfile }
+  | { type: 'world_xp_updated'; worldName: string; worldXp: number; worldLevel: number; coreTokens?: number; hasFurnaceExpansion?: boolean }
   | { type: 'player_teleported'; tx: number; ty: number; notice?: string }
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'worlds_list'; worlds: WorldSummary[] }

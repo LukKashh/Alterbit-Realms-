@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db, isCloudSqlConfigured } from './index.ts';
-import { accounts, appState, sessions, users, worlds } from './schema.ts';
+import { appState, users, worlds } from './schema.ts';
 import type { WorldState } from '../game/worldGen.ts';
 
 export async function getOrCreateUser(uid: string, email: string, username?: string) {
@@ -123,92 +123,6 @@ export async function syncWorldSnapshotToSql(state: WorldState) {
   }
 }
 
-export async function deleteWorldFromSql(worldName: string) {
-  if (!isCloudSqlConfigured()) return;
-  try {
-    await db.delete(worlds).where(eq(worlds.name, worldName));
-  } catch (error) {
-    console.error('Failed to delete world from SQL:', error);
-  }
-}
-
-export async function syncAccountToSql(input: {
-  usernameKey: string;
-  username: string;
-  email: string;
-  passwordHash: string;
-  role: string;
-  playerId: string;
-  createdAt: number;
-}) {
-  if (!isCloudSqlConfigured()) return;
-  try {
-    await db
-      .insert(accounts)
-      .values({
-        usernameKey: input.usernameKey,
-        username: input.username,
-        email: input.email,
-        passwordHash: input.passwordHash,
-        role: input.role,
-        playerId: input.playerId,
-        createdAt: input.createdAt,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: accounts.usernameKey,
-        set: {
-          username: input.username,
-          email: input.email,
-          passwordHash: input.passwordHash,
-          role: input.role,
-          playerId: input.playerId,
-          updatedAt: new Date(),
-        },
-      });
-  } catch (error) {
-    console.error('Failed to sync account to SQL:', error);
-  }
-}
-
-export async function syncSessionToSql(input: {
-  token: string;
-  usernameKey: string;
-  playerId: string;
-  createdAt: number;
-}) {
-  if (!isCloudSqlConfigured()) return;
-  try {
-    await db
-      .insert(sessions)
-      .values({
-        token: input.token,
-        usernameKey: input.usernameKey,
-        playerId: input.playerId,
-        createdAt: input.createdAt,
-      })
-      .onConflictDoUpdate({
-        target: sessions.token,
-        set: {
-          usernameKey: input.usernameKey,
-          playerId: input.playerId,
-          createdAt: input.createdAt,
-        },
-      });
-  } catch (error) {
-    console.error('Failed to sync session to SQL:', error);
-  }
-}
-
-export async function deleteSessionFromSql(token: string) {
-  if (!isCloudSqlConfigured()) return;
-  try {
-    await db.delete(sessions).where(eq(sessions.token, token));
-  } catch (error) {
-    console.error('Failed to delete session from SQL:', error);
-  }
-}
-
 export async function syncAppStateToSql(key: string, value: Record<string, unknown>) {
   if (!isCloudSqlConfigured()) return;
   try {
@@ -231,26 +145,49 @@ export async function syncAppStateToSql(key: string, value: Record<string, unkno
   }
 }
 
-export async function loadAllStateFromSql() {
-  if (!isCloudSqlConfigured()) return null;
+export async function loadAllSnapshotsFromSql(): Promise<{
+  userProfiles: Array<{ uid: string; profileData: Record<string, unknown> }>;
+  worldStates: WorldState[];
+  appStates: Record<string, Record<string, unknown>>;
+}> {
+  if (!isCloudSqlConfigured()) {
+    return { userProfiles: [], worldStates: [], appStates: {} };
+  }
   try {
-    const [userRows, accountRows, sessionRows, worldRows, appStateRows] = await Promise.all([
+    const [userRows, worldRows, stateRows] = await Promise.all([
       db.select().from(users),
-      db.select().from(accounts),
-      db.select().from(sessions),
       db.select().from(worlds),
       db.select().from(appState),
     ]);
-    return {
-      userRows,
-      accountRows,
-      sessionRows,
-      worldRows,
-      appStateRows,
-    };
+
+    const userProfiles: Array<{ uid: string; profileData: Record<string, unknown> }> = [];
+    for (const row of userRows) {
+      if (row.profileData && typeof row.profileData === 'object') {
+        userProfiles.push({
+          uid: row.uid,
+          profileData: row.profileData as Record<string, unknown>,
+        });
+      }
+    }
+
+    const worldStates: WorldState[] = [];
+    for (const row of worldRows) {
+      if (row.stateData && typeof row.stateData === 'object') {
+        worldStates.push(row.stateData as unknown as WorldState);
+      }
+    }
+
+    const appStates: Record<string, Record<string, unknown>> = {};
+    for (const row of stateRows) {
+      if (row.value && typeof row.value === 'object') {
+        appStates[row.key] = row.value as Record<string, unknown>;
+      }
+    }
+
+    return { userProfiles, worldStates, appStates };
   } catch (error) {
-    console.error('Failed to hydrate state from Cloud SQL:', error);
-    return null;
+    console.error('Failed to hydrate snapshots from SQL:', error);
+    return { userProfiles: [], worldStates: [], appStates: {} };
   }
 }
 

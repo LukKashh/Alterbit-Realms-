@@ -17,12 +17,14 @@ import { createPlayerBody, stepPlayerPhysics, type PlayerBody } from './physics.
 import {
   getCrackOverlay,
   getMarketStandSprite,
-  getPlayerSprite,
   getTileSprite,
   type EquippedWearables,
-  type PlayerPose,
 } from './pixelArt.ts';
-import { PLAYER_LOGICAL_H, PLAYER_LOGICAL_W } from './playerSpriteHD.ts';
+import {
+  drawModularCharacter,
+  PLAYER_LOGICAL_H,
+  PLAYER_LOGICAL_W,
+} from './playerSpriteHD.ts';
 import {
   canBreakTile,
   canPlaceTile,
@@ -31,12 +33,15 @@ import {
   getCoveringShareLock,
   getMarketStandAt,
   getPlantGrowthState,
+  hasEditPermission,
   inBoundsWorld,
   isDoorBlock,
+  isWithinReach,
   tileIndexIn,
   worldHeight,
   worldWidth,
 } from './rules.ts';
+import { isSystemWorld } from './expansion.ts';
 import {
   generateWorld,
   type AreaLockRecord,
@@ -128,6 +133,9 @@ export interface TileInspectInfo {
   bgId?: number;
   isDoor?: boolean;
   isNexusDoor?: boolean;
+  doorMode?: 'use' | 'edit';
+  canEditDoor?: boolean;
+  canEditSign?: boolean;
   doorLink?: DoorLinkRecord | null;
 }
 
@@ -147,13 +155,14 @@ export interface EngineCallbacks {
   onPlowTile?: (tx: number, ty: number, adminEdit?: boolean) => void;
   onPickupDrop?: (dropId: string) => void;
   onInspectTile?: (info: TileInspectInfo | null) => void;
-  onInspectPlayer?: (player: RemotePlayerState) => void;
   onCoordsChange?: (tx: number, ty: number) => void;
   onCastFishing?: (tx: number, ty: number, rodItemId: number) => void;
   onReelFishing?: () => void;
   onUseConsumable?: (itemId: number) => void;
   onHazardHit?: (hazard: 'acid' | 'spikes') => void;
   onUseDoor?: (tx: number, ty: number) => void;
+  onUseEntrancePortal?: () => void;
+  onInspectPlayer?: (playerId: string) => void;
 }
 
 const MAX_PARTICLES = 280;
@@ -172,8 +181,8 @@ export class BlockgroveEngine {
   private world: WorldState;
   private localPlayerId = 'local';
   private localPlayerName = 'Explorer';
-  private localPlayerRole: 'player' | 'admin' = 'player';
   private localShirtColor = '#3f8fd9';
+  private localRole: 'player' | 'admin' = 'player';
   private localEquipped: EquippedWearables = {};
   private body: PlayerBody;
   private selectedItemId: number = ITEM_IDS.FIST;
@@ -182,6 +191,7 @@ export class BlockgroveEngine {
   private drops = new Map<string, WorldDrop>();
   private cracks = new Map<string, TileCrackVisual>();
   private pickupAttempted = new Set<string>();
+  private pickupRetryAt = new Map<string, number>();
   private activeBuffs: ActiveBuff[] = [];
   private activeCasts = new Map<string, FishingCastState>();
 
@@ -214,12 +224,11 @@ export class BlockgroveEngine {
   private lastSyncSent = 0;
   private lastCoordTx = -1;
   private lastCoordTy = -1;
-  private lastPlantInspectKey: string | null = null;
-  private lastPlantInspectAt = 0;
   private titlePanTime = 0;
   private stepDistanceAccum = 0;
   private gameConfig: GameConfig = cloneGameConfig(DEFAULT_GAME_CONFIG);
   private viewScale = DEFAULT_VIEW_SCALE;
+  private playerZoomScale = DEFAULT_VIEW_SCALE;
   private adminWorldEdit = false;
   private adminBrushItemId: number | null = null;
 
@@ -227,19 +236,19 @@ export class BlockgroveEngine {
   private particleCursor = 0;
   private tileAnims = new Map<string, TileAnim>();
   private popups: WorldPopup[] = [];
+  private playerAnnouncements: Array<{
+    text: string;
+    tone: 'info' | 'gold' | 'emerald' | 'ruby';
+    life: number;
+    maxLife: number;
+  }> = [];
 
   private rafId: number | null = null;
   private throttleTimerId: number | null = null;
   private lastFrameMs = 0;
   private callbacks: EngineCallbacks;
   private nameplateCache = new Map<string, HTMLCanvasElement>();
-  private playerHitRegions: Array<{
-    player: RemotePlayerState;
-    x0: number;
-    y0: number;
-    x1: number;
-    y1: number;
-  }> = [];
+  private wrenchIconTargets: Array<{ playerId: string; x: number; y: number; w: number; h: number }> = [];
 
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
     this.container = container;
@@ -421,28 +430,53 @@ export class BlockgroveEngine {
     if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return;
     this.activePointerId = e.pointerId;
     this.updatePointerCoords(e.clientX, e.clientY);
+    if (this.selectedItemId === ITEM_IDS.WRENCH) {
+      const hitPad = 6;
+      const wrenchHit = this.wrenchIconTargets.find(
+        (t) =>
+          this.mouseScreenX >= t.x - hitPad &&
+          this.mouseScreenX <= t.x + t.w + hitPad &&
+          this.mouseScreenY >= t.y - hitPad &&
+          this.mouseScreenY <= t.y + t.h + hitPad
+      );
+      if (wrenchHit) {
+        soundEngine.uiClick();
+        this.callbacks.onInspectPlayer?.(wrenchHit.playerId);
+        this.activePointers.delete(e.pointerId);
+        this.activePointerId = null;
+        this.mouseDown = false;
+        return;
+      }
+      // Also allow clicking directly on a nearby remote player character with the Wrench
+      const clickWorldX = this.mouseScreenX / this.viewScale + this.camX;
+      const clickWorldY = this.mouseScreenY / this.viewScale + this.camY;
+      const lCenterX = this.body.x + PLAYER_WIDTH * 0.5;
+      const lCenterY = this.body.y + PLAYER_HEIGHT * 0.5;
+      const maxInspectDistSq = (TILE_SIZE * 8.5) ** 2;
+      for (const rp of this.remotePlayers.values()) {
+        const rpCenterX = rp.renderX + PLAYER_WIDTH * 0.5;
+        const rpCenterY = rp.renderY + PLAYER_HEIGHT * 0.5;
+        if ((rpCenterX - lCenterX) ** 2 + (rpCenterY - lCenterY) ** 2 > maxInspectDistSq) continue;
+        if (
+          clickWorldX >= rp.renderX - 8 &&
+          clickWorldX <= rp.renderX + PLAYER_WIDTH + 8 &&
+          clickWorldY >= rp.renderY - 12 &&
+          clickWorldY <= rp.renderY + PLAYER_HEIGHT + 6
+        ) {
+          soundEngine.uiClick();
+          this.callbacks.onInspectPlayer?.(rp.id);
+          this.activePointers.delete(e.pointerId);
+          this.activePointerId = null;
+          this.mouseDown = false;
+          return;
+        }
+      }
+    }
     this.mouseDown = true;
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
       // Ignore synthetic events without active pointer capture
-    }
-    // Wrench Mode Hit-Test Priority: clicking a nearby player's overhead Wrench badge or character hitbox opens their Public Profile
-    if (this.selectedItemId === ITEM_IDS.WRENCH) {
-      for (const region of this.playerHitRegions) {
-        if (
-          this.mouseScreenX >= region.x0 &&
-          this.mouseScreenX <= region.x1 &&
-          this.mouseScreenY >= region.y0 &&
-          this.mouseScreenY <= region.y1
-        ) {
-          this.mouseDown = false;
-          this.punchTimer = 0.25;
-          soundEngine.uiClick();
-          this.callbacks.onInspectPlayer?.(region.player);
-          return;
-        }
-      }
     }
     if (!this.punchStick.active) {
       this.tryInteractAtCursor();
@@ -509,8 +543,8 @@ export class BlockgroveEngine {
     this.localPlayerId = id;
     this.localPlayerName = name;
     this.localShirtColor = shirtColor;
+    this.localRole = role;
     if (equipped) this.localEquipped = equipped;
-    this.localPlayerRole = role;
   }
 
   public setLocalEquipped(equipped: EquippedWearables) {
@@ -530,14 +564,26 @@ export class BlockgroveEngine {
     this.adminBrushItemId = brushItemId;
   }
 
+  public getPlayerZoomScale(): number {
+    return this.playerZoomScale;
+  }
+
+  public setPlayerZoomScale(scale: number) {
+    const clamped = Math.max(0.75, Math.min(2.25, Number(scale) || DEFAULT_VIEW_SCALE));
+    this.playerZoomScale = Math.round(clamped * 100) / 100;
+    this.applyEffectiveViewScale();
+  }
+
   private applyEffectiveViewScale() {
-    const configured = Math.max(1, Math.min(2.5, this.gameConfig.mechanics.viewScale || DEFAULT_VIEW_SCALE));
+    const baseZoom =
+      this.playerZoomScale || this.gameConfig.mechanics.viewScale || DEFAULT_VIEW_SCALE;
+    const configured = Math.max(0.75, Math.min(2.25, baseZoom));
     if (this.cssWidth >= 900 && this.cssHeight >= 520) {
       this.viewScale = configured;
       return;
     }
     const factor = Math.min(this.cssWidth / 900, this.cssHeight / 520);
-    this.viewScale = Math.max(0.92, Math.min(configured, Math.round(configured * factor * 20) / 20));
+    this.viewScale = Math.max(0.65, Math.min(configured, Math.round(configured * factor * 20) / 20));
   }
 
   public applyGameConfig(cfg: GameConfig) {
@@ -618,7 +664,7 @@ export class BlockgroveEngine {
 
     if (bgId !== ITEM_IDS.BG_SKY && fgTransparent) {
       if (isDoorBlock(bgId) || bgId === ITEM_IDS.STONE_FURNACE) {
-        // Draw recessed stone backing wall behind the background door or WorldCore Smeltery Furnace
+        // Draw recessed stone backing wall behind the background door or WorldCore Furnace
         this.worldLayerCtx.drawImage(getTileSprite(ITEM_IDS.GP_ROCK_BACKGROUND), px, py, TILE_SIZE, TILE_SIZE);
         this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.24)';
         this.worldLayerCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
@@ -665,7 +711,7 @@ export class BlockgroveEngine {
         const py = this.body.y - 18;
         this.spawnRing(px, py, 38, '#38bdf8', 0.45);
         this.spawnSparks(px, py, 14, '#38bdf8');
-        this.spawnPopup(px, py - 14, '+1 CORE TOKEN!', '#38bdf8');
+        this.queuePlayerAnnouncement('+1 CORE TOKEN!', 'info');
       }
     }
     if (worldLevel > prevLevel) {
@@ -673,7 +719,7 @@ export class BlockgroveEngine {
       const py = this.body.y - 12;
       this.spawnRing(px, py, 44, '#fde047', 0.55);
       this.spawnSparks(px, py, 16, '#fde047');
-      this.spawnPopup(px, py - 10, `WORLD LEVEL ${worldLevel}!`, '#fde047');
+      this.queuePlayerAnnouncement(`WORLD LEVEL ${worldLevel}!`, 'gold');
     }
   }
 
@@ -745,6 +791,7 @@ export class BlockgroveEngine {
       if (!seenDropIds.has(existingDropId)) {
         this.drops.delete(existingDropId);
         this.pickupAttempted.delete(existingDropId);
+        this.pickupRetryAt.delete(existingDropId);
       }
     }
   }
@@ -816,6 +863,7 @@ export class BlockgroveEngine {
     }
     this.cracks.clear();
     this.pickupAttempted.clear();
+    this.pickupRetryAt.clear();
     this.activeCasts.clear();
     if (!prevBody) {
       this.snapCameraToPlayer();
@@ -846,6 +894,7 @@ export class BlockgroveEngine {
       existing.placing = p.placing;
       existing.level = p.level;
       existing.equipped = p.equipped;
+      existing.role = p.role;
     } else {
       this.remotePlayers.set(p.id, { ...p, renderX: p.x, renderY: p.y });
     }
@@ -1005,7 +1054,7 @@ export class BlockgroveEngine {
       // ATM Payout collected!
       this.spawnSparks(cxWorld, cyWorld, 18, '#fde047');
       this.spawnRing(cxWorld, cyWorld, 36, '#38e8d8', 0.34);
-      this.spawnPopup(cxWorld, cyWorld - 14, `+${prevAtm.storedGems} GEMS!`, '#fde047');
+      this.queuePlayerAnnouncement(`+${prevAtm.storedGems} GEMS!`, 'gold');
       this.tileAnims.set(key, {
         kind: 'hit',
         startedAt: performance.now(),
@@ -1020,7 +1069,7 @@ export class BlockgroveEngine {
       // Matteragen Yield collected!
       this.spawnSparks(cxWorld, cyWorld, 16, '#34d399');
       this.spawnRing(cxWorld, cyWorld, 34, '#34d399', 0.32);
-      this.spawnPopup(cxWorld, cyWorld - 14, 'SYNTH COLLECTED!', '#a7f3d0');
+      this.queuePlayerAnnouncement('SYNTH COLLECTED!', 'emerald');
       this.tileAnims.set(key, {
         kind: 'hit',
         startedAt: performance.now(),
@@ -1100,12 +1149,30 @@ export class BlockgroveEngine {
   }
 
   public addDrop(drop: WorldDrop) {
+    const prev = this.drops.get(drop.id);
+    if (prev && drop.qty < prev.qty) {
+      soundEngine.pickup();
+      this.spawnSparks(drop.x, drop.y, 4, '#a8fff7');
+    }
     this.drops.set(drop.id, drop);
+    this.pickupAttempted.delete(drop.id);
   }
 
   public removeDrop(dropId: string) {
+    const prev = this.drops.get(dropId);
+    if (prev && this.pickupRetryAt.has(dropId)) {
+      if (prev.isGem) {
+        soundEngine.gem();
+        this.spawnSparks(prev.x, prev.y, 7, '#fde047');
+        this.queuePlayerAnnouncement(`+${prev.qty} G`, 'gold');
+      } else {
+        soundEngine.pickup();
+        this.spawnSparks(prev.x, prev.y, 4, '#a8fff7');
+      }
+    }
     this.drops.delete(dropId);
     this.pickupAttempted.delete(dropId);
+    this.pickupRetryAt.delete(dropId);
   }
 
   private getTargetTileFromCursor(): { tx: number; ty: number } {
@@ -1175,8 +1242,9 @@ export class BlockgroveEngine {
       for (const { tx, ty } of inFrontTiles) {
         const idx = tileIndexIn(this.world, tx, ty);
         const fgId = this.world.fg[idx];
+        const bgId = this.world.bg[idx];
         const hasPlant = Boolean(this.world.plants[`${tx},${ty}`]);
-        if (fgId !== ITEM_IDS.AIR || hasPlant || getMarketStandAt(this.world, tx, ty)) {
+        if (fgId !== ITEM_IDS.AIR || bgId === ITEM_IDS.STONE_FURNACE || hasPlant || getMarketStandAt(this.world, tx, ty)) {
           if (canBreakTile(this.world, playerCtx, tx, ty, reach).ok) {
             return { tx, ty };
           }
@@ -1188,6 +1256,7 @@ export class BlockgroveEngine {
             fgId === ITEM_IDS.WORLD_LOCK ||
             fgId === ITEM_IDS.SMALL_LOCK ||
             fgId === ITEM_IDS.STONE_FURNACE ||
+            bgId === ITEM_IDS.STONE_FURNACE ||
             fgId === ITEM_IDS.BFG_COLLECTOR ||
             fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
             fgId === ITEM_IDS.LANDLORD_NPC ||
@@ -1216,8 +1285,7 @@ export class BlockgroveEngine {
 
     if (activeItemId === ITEM_IDS.WRENCH) {
       for (const { tx, ty } of inFrontTiles) {
-        const idx = tileIndexIn(this.world, tx, ty);
-        if (this.world.fg[idx] !== ITEM_IDS.AIR || getMarketStandAt(this.world, tx, ty)) {
+        if (this.isWrenchInteractable(tx, ty)) {
           return { tx, ty };
         }
       }
@@ -1282,7 +1350,79 @@ export class BlockgroveEngine {
     this.performTileInteraction(tx, ty);
   }
 
-  public emitInspectAt(tx: number, ty: number, quiet = false) {
+  private getTileInteractability(tx: number, ty: number) {
+    if (!inBoundsWorld(this.world, tx, ty)) {
+      return {
+        interactable: false,
+        restricted: false,
+        canEditDoor: false,
+        canEditSign: false,
+      };
+    }
+    const idx = tileIndexIn(this.world, tx, ty);
+    const fgId = this.world.fg[idx];
+    const bgId = this.world.bg[idx];
+    const stand = getMarketStandAt(this.world, tx, ty);
+    const isDoor = isDoorBlock(bgId) || isDoorBlock(fgId);
+    const isSign = Boolean(CATALOG[fgId]?.key.includes('sign'));
+    const hasFurnace = fgId === ITEM_IDS.STONE_FURNACE || bgId === ITEM_IDS.STONE_FURNACE;
+    const isMatteragen =
+      fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC;
+    const isSpecialBlock =
+      Boolean(stand) ||
+      fgId === ITEM_IDS.WORLD_CORE ||
+      fgId === ITEM_IDS.WORLD_LOCK ||
+      fgId === ITEM_IDS.SMALL_LOCK ||
+      fgId === ITEM_IDS.VENDING_MACHINE ||
+      hasFurnace ||
+      fgId === ITEM_IDS.BFG_COLLECTOR ||
+      fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
+      fgId === ITEM_IDS.LANDLORD_NPC ||
+      fgId === ITEM_IDS.GREENS_VENDOR_NPC ||
+      fgId === ITEM_IDS.ATM_MACHINE ||
+      fgId === ITEM_IDS.VAULTBOX ||
+      isMatteragen;
+
+    const canEditDoor = isDoor
+      ? this.world.name === 'NEXUS'
+        ? true
+        : (!isSystemWorld(this.world.name) &&
+            hasEditPermission(this.world, this.localPlayerId, tx, ty, 'build')) ||
+          this.adminWorldEdit
+      : false;
+    const canEditSign = isSign
+      ? (!isSystemWorld(this.world.name) &&
+          hasEditPermission(this.world, this.localPlayerId, tx, ty, 'interact')) ||
+        this.adminWorldEdit
+      : false;
+
+    if (isSpecialBlock) {
+      return { interactable: true, restricted: false, canEditDoor, canEditSign };
+    }
+    if (isDoor) {
+      return {
+        interactable: canEditDoor,
+        restricted: !canEditDoor,
+        canEditDoor,
+        canEditSign: false,
+      };
+    }
+    if (isSign) {
+      return {
+        interactable: canEditSign,
+        restricted: !canEditSign,
+        canEditDoor: false,
+        canEditSign,
+      };
+    }
+    return { interactable: false, restricted: false, canEditDoor: false, canEditSign: false };
+  }
+
+  private isWrenchInteractable(tx: number, ty: number): boolean {
+    return this.getTileInteractability(tx, ty).interactable;
+  }
+
+  public emitInspectAt(tx: number, ty: number, quiet = false, doorMode: 'use' | 'edit' = 'edit') {
     if (!inBoundsWorld(this.world, tx, ty)) return;
     const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
@@ -1290,67 +1430,31 @@ export class BlockgroveEngine {
     const stand = getMarketStandAt(this.world, tx, ty);
     const fgId = stand ? stand.itemId : rawFgId;
     const fgDef = getItemDef(fgId);
+    const bgDef = getItemDef(this.world.bg[idx]);
     const bgId = this.world.bg[idx];
-    const bgDef = getItemDef(bgId);
-    const plant = this.world.plants[key];
-    let plantInfo: string | undefined;
-    if (plant) {
-      const g = getPlantGrowthState(plant, Date.now());
-      const seedDef = getItemDef(plant.seedId);
-      const remaining = Math.max(0, Math.ceil(g.remainingMs / 1000));
-      const timeLabel = remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`;
-      plantInfo = `${seedDef?.name ?? 'Seed'} · Stage ${g.visualStageIndex + 1}/4 · ${Math.round(g.progress * 100)}% · ${g.stage === 'mature' ? 'Ready' : timeLabel}`;
-    }
-
-    const coveringAreaLock = getCoveringAreaLock(this.world, tx, ty);
-    const coveringShareLock = getCoveringShareLock(this.world, tx, ty);
-    const directAreaLock = this.world.areaLocks?.[key] ?? coveringAreaLock ?? null;
-    const shareLock = this.world.shareLocks?.[key] ?? coveringShareLock;
-    const lockInfo = shareLock
-      ? `${shareLock.width}×${shareLock.height} Share Lock by ${shareLock.ownerName}`
-      : directAreaLock
-        ? `Area Lock by ${directAreaLock.ownerName}`
-        : this.world.worldLock
-          ? `Owned by ${this.world.worldLock.ownerName}`
-          : 'Unlocked';
-
+    const hasFurnace = fgId === ITEM_IDS.STONE_FURNACE || bgId === ITEM_IDS.STONE_FURNACE;
     const isDoor = isDoorBlock(bgId) || isDoorBlock(fgId);
-    const isFurnaceTile = fgId === ITEM_IDS.STONE_FURNACE || bgId === ITEM_IDS.STONE_FURNACE;
+    const { interactable, canEditDoor, canEditSign } = this.getTileInteractability(tx, ty);
+    if (!interactable) return;
 
     if (!quiet) soundEngine.uiClick();
     this.callbacks.onInspectTile?.({
       tx: stand ? stand.anchorX : tx,
       ty: stand ? stand.anchorY : ty,
-      fgId: fgId === ITEM_IDS.AIR && bgId === ITEM_IDS.STONE_FURNACE ? ITEM_IDS.STONE_FURNACE : fgId,
-      fgName:
-        fgId === ITEM_IDS.AIR && bgId === ITEM_IDS.STONE_FURNACE
-          ? (bgDef?.name ?? 'Smeltery Furnace')
-          : (fgDef?.name ?? 'Air'),
+      fgId,
+      fgName: fgId === ITEM_IDS.AIR && bgId === ITEM_IDS.STONE_FURNACE ? 'Stone Furnace' : (fgDef?.name ?? 'Air'),
       bgName: bgDef?.name ?? 'Open Sky',
-      plantInfo,
-      lockInfo,
       worldLock: fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
-      areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : coveringAreaLock,
+      areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : getCoveringAreaLock(this.world, tx, ty),
       shareLock: this.world.shareLocks?.[key] ?? null,
       isLandlord: stand?.kind === 'landlord' || fgId === ITEM_IDS.LANDLORD_NPC,
       isGreensVendor: stand?.kind === 'greens_vendor' || fgId === ITEM_IDS.GREENS_VENDOR_NPC,
       isWorldCore: fgId === ITEM_IDS.WORLD_CORE,
       vendingMachine: fgId === ITEM_IDS.VENDING_MACHINE ? (this.world.vendingMachines?.[key] ?? null) : null,
-      furnace: isFurnaceTile
-        ? (this.world.furnaces?.[key] ?? {
-            x: tx,
-            y: ty,
-            ownerId: this.world.worldLock?.ownerId ?? '',
-            recipeId: null,
-            startedAt: null,
-            finishesAt: null,
-            readyOutputItemId: 0,
-            readyOutputQty: 0,
-          })
-        : null,
+      furnace: hasFurnace ? (this.world.furnaces?.[key] ?? null) : null,
       bfgCollector: fgId === ITEM_IDS.BFG_COLLECTOR ? (this.world.bfgCollectors?.[key] ?? null) : null,
       isExchangeTerminal: fgId === ITEM_IDS.EXCHANGE_TERMINAL,
-      signText: !!CATALOG[fgId]?.key.includes('sign') ? (this.world.signs?.[key] ?? '') : null,
+      signText: canEditSign && Boolean(CATALOG[fgId]?.key.includes('sign')) ? (this.world.signs?.[key] ?? '') : null,
       matteragenEngine:
         fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC
           ? (this.world.matteragenEngines?.[key] ?? null)
@@ -1360,6 +1464,9 @@ export class BlockgroveEngine {
       bgId,
       isDoor,
       isNexusDoor: isDoor && this.world.name === 'NEXUS',
+      doorMode: isDoor ? (this.world.name === 'NEXUS' ? 'use' : doorMode) : undefined,
+      canEditDoor,
+      canEditSign,
       doorLink: isDoor ? (this.world.doorLinks?.[key] ?? null) : null,
     });
   }
@@ -1381,42 +1488,69 @@ export class BlockgroveEngine {
 
     if (activeItemId === ITEM_IDS.WRENCH) {
       this.punchTimer = 0.25;
-      this.emitInspectAt(tx, ty);
+      this.mouseDown = false;
+      const access = this.getTileInteractability(tx, ty);
+      if (access.interactable) {
+        if (!this.adminWorldEdit && !isWithinReach(playerCtx, tx, ty, reach)) {
+          this.queuePlayerAnnouncement('Out of reach', 'ruby');
+          return;
+        }
+        this.emitInspectAt(tx, ty, false, 'edit');
+      } else if (access.restricted) {
+        soundEngine.uiClick();
+        this.queuePlayerAnnouncement('Access Restricted', 'ruby');
+      }
       return;
     }
 
-    // Tapping WorldCore, a 3x2 Market Stand, background Smeltery Furnace, ready Matteragen Engine, or Doorway opens its panel
+    // Tapping Entrance Portal (in player/standard worlds), WorldCore, Furnace, ready Matteragen, 3x2 Market Stand, or Doorway
     const tileIdx = tileIndexIn(this.world, tx, ty);
     const targetFgId = this.world.fg[tileIdx];
     const targetBgId = this.world.bg[tileIdx];
-    const targetKey = `${tx},${ty}`;
     const targetHasDoor = isDoorBlock(targetBgId) || isDoorBlock(targetFgId);
+    const targetHasFurnace = targetFgId === ITEM_IDS.STONE_FURNACE || targetBgId === ITEM_IDS.STONE_FURNACE;
+    const targetEngine =
+      targetFgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && targetFgId <= ITEM_IDS.MATTERAGEN_COSMIC
+        ? this.world.matteragenEngines?.[`${tx},${ty}`]
+        : undefined;
     const isBreakTool = activeItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe';
-    const isMatteragenFg =
-      targetFgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && targetFgId <= ITEM_IDS.MATTERAGEN_COSMIC;
-    const matteragenState = isMatteragenFg ? this.world.matteragenEngines?.[targetKey] : null;
-
     if (!(this.adminWorldEdit && isBreakTool)) {
+      if (targetFgId === ITEM_IDS.ENTRANCE_PORTAL && this.world.name !== 'NEXUS' && activeItemId === ITEM_IDS.FIST) {
+        this.punchTimer = 0.3;
+        this.punchAnimTimer = PUNCH_ANIM_DURATION;
+        this.mouseDown = false;
+        soundEngine.uiClick();
+        this.callbacks.onUseEntrancePortal?.();
+        return;
+      }
       if (targetHasDoor && this.world.name === 'NEXUS') {
         this.punchTimer = 0.25;
         this.punchAnimTimer = PUNCH_ANIM_DURATION;
-        this.emitInspectAt(tx, ty);
+        this.mouseDown = false;
+        this.emitInspectAt(tx, ty, false, 'use');
         return;
       }
-      if (targetHasDoor && this.world.doorLinks?.[targetKey] && activeItemId === ITEM_IDS.FIST) {
+      if (targetHasDoor && this.world.doorLinks?.[`${tx},${ty}`] && activeItemId === ITEM_IDS.FIST) {
         this.punchTimer = 0.25;
         this.punchAnimTimer = PUNCH_ANIM_DURATION;
+        this.mouseDown = false;
         soundEngine.uiClick();
         this.callbacks.onUseDoor?.(tx, ty);
         return;
       }
+      if (targetEngine?.isReady) {
+        this.punchTimer = 0.25;
+        this.mouseDown = false;
+        this.emitInspectAt(tx, ty);
+        return;
+      }
       if (
         targetFgId === ITEM_IDS.WORLD_CORE ||
-        Boolean(getMarketStandAt(this.world, tx, ty)) ||
-        (targetFgId === ITEM_IDS.AIR && targetBgId === ITEM_IDS.STONE_FURNACE) ||
-        (isMatteragenFg && matteragenState?.isReady)
+        targetHasFurnace ||
+        Boolean(getMarketStandAt(this.world, tx, ty))
       ) {
         this.punchTimer = 0.25;
+        this.mouseDown = false;
         this.emitInspectAt(tx, ty);
         return;
       }
@@ -1440,8 +1574,6 @@ export class BlockgroveEngine {
         this.spawnDust(cx, cy, 8, '#8b5a2b');
         this.spawnSparks(cx, cy, 5, '#fde047');
         this.callbacks.onPlowTile?.(tx, ty, this.adminWorldEdit);
-      } else {
-        this.emitInspectAt(tx, ty);
       }
       return;
     }
@@ -1480,10 +1612,7 @@ export class BlockgroveEngine {
         const fgId = this.world.fg[tileIndexIn(this.world, tx, ty)];
         if (
           fgId === ITEM_IDS.VENDING_MACHINE ||
-          fgId === ITEM_IDS.WORLD_LOCK ||
-          fgId === ITEM_IDS.SMALL_LOCK ||
           fgId === ITEM_IDS.STONE_FURNACE ||
-          targetBgId === ITEM_IDS.STONE_FURNACE ||
           fgId === ITEM_IDS.BFG_COLLECTOR ||
           fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
           fgId === ITEM_IDS.LANDLORD_NPC ||
@@ -1491,7 +1620,7 @@ export class BlockgroveEngine {
           fgId === ITEM_IDS.WORLD_CORE ||
           fgId === ITEM_IDS.ATM_MACHINE ||
           fgId === ITEM_IDS.VAULTBOX ||
-          targetHasDoor ||
+          targetHasFurnace ||
           (fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC)
         ) {
           this.emitInspectAt(tx, ty);
@@ -1650,6 +1779,31 @@ export class BlockgroveEngine {
     });
   }
 
+  public queuePlayerAnnouncement(
+    text: string,
+    tone: 'info' | 'gold' | 'emerald' | 'ruby' = 'info'
+  ) {
+    const clean = text.trim();
+    if (!clean) return;
+    // Coalesce identical consecutive announcements so rapid pickups stay clean
+    const last = this.playerAnnouncements[this.playerAnnouncements.length - 1];
+    if (last && last.text === clean) {
+      last.life = 2.4;
+      last.maxLife = 2.4;
+      last.tone = tone;
+      return;
+    }
+    if (this.playerAnnouncements.length >= 3) {
+      this.playerAnnouncements.shift();
+    }
+    this.playerAnnouncements.push({
+      text: clean,
+      tone,
+      life: 2.4,
+      maxLife: 2.4,
+    });
+  }
+
   private snapCameraToPlayer() {
     const viewW = (this.cssWidth || 960) / this.viewScale;
     const viewH = (this.cssHeight || 540) / this.viewScale;
@@ -1705,6 +1859,12 @@ export class BlockgroveEngine {
       } else {
         pop.y += pop.vy * dt;
         pop.vy *= Math.pow(0.95, dt * 60);
+      }
+    }
+    for (let i = this.playerAnnouncements.length - 1; i >= 0; i--) {
+      this.playerAnnouncements[i].life -= dt;
+      if (this.playerAnnouncements[i].life <= 0) {
+        this.playerAnnouncements.splice(i, 1);
       }
     }
     this.shakeTrauma = Math.max(0, this.shakeTrauma - dt * 2.4);
@@ -1859,12 +2019,7 @@ export class BlockgroveEngine {
         '#38bdf8',
         0.35
       );
-      this.spawnPopup(
-        this.body.x + PLAYER_WIDTH * 0.5,
-        this.body.y - 10,
-        'RETURNED TO NEXUS DECK',
-        '#7dd3fc'
-      );
+      this.queuePlayerAnnouncement('Returned to NEXUS Deck', 'info');
     }
 
     const targetCamX = Math.max(0, Math.min(maxCamX, this.body.x + PLAYER_WIDTH * 0.5 - viewW * 0.5));
@@ -1879,17 +2034,6 @@ export class BlockgroveEngine {
       this.lastCoordTx = ptx;
       this.lastCoordTy = pty;
       this.callbacks.onCoordsChange?.(ptx, pty);
-    }
-    const standingPlantKey = `${ptx},${pty}`;
-    if (this.world.plants[standingPlantKey]) {
-      if (this.lastPlantInspectKey !== standingPlantKey || nowMs - this.lastPlantInspectAt >= 500) {
-        this.lastPlantInspectKey = standingPlantKey;
-        this.lastPlantInspectAt = nowMs;
-        this.emitInspectAt(ptx, pty, true);
-      }
-    } else if (this.lastPlantInspectKey !== null) {
-      this.lastPlantInspectKey = null;
-      this.callbacks.onInspectTile?.(null);
     }
 
     const rDamp = 1 - Math.exp(-16 * dt);
@@ -1909,16 +2053,9 @@ export class BlockgroveEngine {
         drop.x += (dx / dist) * 180 * dt;
         drop.y += (dy / dist) * 180 * dt;
       }
-      if (dist <= DROP_PICKUP_RADIUS && !this.pickupAttempted.has(drop.id)) {
-        this.pickupAttempted.add(drop.id);
-        if (drop.isGem) {
-          soundEngine.gem();
-          this.spawnSparks(drop.x, drop.y, 7, '#fde047');
-          this.spawnPopup(drop.x, drop.y - 8, `+${drop.qty} G`, '#fde047');
-        } else {
-          soundEngine.pickup();
-          this.spawnSparks(drop.x, drop.y, 4, '#a8fff7');
-        }
+      const retryAt = this.pickupRetryAt.get(drop.id) ?? 0;
+      if (dist <= DROP_PICKUP_RADIUS && nowMs >= retryAt) {
+        this.pickupRetryAt.set(drop.id, nowMs + 1400);
         this.callbacks.onPickupDrop?.(drop.id);
       }
     }
@@ -1962,63 +2099,69 @@ export class BlockgroveEngine {
     const cx = Math.round((this.camX + shakeX) * snapScale) / snapScale;
     const cy = Math.round((this.camY + shakeY) * snapScale) / snapScale;
 
+    const wallNowMs = Date.now();
+    this.wrenchIconTargets = [];
+
     // 1. Biome-Aware Sky & Multi-Layer Parallax Backdrop (unscaled full viewport)
     const family = this.world.worldFamily ?? 'temperate';
     if (this.world.name === 'NEXUS') {
-      // Custom NEXUS Weather: Teal Aurora Nebula with drifting crystal dust
+      // Custom NEXUS Sky: Deep Teal Aurora Nebula with undulating ribbons & drifting crystal dust
       const nexusGrad = ctx.createLinearGradient(0, 0, 0, h);
-      nexusGrad.addColorStop(0, '#04131d');
-      nexusGrad.addColorStop(0.38, '#0b2b3c');
-      nexusGrad.addColorStop(0.75, '#134e5e');
-      nexusGrad.addColorStop(1, '#1e1b4b');
+      nexusGrad.addColorStop(0, '#04141e');
+      nexusGrad.addColorStop(0.52, '#092c3b');
+      nexusGrad.addColorStop(1, '#104f5e');
       ctx.fillStyle = nexusGrad;
       ctx.fillRect(0, 0, w, h);
 
-      // Undulating Teal & Emerald Aurora Borealis Ribbons
-      for (let band = 0; band < 4; band++) {
-        const baseY = 38 + band * 34;
-        ctx.fillStyle =
-          band === 0
-            ? 'rgba(45, 212, 191, 0.16)'
-            : band === 1
-              ? 'rgba(52, 211, 153, 0.14)'
-              : band === 2
-                ? 'rgba(56, 189, 248, 0.12)'
-                : 'rgba(167, 139, 250, 0.10)';
-        for (let seg = 0; seg < w; seg += 32) {
-          const waveY = baseY + Math.sin(nowMs * 0.0011 + seg * 0.012 + band * 1.4) * 14;
-          ctx.fillRect(seg, Math.round(waveY), 32, 18 - band * 2);
+      // Luminous teal nebula washes
+      const nebShiftX = Math.sin(nowMs * 0.0003) * 28 - cx * 0.05;
+      ctx.fillStyle = 'rgba(20, 184, 166, 0.14)';
+      ctx.beginPath();
+      ctx.arc(w * 0.28 + (nebShiftX % 120), h * 0.28, Math.max(120, w * 0.24), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(45, 212, 191, 0.10)';
+      ctx.beginPath();
+      ctx.arc(w * 0.72 - (nebShiftX % 120), h * 0.36, Math.max(140, w * 0.28), 0, Math.PI * 2);
+      ctx.fill();
+
+      // Undulating Teal Aurora curtains
+      const auroraColors = [
+        'rgba(20, 241, 217, 0.17)',
+        'rgba(56, 189, 248, 0.14)',
+        'rgba(52, 211, 153, 0.13)',
+      ];
+      for (let band = 0; band < 3; band++) {
+        ctx.fillStyle = auroraColors[band];
+        const segW = 24;
+        for (let sxBand = 0; sxBand < w; sxBand += segW) {
+          const wave =
+            Math.sin((sxBand + cx * 0.14) * 0.012 + nowMs * 0.001 + band * 1.4) * 14 +
+            Math.cos((sxBand - cx * 0.08) * 0.02 + nowMs * 0.0007) * 7;
+          const ay = Math.round(48 + band * 34 + wave);
+          ctx.fillRect(sxBand, ay, segW + 1, 18 + band * 3);
         }
       }
 
-      // Distant crystalline nebula spires along horizon
-      ctx.fillStyle = 'rgba(13, 59, 76, 0.42)';
-      for (let i = 0; i < 11; i++) {
-        const mx = i * 240 - Math.floor(cx * 0.18);
-        const my = Math.floor(24 * TILE_SIZE - cy * 0.28 - 95 - (i % 3) * 22);
-        ctx.beginPath();
-        ctx.moveTo(mx - 55, h);
-        ctx.lineTo(mx + 60, my);
-        ctx.lineTo(mx + 175, h);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // 32 Drifting Crystal Dust Motes (capped <= 35, zero per-frame allocations)
-      for (let m = 0; m < 32; m++) {
-        const seedX = (m * 197 + 43) % 997;
-        const seedY = (m * 313 + 71) % 991;
-        const driftX = ((seedX * 1.8 + nowMs * (0.012 + (m % 3) * 0.004) - cx * 0.12) % (w + 40) + (w + 40)) % (w + 40) - 20;
-        const driftY = ((seedY * 1.3 - nowMs * (0.015 + (m % 4) * 0.003) - cy * 0.08) % (h + 40) + (h + 40)) % (h + 40) - 20;
-        const twinkle = 0.35 + 0.55 * Math.abs(Math.sin(nowMs * 0.003 + m * 1.7));
-        const sz = m % 4 === 0 ? 4 : 3;
+      // Drifting crystal dust motes across the NEXUS sky
+      for (let i = 0; i < 42; i++) {
+        const dx =
+          ((i * 137 + nowMs * (0.012 + (i % 4) * 0.005) - cx * (0.1 + (i % 3) * 0.05)) % (w + 40) +
+            (w + 40)) %
+            (w + 40) -
+          20;
+        const dy =
+          ((i * 79 + Math.sin(nowMs * 0.0014 + i) * 18 - cy * 0.06) % (h - 20) + (h - 20)) %
+            (h - 20) +
+          10;
+        const twinkle = 0.35 + 0.55 * (0.5 + 0.5 * Math.sin(nowMs * 0.003 + i * 1.9));
         ctx.fillStyle =
-          m % 3 === 0
-            ? `rgba(153, 246, 228, ${twinkle.toFixed(2)})`
-            : m % 3 === 1
-              ? `rgba(167, 243, 208, ${twinkle.toFixed(2)})`
-              : `rgba(224, 242, 254, ${twinkle.toFixed(2)})`;
-        ctx.fillRect(Math.round(driftX), Math.round(driftY), sz, sz);
+          i % 3 === 0
+            ? `rgba(165, 243, 252, ${twinkle})`
+            : i % 3 === 1
+              ? `rgba(94, 234, 212, ${twinkle})`
+              : `rgba(224, 242, 254, ${twinkle * 0.8})`;
+        const sz = i % 5 === 0 ? 3 : 2;
+        ctx.fillRect(Math.floor(dx), Math.floor(dy), sz, sz);
       }
     } else if (this.world.worldKind === 'mine_shaft' || family === 'cave_blast') {
       const caveGrad = ctx.createLinearGradient(0, 0, 0, h);
@@ -2265,8 +2408,8 @@ export class BlockgroveEngine {
       const sx = plant.x * TILE_SIZE - cx;
       const sy = plant.y * TILE_SIZE - cy;
       if (sx >= -TILE_SIZE && sx <= viewW && sy >= -TILE_SIZE && sy <= viewH) {
-        this.drawPlantedTree(ctx, plant, sx, sy, nowMs);
-        if (nowMs >= plant.maturityAt && Math.random() < 0.03) {
+        this.drawPlantedTree(ctx, plant, sx, sy, nowMs, wallNowMs);
+        if (wallNowMs >= plant.maturityAt && Math.random() < 0.03) {
           this.spawnPlus(plant.x * TILE_SIZE + TILE_SIZE * 0.5, plant.y * TILE_SIZE + 12, '#b8f58c');
         }
       }
@@ -2326,43 +2469,43 @@ export class BlockgroveEngine {
       ctx.drawImage(getCrackOverlay(stage), sx, sy, TILE_SIZE, TILE_SIZE);
     }
 
-    // 5. Collectible Drops floating with enlarged frame & faceted pixel-art gem jewels (~35% increased scale)
+    // 5. Collectible Drops (+20% upscaled floating appearance)
     for (const drop of this.drops.values()) {
       const bob = Math.sin(nowMs * 0.0055 + drop.x * 0.35 + drop.y * 0.2) * 2.8;
       if (drop.isGem) {
         const qty = drop.qty || 1;
-        let sz = 14;
+        let sz = 17;
         let darkColor = '#713f12';
         let baseColor = '#ca8a04';
         let lightColor = '#fde047';
         let sparkColor = '#fef08a';
 
         if (qty >= 100) {
-          sz = 26;
+          sz = 31;
           darkColor = '#581c87';
           baseColor = '#9333ea';
           lightColor = '#c084fc';
           sparkColor = '#f3e8ff';
         } else if (qty >= 50) {
-          sz = 23;
+          sz = 28;
           darkColor = '#14532d';
           baseColor = '#16a34a';
           lightColor = '#4ade80';
           sparkColor = '#dcfce7';
         } else if (qty >= 10) {
-          sz = 20;
+          sz = 24;
           darkColor = '#991b1b';
           baseColor = '#dc2626';
           lightColor = '#f87171';
           sparkColor = '#fee2e2';
         } else if (qty >= 5) {
-          sz = 17;
+          sz = 20;
           darkColor = '#0369a1';
           baseColor = '#0284c7';
           lightColor = '#38bdf8';
           sparkColor = '#e0f2fe';
         } else {
-          sz = 14;
+          sz = 17;
           darkColor = '#713f12';
           baseColor = '#ca8a04';
           lightColor = '#fde047';
@@ -2390,11 +2533,21 @@ export class BlockgroveEngine {
 
         // Mid base color facets
         ctx.fillStyle = baseColor;
-        ctx.fillRect(gx + Math.floor(sz * 0.3), gy + 1, Math.max(2, sz - Math.floor(sz * 0.3) - 2), sz - 2);
+        ctx.fillRect(
+          gx + Math.floor(sz * 0.3),
+          gy + 1,
+          Math.max(2, sz - Math.floor(sz * 0.3) - 2),
+          sz - 2
+        );
 
         // Brilliant crown highlight (top right)
         ctx.fillStyle = lightColor;
-        ctx.fillRect(gx + Math.floor(sz * 0.35), gy + 1, Math.max(2, Math.floor(sz * 0.45)), Math.max(2, Math.floor(sz * 0.45)));
+        ctx.fillRect(
+          gx + Math.floor(sz * 0.35),
+          gy + 1,
+          Math.max(2, Math.floor(sz * 0.45)),
+          Math.max(2, Math.floor(sz * 0.45))
+        );
 
         // Sparkling glint (animated)
         const glintPhase = Math.sin(nowMs * 0.008 + drop.x * 1.5) > 0.2;
@@ -2411,13 +2564,12 @@ export class BlockgroveEngine {
           !dropDef?.transparent;
 
         if (!isSolidFullBlock) {
-          // Non-block / non-background / hollow-background items: slightly larger (24x24) with clear see-through background
-          const iconSize = 24;
+          // Non-block / non-background / hollow-background items: +20% (24 -> 29px)
+          const iconSize = 29;
           const dx = Math.floor(drop.x - cx - iconSize * 0.5);
           const dy = Math.floor(drop.y - cy - iconSize * 0.5 + bob);
-          // Subtle ground shadow only (no opaque dark box behind sprite)
           ctx.fillStyle = 'rgba(6, 12, 20, 0.30)';
-          ctx.fillRect(dx + 3, Math.floor(drop.y - cy + 10), iconSize - 6, 3);
+          ctx.fillRect(dx + 3, Math.floor(drop.y - cy + 12), iconSize - 6, 3);
 
           ctx.drawImage(getTileSprite(drop.itemId), dx, dy, iconSize, iconSize);
 
@@ -2426,7 +2578,7 @@ export class BlockgroveEngine {
             ctx.font = 'bold 8px monospace';
             const badgeW = Math.max(12, Math.ceil(ctx.measureText(label).width) + 4);
             const badgeX = dx + iconSize - badgeW + 2;
-            const badgeY = dy + iconSize - 8;
+            const badgeY = dy + iconSize - 9;
             ctx.fillStyle = '#0d1520';
             ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 10);
             ctx.fillStyle = '#e8f2fa';
@@ -2439,22 +2591,23 @@ export class BlockgroveEngine {
             ctx.textBaseline = 'alphabetic';
           }
         } else {
-          // Solid full-tile foreground/background blocks: crisp 20x20 block drop
-          const dx = Math.floor(drop.x - cx - 10);
-          const dy = Math.floor(drop.y - cy - 10 + bob);
+          // Solid full-tile foreground/background blocks: +20% crisp 24x24 block drop
+          const blockSize = 24;
+          const dx = Math.floor(drop.x - cx - blockSize * 0.5);
+          const dy = Math.floor(drop.y - cy - blockSize * 0.5 + bob);
           ctx.fillStyle = 'rgba(6, 12, 20, 0.35)';
-          ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 9), 16, 3);
+          ctx.fillRect(dx + 2, Math.floor(drop.y - cy + 11), blockSize - 4, 3);
 
           ctx.fillStyle = '#090d16';
-          ctx.fillRect(dx, dy, 20, 20);
-          ctx.drawImage(getTileSprite(drop.itemId), dx + 1, dy + 1, 18, 18);
+          ctx.fillRect(dx, dy, blockSize, blockSize);
+          ctx.drawImage(getTileSprite(drop.itemId), dx + 1, dy + 1, blockSize - 2, blockSize - 2);
 
           if (drop.qty > 1) {
             const label = drop.qty > 999 ? '999+' : String(drop.qty);
             ctx.font = 'bold 8px monospace';
             const badgeW = Math.max(12, Math.ceil(ctx.measureText(label).width) + 4);
-            const badgeX = dx + 20 - badgeW + 2;
-            const badgeY = dy + 12;
+            const badgeX = dx + blockSize - badgeW + 2;
+            const badgeY = dy + blockSize - 9;
             ctx.fillStyle = '#0d1520';
             ctx.fillRect(badgeX - 1, badgeY - 1, badgeW + 2, 10);
             ctx.fillStyle = '#e8f2fa';
@@ -2470,17 +2623,16 @@ export class BlockgroveEngine {
       }
     }
 
-    const queuedNameplates: Array<{ name: string; screenX: number; screenY: number }> = [];
-    const queuedPlayerTitles: Array<{
+    const queuedEntityTags: Array<{ name: string; screenX: number; screenY: number }> = [];
+    const queuedPlayerTags: Array<{
       playerId: string;
       name: string;
-      role: 'admin' | 'owner' | 'shared' | 'guest';
+      role: 'player' | 'admin';
+      access: 'owner' | 'shared' | 'guest';
       screenX: number;
       screenY: number;
-      worldX: number;
-      worldY: number;
-      showWrench: boolean;
-      remotePlayer?: RemotePlayerState;
+      isRemote: boolean;
+      worldDistSq: number;
     }> = [];
 
     // 5b. 3×2 Market Stands (Landlord Steward & Fresh Greens Vendor) & WorldCore in-world presence cues
@@ -2503,7 +2655,7 @@ export class BlockgroveEngine {
           ctx.lineWidth = 2;
           ctx.strokeRect(standX - 1, standY - 1, standW + 2, standH + 2);
 
-          queuedNameplates.push({
+          queuedEntityTags.push({
             name: isLandlord
               ? 'LANDLORD · REALM STEWARD'
               : 'FRESH GREENS VENDOR · CROPS & DIGIBITS',
@@ -2522,7 +2674,7 @@ export class BlockgroveEngine {
       ctx.strokeStyle = `rgba(244, 196, 95, ${pulse})`;
       ctx.lineWidth = 2;
       ctx.strokeRect(csx - 1, csy - 1, TILE_SIZE + 2, TILE_SIZE + 2);
-      queuedNameplates.push({
+      queuedEntityTags.push({
         name: `WORLD CORE · LV.${this.world.worldLevel ?? 1} (TAP)`,
         screenX: (csx + TILE_SIZE * 0.5) * viewScale,
         screenY: (csy - 2) * viewScale,
@@ -2630,7 +2782,6 @@ export class BlockgroveEngine {
     }
 
     // 6. Remote players
-    const isWrenchSelected = this.selectedItemId === ITEM_IDS.WRENCH;
     for (const rp of this.remotePlayers.values()) {
       ctx.fillStyle = 'rgba(6, 12, 20, 0.34)';
       ctx.fillRect(Math.round(rp.renderX - cx + 6), Math.round(rp.renderY - cy + PLAYER_HEIGHT - 3), PLAYER_WIDTH - 12, 5);
@@ -2655,20 +2806,19 @@ export class BlockgroveEngine {
         false,
         rpFishState
       );
-      const distToLocal = Math.hypot(
-        rp.renderX - this.body.x,
-        rp.renderY - this.body.y
-      );
-      queuedPlayerTitles.push({
+      const rpCenterX = rp.renderX + PLAYER_WIDTH * 0.5;
+      const rpCenterY = rp.renderY + PLAYER_HEIGHT * 0.5;
+      const lCenterX = this.body.x + PLAYER_WIDTH * 0.5;
+      const lCenterY = this.body.y + PLAYER_HEIGHT * 0.5;
+      queuedPlayerTags.push({
         playerId: rp.id,
         name: rp.name,
-        role: this.resolvePlayerWorldRole(rp.id, rp.role),
-        screenX: (rp.renderX - cx + PLAYER_WIDTH * 0.5) * viewScale,
+        role: rp.role === 'admin' ? 'admin' : 'player',
+        access: this.getPlayerWorldAccess(rp.id),
+        screenX: (rpCenterX - cx) * viewScale,
         screenY: topY * viewScale,
-        worldX: rp.renderX,
-        worldY: rp.renderY,
-        showWrench: isWrenchSelected && distToLocal <= TILE_SIZE * 8,
-        remotePlayer: rp,
+        isRemote: true,
+        worldDistSq: (rpCenterX - lCenterX) ** 2 + (rpCenterY - lCenterY) ** 2,
       });
     }
 
@@ -2714,15 +2864,15 @@ export class BlockgroveEngine {
         this.landAnimTimer > 0,
         localFishState
       );
-      queuedPlayerTitles.push({
+      queuedPlayerTags.push({
         playerId: this.localPlayerId,
         name: this.localPlayerName,
-        role: this.resolvePlayerWorldRole(this.localPlayerId, this.localPlayerRole),
+        role: this.localRole,
+        access: this.getPlayerWorldAccess(this.localPlayerId),
         screenX: (this.body.x - cx + PLAYER_WIDTH * 0.5) * viewScale,
         screenY: localTopY * viewScale,
-        worldX: this.body.x,
-        worldY: this.body.y,
-        showWrench: false,
+        isRemote: false,
+        worldDistSq: 0,
       });
 
       // Signboard display:
@@ -2743,7 +2893,10 @@ export class BlockgroveEngine {
           // Static pixel-art text label rendered directly above NEXUS directional signs
           if (
             this.world.name === 'NEXUS' &&
-            (text === '← Fresh Greens' || text === 'Realm Steward →' || text === '↑ Exchange & Furnace')
+            (text === '← Fresh Greens' ||
+              text === 'Realm Steward →' ||
+              text === '↑ Global Exchange' ||
+              text === '↑ Exchange & Furnace')
           ) {
             const sx = stx * TILE_SIZE - cx;
             const sy = sty * TILE_SIZE - cy;
@@ -2794,8 +2947,8 @@ export class BlockgroveEngine {
               ctx.strokeStyle = `rgba(56, 189, 248, ${pulse})`;
               ctx.lineWidth = 2;
               ctx.strokeRect(dsx + 2, dsy + 2, TILE_SIZE - 4, TILE_SIZE - 2);
-              queuedNameplates.push({
-                name: 'NEXUS TRANSIT DOOR (PUNCH)',
+              queuedEntityTags.push({
+                name: 'NEXUS GATEWAY (TAP)',
                 screenX: (dsx + TILE_SIZE * 0.5) * viewScale,
                 screenY: (dsy - 4) * viewScale,
               });
@@ -2868,11 +3021,9 @@ export class BlockgroveEngine {
         ctx.restore();
       }
 
-      // Animated tile targeting reticle with pulsing corner brackets & placement ghost hint
-      const { tx, ty } = this.punchStick.active
-        ? this.getTargetTileFromJoystick()
-        : this.getTargetTileFromCursor();
-      if (inBoundsWorld(this.world, tx, ty)) {
+      // Highlight all reachable interactable tiles ONLY when Wrench mode is active (no automatic reticle for other tools/blocks)
+      const activeItemId = this.getEffectiveInteractItemId();
+      if (activeItemId === ITEM_IDS.WRENCH) {
         const playerCtx = {
           id: this.localPlayerId,
           x: this.body.x,
@@ -2882,72 +3033,35 @@ export class BlockgroveEngine {
         const reach = this.adminWorldEdit
           ? Math.max(12, this.gameConfig.mechanics.reachTiles)
           : this.gameConfig.mechanics.reachTiles;
-        const activeItemId = this.getEffectiveInteractItemId();
-        const sDef = getItemDef(activeItemId);
-        const isBreakTool = activeItemId === ITEM_IDS.FIST || sDef?.toolKind === 'pickaxe';
-        const isHoeTool = sDef?.toolKind === 'hoe';
-        const isNonPlaceTool = activeItemId === ITEM_IDS.WRENCH || sDef?.category === 'consumable' || sDef?.toolKind === 'rod';
-        const targetTileIdx = tileIndexIn(this.world, tx, ty);
-        const isSpecialInspectTarget =
-          this.world.fg[targetTileIdx] === ITEM_IDS.WORLD_CORE ||
-          this.world.bg[targetTileIdx] === ITEM_IDS.STONE_FURNACE ||
-          Boolean(getMarketStandAt(this.world, tx, ty));
-        const canAct = isSpecialInspectTarget
-          ? true
-          : isHoeTool
-            ? canPlowTile(this.world, playerCtx, tx, ty, reach).ok
-            : isBreakTool
-              ? canBreakTile(this.world, playerCtx, tx, ty, reach).ok
-              : isNonPlaceTool
-                ? true
-                : canPlaceTile(this.world, playerCtx, activeItemId, tx, ty, reach).ok;
+        const pcx = Math.floor((this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE);
+        const pcy = Math.floor((this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE);
+        const radiusTiles = Math.ceil(reach) + 1;
+        const xStart = Math.max(0, pcx - radiusTiles);
+        const xEnd = Math.min(ww - 1, pcx + radiusTiles);
+        const yStart = Math.max(0, pcy - radiusTiles);
+        const yEnd = Math.min(wh - 1, pcy + radiusTiles);
+        const pulse = 0.72 + Math.sin(nowMs * 0.008) * 0.22;
 
-        const rx = tx * TILE_SIZE - cx;
-        const ry = ty * TILE_SIZE - cy;
-        const pulse = Math.sin(nowMs * 0.009) * 1.5;
-
-        // Faint placement ghost sprite when aiming a placeable block/machine/pot
-        if (canAct && !isBreakTool && !isHoeTool && !isNonPlaceTool && !isSpecialInspectTarget && sDef?.placeable) {
-          ctx.save();
-          ctx.globalAlpha = 0.34;
-          ctx.drawImage(getTileSprite(activeItemId), rx, ry, TILE_SIZE, TILE_SIZE);
-          ctx.restore();
+        ctx.save();
+        for (let hy = yStart; hy <= yEnd; hy++) {
+          for (let hx = xStart; hx <= xEnd; hx++) {
+            if (!this.adminWorldEdit && !isWithinReach(playerCtx, hx, hy, reach)) continue;
+            const access = this.getTileInteractability(hx, hy);
+            if (!access.interactable) continue;
+            const rx = hx * TILE_SIZE - cx;
+            const ry = hy * TILE_SIZE - cy;
+            ctx.fillStyle = access.restricted
+              ? 'rgba(248, 113, 113, 0.14)'
+              : `rgba(56, 232, 216, ${0.15 * pulse})`;
+            ctx.fillRect(rx + 2, ry + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            ctx.strokeStyle = access.restricted
+              ? 'rgba(248, 113, 113, 0.85)'
+              : `rgba(56, 232, 216, ${0.9 * pulse})`;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(rx + 1.5, ry + 1.5, TILE_SIZE - 3, TILE_SIZE - 3);
+          }
         }
-
-        const bracketColor = canAct
-          ? this.adminWorldEdit
-            ? 'rgba(56, 232, 216, 0.96)'
-            : 'rgba(255, 240, 128, 0.96)'
-          : 'rgba(255, 110, 110, 0.65)';
-        if (canAct) {
-          ctx.fillStyle = this.adminWorldEdit
-            ? 'rgba(56, 232, 216, 0.12)'
-            : 'rgba(255, 245, 158, 0.09)';
-          ctx.fillRect(rx + 2, ry + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        }
-
-        const brk = 10;
-        const pad = 1 - pulse * 0.5;
-        ctx.strokeStyle = bracketColor;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        // Top-left
-        ctx.moveTo(rx + pad, ry + pad + brk);
-        ctx.lineTo(rx + pad, ry + pad);
-        ctx.lineTo(rx + pad + brk, ry + pad);
-        // Top-right
-        ctx.moveTo(rx + TILE_SIZE - pad - brk, ry + pad);
-        ctx.lineTo(rx + TILE_SIZE - pad, ry + pad);
-        ctx.lineTo(rx + TILE_SIZE - pad, ry + pad + brk);
-        // Bottom-right
-        ctx.moveTo(rx + TILE_SIZE - pad, ry + TILE_SIZE - pad - brk);
-        ctx.lineTo(rx + TILE_SIZE - pad, ry + TILE_SIZE - pad);
-        ctx.lineTo(rx + TILE_SIZE - pad - brk, ry + TILE_SIZE - pad);
-        // Bottom-left
-        ctx.moveTo(rx + pad + brk, ry + TILE_SIZE - pad);
-        ctx.lineTo(rx + pad, ry + TILE_SIZE - pad);
-        ctx.lineTo(rx + pad, ry + TILE_SIZE - pad - brk);
-        ctx.stroke();
+        ctx.restore();
       }
     }
 
@@ -3021,12 +3135,11 @@ export class BlockgroveEngine {
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // 9. Crisp HiDPI screen-space nameplates, overhead player titles & signboard overlays
-    this.playerHitRegions = [];
-    if (queuedNameplates.length > 0 || queuedPlayerTitles.length > 0 || queuedSignBanners.length > 0) {
+    // 9. Crisp HiDPI screen-space nameplates, player title pills, wrench inspect icons & sign banners
+    if (queuedEntityTags.length > 0 || queuedPlayerTags.length > 0 || queuedSignBanners.length > 0) {
       ctx.save();
-      ctx.imageSmoothingEnabled = false;
-      for (const np of queuedNameplates) {
+      ctx.imageSmoothingEnabled = true;
+      for (const np of queuedEntityTags) {
         const nameplate = this.getNameplateCanvas(np.name);
         const nw = nameplate.width / 2;
         const nh = nameplate.height / 2;
@@ -3035,47 +3148,49 @@ export class BlockgroveEngine {
         ctx.drawImage(nameplate, tagX, tagY, nw, nh);
       }
 
-      // Compute same-tile vertical staggering for overlapping players
-      for (let i = 0; i < queuedPlayerTitles.length; i++) {
-        const pt = queuedPlayerTitles[i];
-        let overlapIndex = 0;
-        let overlapTotal = 1;
-        for (let j = 0; j < queuedPlayerTitles.length; j++) {
-          if (i === j) continue;
-          const other = queuedPlayerTitles[j];
-          if (Math.abs(pt.worldX - other.worldX) < 28 && Math.abs(pt.worldY - other.worldY) < 28) {
-            overlapTotal++;
-            if (j < i) overlapIndex++;
+      const nearbyDistSqMax = (TILE_SIZE * 8.5) ** 2;
+      for (const pt of queuedPlayerTags) {
+        const { canvas: tagCanvas, textOffsetCssX, textCssWidth, iconCssHeight } =
+          this.getPlayerTitleCanvas(pt.name, pt.role === 'admin', pt.access);
+        const cw = tagCanvas.width / 2;
+        const ch = tagCanvas.height / 2;
+        // Center the bare username text horizontally over player hitbox center regardless of facing
+        const textCenterOffsetFromLeft = textOffsetCssX + textCssWidth * 0.5;
+        const tagX = Math.round(pt.screenX - textCenterOffsetFromLeft);
+        const tagY = Math.round(pt.screenY - ch - 8);
+        ctx.drawImage(tagCanvas, tagX, tagY, cw, ch);
+
+        if (!pt.isRemote) {
+          const ptx = Math.floor((this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE);
+          const pty = Math.floor((this.body.y + PLAYER_HEIGHT * 0.5) / TILE_SIZE);
+          const feetTy = Math.floor((this.body.y + PLAYER_HEIGHT - 4) / TILE_SIZE);
+          const standingPlant =
+            this.world.plants[`${ptx},${pty}`] ?? this.world.plants[`${ptx},${feetTy}`];
+          let topAnchorY = tagY - 4;
+          if (standingPlant) {
+            this.drawSeedProgressPopup(ctx, standingPlant, pt.screenX, topAnchorY, w);
+            topAnchorY -= 34;
+          }
+          if (this.playerAnnouncements.length > 0) {
+            this.drawPlayerAnnouncements(ctx, pt.screenX, topAnchorY, w);
           }
         }
-        const scaleMult = pt.role === 'admin' ? 1.25 : 1;
-        const titleCanvas = this.getPlayerTitleCanvas(pt.name, pt.role, pt.showWrench);
-        const nw = Math.round((titleCanvas.width / 2) * scaleMult);
-        const nh = Math.round((titleCanvas.height / 2) * scaleMult);
-        // Strictly centered over the player's horizontal center (independent of facing direction)
-        const tagX = Math.round(pt.screenX - nw * 0.5);
-        const staggerY = overlapIndex * 14;
-        const tagY = Math.round(pt.screenY - nh - 6 - staggerY);
 
-        if (overlapTotal >= 3 && pt.playerId !== this.localPlayerId) {
-          ctx.globalAlpha = 0.65;
-        } else {
-          ctx.globalAlpha = 1;
-        }
-        ctx.drawImage(titleCanvas, tagX, tagY, nw, nh);
-        ctx.globalAlpha = 1;
-
-        if (pt.remotePlayer && pt.showWrench) {
-          const charLeft = (pt.worldX - cx) * viewScale;
-          const charTop = (pt.worldY - cy) * viewScale;
-          const charRight = (pt.worldX - cx + PLAYER_WIDTH) * viewScale;
-          const charBottom = (pt.worldY - cy + PLAYER_HEIGHT) * viewScale;
-          this.playerHitRegions.push({
-            player: pt.remotePlayer,
-            x0: Math.min(tagX - 6, charLeft - 6),
-            y0: Math.min(tagY - 6, charTop - 6),
-            x1: Math.max(tagX + nw + 6, charRight + 6),
-            y1: Math.max(tagY + nh + 6, charBottom + 6),
+        if (
+          pt.isRemote &&
+          this.selectedItemId === ITEM_IDS.WRENCH &&
+          pt.worldDistSq <= nearbyDistSqMax
+        ) {
+          const wSize = Math.round(iconCssHeight);
+          const wx = Math.round(tagX + cw + 4);
+          const wy = tagY;
+          this.drawWrenchBadge(ctx, wx, wy, wSize);
+          this.wrenchIconTargets.push({
+            playerId: pt.playerId,
+            x: wx,
+            y: wy,
+            w: wSize,
+            h: wSize,
           });
         }
       }
@@ -3093,188 +3208,39 @@ export class BlockgroveEngine {
     }
   }
 
-  private resolvePlayerWorldRole(
-    playerId: string,
-    accountRole?: 'player' | 'admin'
-  ): 'admin' | 'owner' | 'shared' | 'guest' {
-    if (accountRole === 'admin') return 'admin';
+  private getPlayerWorldAccess(playerId: string): 'owner' | 'shared' | 'guest' {
     if (this.world.worldLock?.ownerId === playerId) return 'owner';
-    if (this.world.worldLock?.editors?.some((e) => e.id === playerId)) return 'shared';
-    if (
-      this.world.shareLocks &&
-      Object.values(this.world.shareLocks).some(
-        (sl) => sl.ownerId === playerId || Boolean(sl.access?.[playerId])
-      )
-    ) {
-      return 'shared';
+    if (this.world.worldLock?.editors?.includes(playerId)) return 'shared';
+    for (const lock of Object.values(this.world.shareLocks ?? {})) {
+      if (lock.access?.[playerId]) return 'shared';
     }
     return 'guest';
   }
 
-  private getPlayerTitleCanvas(
-    rawName: string,
-    role: 'admin' | 'owner' | 'shared' | 'guest',
-    showWrench: boolean
-  ): HTMLCanvasElement {
-    const cacheKey = `ptitle::${role}::${showWrench ? '1' : '0'}::${rawName}`;
-    const cached = this.nameplateCache.get(cacheKey);
-    if (cached) return cached;
-
-    const displayName = role === 'admin' ? `@${rawName}` : rawName;
-    const font = 'bold 16px "Press Start 2P", monospace';
-    const c = document.createElement('canvas');
-    const tmpCtx = c.getContext('2d')!;
-    tmpCtx.font = font;
-    const textW = Math.ceil(tmpCtx.measureText(displayName).width);
-
-    const pillH = 34;
-    const badgeD = 34; // Same elevation and dimensions round circle to the left of the pill
-    const gap = 6;
-    const pillPadX = 16;
-    const pillW = textW + pillPadX * 2;
-    const wrenchW = showWrench ? 34 + gap : 0;
-
-    c.width = badgeD + gap + pillW + wrenchW + 4;
-    c.height = pillH + 4;
-
-    const ctx = c.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    const cy = c.height / 2;
-
-    // 1. Left Circular Role Icon Badge (same elevation and height as the pill)
-    const badgeCx = 2 + badgeD / 2;
-    const badgeBorderColor =
-      role === 'admin'
-        ? '#FF9F1C'
-        : role === 'owner'
-          ? '#FACC15'
-          : role === 'shared'
-            ? '#34D399'
-            : '#94A3B8';
-    const badgeFillColor =
-      role === 'admin'
-        ? 'rgba(42, 18, 4, 0.55)'
-        : role === 'owner'
-          ? 'rgba(40, 28, 6, 0.45)'
-          : role === 'shared'
-            ? 'rgba(6, 38, 28, 0.45)'
-            : 'rgba(15, 23, 42, 0.40)';
-
-    ctx.beginPath();
-    ctx.arc(badgeCx, cy, badgeD / 2 - 1, 0, Math.PI * 2);
-    ctx.fillStyle = badgeFillColor;
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#000000';
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(badgeCx, cy, badgeD / 2 - 2.5, 0, Math.PI * 2);
+  private drawWrenchBadge(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(218, 236, 252, 0.9)';
+    ctx.strokeStyle = '#2c5885';
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = badgeBorderColor;
-    ctx.stroke();
-
-    // Pixel-art Role Icon inside the left circle
-    const ix = Math.round(badgeCx - 8);
-    const iy = Math.round(cy - 8);
-    if (role === 'admin') {
-      // Golden-Orange Admin Star Crest
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(ix + 5, iy + 1, 6, 14);
-      ctx.fillRect(ix + 1, iy + 5, 14, 6);
-      ctx.fillStyle = '#FF9F1C';
-      ctx.fillRect(ix + 6, iy + 2, 4, 12);
-      ctx.fillRect(ix + 2, iy + 6, 12, 4);
-      ctx.fillStyle = '#FFF3B0';
-      ctx.fillRect(ix + 7, iy + 7, 2, 2);
-    } else if (role === 'owner') {
-      // World Owner Gold Crown
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(ix + 1, iy + 3, 14, 11);
-      ctx.fillStyle = '#FACC15';
-      ctx.fillRect(ix + 2, iy + 8, 12, 5);
-      ctx.fillRect(ix + 2, iy + 4, 3, 5);
-      ctx.fillRect(ix + 7, iy + 3, 2, 6);
-      ctx.fillRect(ix + 11, iy + 4, 3, 5);
-      ctx.fillStyle = '#EF4444';
-      ctx.fillRect(ix + 7, iy + 9, 2, 2);
-    } else if (role === 'shared') {
-      // Shared Access Emerald Key / Wrench
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(ix + 2, iy + 3, 7, 7);
-      ctx.fillRect(ix + 7, iy + 7, 7, 5);
-      ctx.fillStyle = '#34D399';
-      ctx.fillRect(ix + 3, iy + 4, 5, 5);
-      ctx.fillRect(ix + 8, iy + 8, 5, 2);
-      ctx.fillRect(ix + 11, iy + 10, 2, 2);
-    } else {
-      // Guest Visitor Silhouette
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(ix + 5, iy + 2, 6, 6);
-      ctx.fillRect(ix + 3, iy + 8, 10, 6);
-      ctx.fillStyle = '#CBD5E1';
-      ctx.fillRect(ix + 6, iy + 3, 4, 4);
-      ctx.fillRect(ix + 4, iy + 9, 8, 4);
-    }
-
-    // 2. Clear / Transparent Pill-Boxed Frame around Username
-    const pillX = 2 + badgeD + gap;
-    const pillY = 2;
-    const r = pillH / 2;
     ctx.beginPath();
-    ctx.moveTo(pillX + r, pillY);
-    ctx.lineTo(pillX + pillW - r, pillY);
-    ctx.arc(pillX + pillW - r, pillY + r, r, -Math.PI / 2, Math.PI / 2);
-    ctx.lineTo(pillX + r, pillY + pillH);
-    ctx.arc(pillX + r, pillY + r, r, Math.PI / 2, -Math.PI / 2);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(10, 14, 24, 0.18)';
+    ctx.arc(x + size / 2, y + size / 2, size / 2 - 1, 0, Math.PI * 2);
     ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.stroke();
-    ctx.lineWidth = 1.2;
-    ctx.strokeStyle = role === 'admin' ? 'rgba(255, 159, 28, 0.85)' : 'rgba(255, 255, 255, 0.55)';
     ctx.stroke();
 
-    // 3. Username Text with Thin Black Outline & Pixel-Art Font
-    ctx.font = font;
-    ctx.textBaseline = 'middle';
-    const tx = pillX + pillPadX;
-    const ty = cy + 1;
-    ctx.fillStyle = '#000000';
-    for (const [ox, oy] of [
-      [-2, 0],
-      [2, 0],
-      [0, -2],
-      [0, 2],
-      [-1.5, -1.5],
-      [1.5, -1.5],
-      [-1.5, 1.5],
-      [1.5, 1.5],
-    ]) {
-      ctx.fillText(displayName, tx + ox, ty + oy);
-    }
-    ctx.fillStyle = role === 'admin' ? '#FF9F1C' : '#F8FAFC';
-    ctx.fillText(displayName, tx, ty);
-
-    // 4. Optional Wrench Inspection Icon to the right of the Pill when Wrench Mode is active
-    if (showWrench) {
-      const wx = pillX + pillW + gap + badgeD / 2;
-      ctx.beginPath();
-      ctx.arc(wx, cy, badgeD / 2 - 1, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(12, 34, 52, 0.65)';
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#000000';
-      ctx.stroke();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = '#38BDF8';
-      ctx.stroke();
-      ctx.drawImage(getTileSprite(ITEM_IDS.WRENCH), Math.round(wx - 11), Math.round(cy - 11), 22, 22);
-    }
-
-    this.nameplateCache.set(cacheKey, c);
-    return c;
+    // Crisp compact wrench icon
+    const s = size * 0.28;
+    const cx = x + size / 2;
+    const cy = y + size / 2;
+    ctx.strokeStyle = '#091e3a';
+    ctx.lineWidth = Math.max(2, size * 0.14);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - s, cy + s);
+    ctx.lineTo(cx + s * 0.55, cy - s * 0.55);
+    ctx.stroke();
+    ctx.fillStyle = '#38e8d8';
+    ctx.fillRect(Math.round(cx + s * 0.25), Math.round(cy - s * 0.95), Math.max(3, Math.round(s * 0.8)), Math.max(3, Math.round(s * 0.8)));
+    ctx.restore();
   }
 
   private drawPlantedTree(
@@ -3282,27 +3248,20 @@ export class BlockgroveEngine {
     plant: PlantedTree,
     sx: number,
     sy: number,
-    nowMs: number
+    animNowMs: number,
+    wallNowMs = Date.now()
   ) {
     const def = getItemDef(plant.seedId);
-    const { visualStageIndex } = getPlantGrowthState(plant, nowMs);
+    const { stage } = getPlantGrowthState(plant, wallNowMs);
     const leafColor = def?.colorPrimary ?? '#4ea84e';
     const shadeLeaf = def?.colorSecondary ?? '#286b35';
     const highlight = def?.colorAccent ?? '#b8f58c';
 
     const scale = TILE_SIZE / 48;
-    const sway = Math.round(Math.sin(nowMs * 0.0025 + plant.x * 0.7) * (visualStageIndex === 3 ? 2 : 1));
-    // 4 distinct visual stages: 0 (0-24%), 1 (25-59%), 2 (60-99%), 3 (100% Mature)
-    const stageFactor =
-      visualStageIndex === 0
-        ? 0.15
-        : visualStageIndex === 1
-          ? 0.48
-          : visualStageIndex === 2
-            ? 0.78
-            : 1.0;
+    const sway = Math.round(Math.sin(animNowMs * 0.0025 + plant.x * 0.7) * (stage === 'mature' ? 2 : 1));
+    const growthScale = stage === 'planted' ? 0.08 : stage === 'sprout' ? 0.28 : stage === 'young' ? 0.52 : stage === 'developing' ? 0.78 : 1;
 
-    // Soil-sown Crop Seeds grow as 4-stage low-profile vegetable/fruit crop beds
+    // Soil-sown Crop Seeds grow as distinct multi-stage vegetable/fruit crop beds
     if (isCropSeed(plant.seedId)) {
       const moundW = Math.round(36 * scale);
       const moundX = sx + Math.round((TILE_SIZE - moundW) / 2);
@@ -3311,22 +3270,33 @@ export class BlockgroveEngine {
       ctx.fillStyle = '#5c381c';
       ctx.fillRect(moundX, sy + TILE_SIZE - Math.round(8 * scale), moundW, Math.round(7 * scale));
 
-      if (visualStageIndex === 0) {
-        // Stage 0 (0-24%): Tiny 2-leaf cotyledon sprout emerging from soil mound
-        const sxCenter = sx + Math.round(TILE_SIZE * 0.5);
-        const syBottom = sy + TILE_SIZE - Math.round(8 * scale);
-        ctx.fillStyle = '#151b26';
-        ctx.fillRect(sxCenter - 5, syBottom - 8, 10, 8);
-        ctx.fillStyle = '#22c55e';
-        ctx.fillRect(sxCenter - 1, syBottom - 6, 2, 6);
-        ctx.fillStyle = '#86efac';
-        ctx.fillRect(sxCenter - 4, syBottom - 7, 3, 3);
-        ctx.fillRect(sxCenter + 1, syBottom - 7, 3, 3);
+      if (stage === 'planted') {
+        const seedSize = Math.round(16 * scale);
+        ctx.drawImage(
+          getTileSprite(plant.seedId),
+          Math.round(sx + (TILE_SIZE - seedSize) * 0.5),
+          sy + TILE_SIZE - Math.round(16 * scale),
+          seedSize,
+          seedSize
+        );
         return;
       }
 
-      const bushW = Math.round((12 + stageFactor * 26) * scale);
-      const bushH = Math.round((7 + stageFactor * 23) * scale);
+      if (stage === 'sprout') {
+        const stemX = sx + Math.round(22 * scale) + sway;
+        const stemY = sy + TILE_SIZE - Math.round(18 * scale);
+        ctx.fillStyle = '#151b26';
+        ctx.fillRect(stemX - 1, stemY - 1, Math.round(6 * scale), Math.round(11 * scale));
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(stemX, stemY, Math.round(4 * scale), Math.round(9 * scale));
+        ctx.fillStyle = '#86efac';
+        ctx.fillRect(stemX - Math.round(4 * scale), stemY, Math.round(4 * scale), Math.round(3 * scale));
+        ctx.fillRect(stemX + Math.round(4 * scale), stemY + 1, Math.round(4 * scale), Math.round(3 * scale));
+        return;
+      }
+
+      const bushW = Math.round((14 + growthScale * 24) * scale);
+      const bushH = Math.round((8 + growthScale * 22) * scale);
       const bushX = sx + Math.round((TILE_SIZE - bushW) / 2) + sway;
       const bushY = sy + TILE_SIZE - Math.round(6 * scale) - bushH;
 
@@ -3339,11 +3309,8 @@ export class BlockgroveEngine {
       ctx.fillStyle = '#86efac';
       ctx.fillRect(bushX + 4, bushY + 2, Math.max(2, Math.floor(bushW * 0.5)), Math.max(2, Math.floor(bushH * 0.28)));
 
-      if (visualStageIndex >= 2) {
-        // Stage 2 shows unripe green/yellow buds; Stage 3 shows full vibrant ripe produce clusters
-        const fruitSize = Math.round((visualStageIndex === 3 ? 7 : 4) * scale);
-        const budColor = visualStageIndex === 3 ? leafColor : '#a3e635';
-        const budHi = visualStageIndex === 3 ? highlight : '#ecfccb';
+      if (stage === 'developing' || stage === 'mature') {
+        const fruitSize = Math.round((stage === 'mature' ? 7 : 4) * scale);
         for (const [fx, fy] of [
           [bushX + Math.round(bushW * 0.2), bushY + Math.round(bushH * 0.45)],
           [bushX + Math.round(bushW * 0.52), bushY + Math.round(bushH * 0.32)],
@@ -3351,14 +3318,14 @@ export class BlockgroveEngine {
         ]) {
           ctx.fillStyle = '#151b26';
           ctx.fillRect(fx - 1, fy - 1, fruitSize + 2, fruitSize + 2);
-          ctx.fillStyle = budColor;
+          ctx.fillStyle = stage === 'mature' ? leafColor : '#bef264';
           ctx.fillRect(fx, fy, fruitSize, fruitSize);
-          ctx.fillStyle = budHi;
+          ctx.fillStyle = highlight;
           ctx.fillRect(fx, fy, Math.max(2, Math.floor(fruitSize * 0.5)), Math.max(2, Math.floor(fruitSize * 0.5)));
         }
       }
-      if (visualStageIndex === 3) {
-        const bounce = Math.sin(nowMs * 0.008 + plant.x) * 2;
+      if (stage === 'mature') {
+        const bounce = Math.sin(animNowMs * 0.008 + plant.x) * 2;
         ctx.font = 'bold 8px monospace';
         const tag = 'READY!';
         const tw = ctx.measureText(tag).width;
@@ -3374,61 +3341,71 @@ export class BlockgroveEngine {
       return;
     }
 
+    const canopyW = Math.round((14 + growthScale * 26) * scale);
+    const canopyH = Math.round((8 + growthScale * 20) * scale);
+    const canopyX = sx + Math.round((TILE_SIZE - canopyW) / 2) + sway;
+    const canopyY = sy + Math.round(38 * scale) - canopyH - Math.round(growthScale * 10 * scale);
     const potKey = `${plant.x},${plant.y}`;
     const pIdx = tileIndexIn(this.world, plant.x, plant.y);
     if (this.world.seedPots?.[potKey] || this.world.fg[pIdx] === ITEM_IDS.SEED_POT) {
       ctx.drawImage(getTileSprite(ITEM_IDS.SEED_POT), sx, sy, TILE_SIZE, TILE_SIZE);
     }
 
-    if (visualStageIndex === 0) {
-      // Stage 0 (0-24%): Seed mound + tiny 2-leaf sprout
+    if (stage === 'planted') {
       if (!this.world.seedPots?.[potKey] && this.world.fg[pIdx] !== ITEM_IDS.SEED_POT) {
-        ctx.fillStyle = '#151b26';
-        ctx.fillRect(sx + Math.round(14 * scale), sy + Math.round(36 * scale), Math.round(20 * scale), Math.round(12 * scale));
-        ctx.fillStyle = '#6b4222';
-        ctx.fillRect(sx + Math.round(16 * scale), sy + Math.round(38 * scale), Math.round(16 * scale), Math.round(8 * scale));
+        ctx.fillStyle = '#151b26'; ctx.fillRect(sx + Math.round(14 * scale), sy + Math.round(36 * scale), Math.round(20 * scale), Math.round(12 * scale));
+        ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + Math.round(16 * scale), sy + Math.round(38 * scale), Math.round(16 * scale), Math.round(8 * scale));
       }
-      ctx.fillStyle = '#151b26';
-      ctx.fillRect(sx + Math.round(19 * scale), sy + Math.round(25 * scale), Math.round(10 * scale), Math.round(12 * scale));
-      ctx.fillStyle = leafColor;
-      ctx.fillRect(sx + Math.round(20 * scale), sy + Math.round(26 * scale), Math.round(8 * scale), Math.round(10 * scale));
-      ctx.fillStyle = highlight;
-      ctx.fillRect(sx + Math.round(20 * scale), sy + Math.round(26 * scale), Math.round(4 * scale), Math.round(5 * scale));
+      const seedSize = Math.round(16 * scale);
+      ctx.drawImage(
+        getTileSprite(plant.seedId),
+        Math.round(sx + (TILE_SIZE - seedSize) * 0.5),
+        sy + Math.round(26 * scale),
+        seedSize,
+        seedSize
+      );
       return;
     }
 
-    const canopyW = Math.round((14 + stageFactor * 26) * scale);
-    const canopyH = Math.round((8 + stageFactor * 20) * scale);
-    const canopyX = sx + Math.round((TILE_SIZE - canopyW) / 2) + sway;
-    const canopyY = sy + Math.round(38 * scale) - canopyH - Math.round(stageFactor * 10 * scale);
-    const trunkH = Math.round((9 + stageFactor * 25) * scale);
-    const trunkW = Math.round((3 + stageFactor * 7) * scale);
-    ctx.fillStyle = '#151b26';
-    ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2), sy + TILE_SIZE - trunkH, trunkW + Math.round(2 * scale), trunkH);
-    ctx.fillStyle = '#6b4222';
-    ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2) + 1, sy + TILE_SIZE - trunkH + 1, trunkW, trunkH - 1);
-    ctx.fillStyle = '#a36836';
-    ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2) + 1, sy + TILE_SIZE - trunkH + 2, Math.round(2 * scale), trunkH - 3);
+    if (stage === 'sprout') {
+      const cxStem = sx + Math.round(24 * scale) + sway;
+      ctx.fillStyle = '#151b26';
+      ctx.fillRect(cxStem - 2, sy + Math.round(22 * scale), Math.round(4 * scale), Math.round(16 * scale));
+      ctx.fillStyle = '#7c4e2a';
+      ctx.fillRect(cxStem - 1, sy + Math.round(23 * scale), Math.round(2 * scale), Math.round(14 * scale));
+      ctx.fillStyle = shadeLeaf;
+      ctx.fillRect(cxStem - Math.round(8 * scale), sy + Math.round(19 * scale), Math.round(16 * scale), Math.round(7 * scale));
+      ctx.fillStyle = leafColor;
+      ctx.fillRect(cxStem - Math.round(6 * scale), sy + Math.round(18 * scale), Math.round(12 * scale), Math.round(6 * scale));
+      ctx.fillStyle = highlight;
+      ctx.fillRect(cxStem - Math.round(4 * scale), sy + Math.round(19 * scale), Math.round(4 * scale), Math.round(3 * scale));
+      return;
+    }
 
+    const trunkH = Math.round((9 + growthScale * 25) * scale);
+    const trunkW = Math.round((3 + growthScale * 7) * scale);
+    ctx.fillStyle = '#151b26'; ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2), sy + TILE_SIZE - trunkH, trunkW + Math.round(2 * scale), trunkH);
+    ctx.fillStyle = '#6b4222'; ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2) + 1, sy + TILE_SIZE - trunkH + 1, trunkW, trunkH - 1);
+    ctx.fillStyle = '#a36836'; ctx.fillRect(sx + Math.round(24 * scale) - Math.floor(trunkW / 2) + 1, sy + TILE_SIZE - trunkH + 2, Math.round(2 * scale), trunkH - 3);
+    // Seed IDs select a stable species silhouette while each species keeps its own palette.
     const species = Math.abs(plant.seedId) % 3;
-    const layers =
-      species === 0
+    const layers = species === 0
+      ? [
+          { inset: 7, y: 0, h: Math.max(3, Math.floor(canopyH * 0.38)) },
+          { inset: 3, y: Math.floor(canopyH * 0.25), h: Math.max(4, Math.floor(canopyH * 0.48)) },
+          { inset: 0, y: Math.floor(canopyH * 0.58), h: Math.max(3, Math.floor(canopyH * 0.42)) },
+        ]
+      : species === 1
         ? [
-            { inset: 7, y: 0, h: Math.max(3, Math.floor(canopyH * 0.38)) },
-            { inset: 3, y: Math.floor(canopyH * 0.25), h: Math.max(4, Math.floor(canopyH * 0.48)) },
-            { inset: 0, y: Math.floor(canopyH * 0.58), h: Math.max(3, Math.floor(canopyH * 0.42)) },
+            { inset: Math.floor(canopyW * 0.34), y: 0, h: Math.max(3, Math.floor(canopyH * 0.34)) },
+            { inset: Math.floor(canopyW * 0.2), y: Math.floor(canopyH * 0.25), h: Math.max(4, Math.floor(canopyH * 0.38)) },
+            { inset: Math.floor(canopyW * 0.05), y: Math.floor(canopyH * 0.55), h: Math.max(3, Math.floor(canopyH * 0.45)) },
           ]
-        : species === 1
-          ? [
-              { inset: Math.floor(canopyW * 0.34), y: 0, h: Math.max(3, Math.floor(canopyH * 0.34)) },
-              { inset: Math.floor(canopyW * 0.2), y: Math.floor(canopyH * 0.25), h: Math.max(4, Math.floor(canopyH * 0.38)) },
-              { inset: Math.floor(canopyW * 0.05), y: Math.floor(canopyH * 0.55), h: Math.max(3, Math.floor(canopyH * 0.45)) },
-            ]
-          : [
-              { inset: Math.floor(canopyW * 0.24), y: 0, h: Math.max(3, Math.floor(canopyH * 0.3)) },
-              { inset: Math.floor(canopyW * 0.1), y: Math.floor(canopyH * 0.22), h: Math.max(4, Math.floor(canopyH * 0.36)) },
-              { inset: 0, y: Math.floor(canopyH * 0.5), h: Math.max(3, Math.floor(canopyH * 0.5)) },
-            ];
+        : [
+            { inset: Math.floor(canopyW * 0.24), y: 0, h: Math.max(3, Math.floor(canopyH * 0.3)) },
+            { inset: Math.floor(canopyW * 0.1), y: Math.floor(canopyH * 0.22), h: Math.max(4, Math.floor(canopyH * 0.36)) },
+            { inset: 0, y: Math.floor(canopyH * 0.5), h: Math.max(3, Math.floor(canopyH * 0.5)) },
+          ];
     for (const layer of layers) {
       const layerW = Math.max(4, canopyW - layer.inset * 2);
       const layerX = canopyX + layer.inset;
@@ -3441,52 +3418,310 @@ export class BlockgroveEngine {
       ctx.fillRect(layerX + 1, layerY + 1, Math.max(2, layerW - 2), Math.max(2, layer.h - 2));
     }
     ctx.fillStyle = highlight;
-    ctx.fillRect(
-      canopyX + Math.max(2, Math.floor(canopyW * 0.24)),
-      canopyY + 2,
-      Math.max(3, Math.floor(canopyW * 0.25)),
-      Math.max(2, Math.floor(canopyH * 0.2))
-    );
-    if (visualStageIndex >= 2) {
-      // Stage 2 shows small buds; Stage 3 shows ripe glowing fruits/crystals
-      const fruitSz = visualStageIndex === 3 ? 5 : 3;
-      for (const [fx, fy] of [
-        [canopyX + Math.round(canopyW * 0.25), canopyY + Math.round(canopyH * 0.55)],
-        [canopyX + Math.round(canopyW * 0.65), canopyY + Math.round(canopyH * 0.48)],
-      ]) {
-        ctx.fillStyle = visualStageIndex === 3 ? highlight : shadeLeaf;
-        ctx.fillRect(fx, fy, fruitSz, fruitSz);
-      }
+    ctx.fillRect(canopyX + Math.max(2, Math.floor(canopyW * 0.24)), canopyY + 2,
+      Math.max(3, Math.floor(canopyW * 0.25)), Math.max(2, Math.floor(canopyH * 0.2)));
+    if (stage === 'developing') {
+      // Developing unripe blossom/bud dots
+      ctx.fillStyle = highlight;
+      ctx.fillRect(canopyX + 4, canopyY + Math.floor(canopyH * 0.5), 4, 4);
+      ctx.fillRect(canopyX + canopyW - 8, canopyY + Math.floor(canopyH * 0.42), 4, 4);
     }
-    if (visualStageIndex === 3) {
-      const glint = 0.35 + 0.25 * Math.sin(nowMs * 0.004 + plant.x);
-      ctx.fillStyle = `rgba(235,255,188,${glint})`;
-      ctx.fillRect(canopyX + canopyW - 8, canopyY + 4, 4, 4);
+    if (stage === 'mature') {
+      // Mature ripe fruit/crystal clusters on canopy + twinkle
+      ctx.fillStyle = '#151b26';
+      ctx.fillRect(canopyX + 3, canopyY + Math.floor(canopyH * 0.45), 6, 6);
+      ctx.fillRect(canopyX + canopyW - 10, canopyY + Math.floor(canopyH * 0.38), 6, 6);
+      ctx.fillStyle = highlight;
+      ctx.fillRect(canopyX + 4, canopyY + Math.floor(canopyH * 0.45) + 1, 4, 4);
+      ctx.fillRect(canopyX + canopyW - 9, canopyY + Math.floor(canopyH * 0.38) + 1, 4, 4);
+      const glint = 0.35 + 0.3 * Math.sin(animNowMs * 0.005 + plant.x);
+      ctx.fillStyle = `rgba(255, 255, 210, ${glint})`;
+      ctx.fillRect(canopyX + Math.floor(canopyW * 0.5), canopyY + 3, 4, 4);
     }
   }
 
+  private drawSeedProgressPopup(
+    ctx: CanvasRenderingContext2D,
+    plant: PlantedTree,
+    centerX: number,
+    bottomY: number,
+    viewCssW: number
+  ) {
+    const wallNowMs = Date.now();
+    const g = getPlantGrowthState(plant, wallNowMs);
+    const seedName = getItemDef(plant.seedId)?.name ?? 'Seed';
+    const remainingSec = Math.max(0, Math.ceil(g.remainingMs / 1000));
+    const timerLabel =
+      g.stage === 'mature' || remainingSec <= 0
+        ? 'Ready to Harvest!'
+        : remainingSec >= 60
+          ? `${Math.floor(remainingSec / 60)}m ${remainingSec % 60}s`
+          : `${remainingSec}s`;
+
+    ctx.save();
+    ctx.font = 'bold 11px "Pixelify Sans", monospace';
+    const nameW = ctx.measureText(seedName).width;
+    ctx.font = 'bold 10px "Pixelify Sans", monospace';
+    const timerW = ctx.measureText(timerLabel).width;
+    const boxW = Math.ceil(Math.max(nameW, timerW) + 16);
+    const boxH = 30;
+    const bx = Math.round(Math.max(6, Math.min(viewCssW - boxW - 6, centerX - boxW * 0.5)));
+    const by = Math.round(Math.max(6, bottomY - boxH));
+
+    // Unified Light Cloudy-Blue Frosted Glass HUD box (rounded + darker direct border)
+    const grad = ctx.createLinearGradient(bx, by, bx, by + boxH);
+    grad.addColorStop(0, 'rgba(218, 236, 252, 0.86)');
+    grad.addColorStop(1, 'rgba(182, 214, 244, 0.78)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, boxW, boxH, 8);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(bx + 6, by + 2.5);
+    ctx.lineTo(bx + boxW - 6, by + 2.5);
+    ctx.stroke();
+
+    ctx.strokeStyle = g.stage === 'mature' ? '#15803d' : '#2c5885';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(bx + 1, by + 1, boxW - 2, boxH - 2, 7);
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 11px "Pixelify Sans", monospace';
+    ctx.fillStyle = '#091e3a';
+    ctx.fillText(seedName, bx + boxW * 0.5, by + 10);
+
+    ctx.font = 'bold 10px "Pixelify Sans", monospace';
+    ctx.fillStyle = g.stage === 'mature' ? '#15803d' : '#0369a1';
+    ctx.fillText(timerLabel, bx + boxW * 0.5, by + 22);
+    ctx.restore();
+  }
+
+  private drawPlayerAnnouncements(
+    ctx: CanvasRenderingContext2D,
+    centerX: number,
+    bottomY: number,
+    viewCssW: number
+  ) {
+    ctx.save();
+    ctx.font = 'bold 11px "Pixelify Sans", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let cursorY = bottomY;
+    for (let i = this.playerAnnouncements.length - 1; i >= 0; i--) {
+      const ann = this.playerAnnouncements[i];
+      const alpha = Math.max(0, Math.min(1, ann.life / 0.35));
+      const tw = ctx.measureText(ann.text).width;
+      const boxW = Math.ceil(tw + 14);
+      const boxH = 20;
+      const bx = Math.round(Math.max(6, Math.min(viewCssW - boxW - 6, centerX - boxW * 0.5)));
+      const by = Math.round(Math.max(6, cursorY - boxH));
+      const borderCol =
+        ann.tone === 'gold'
+          ? '#b45309'
+          : ann.tone === 'emerald'
+            ? '#047857'
+            : ann.tone === 'ruby'
+              ? '#b91c1c'
+              : '#2c5885';
+      const textCol =
+        ann.tone === 'gold'
+          ? '#92400e'
+          : ann.tone === 'emerald'
+            ? '#065f46'
+            : ann.tone === 'ruby'
+              ? '#991b1b'
+              : '#091e3a';
+
+      ctx.globalAlpha = alpha;
+      const grad = ctx.createLinearGradient(bx, by, bx, by + boxH);
+      grad.addColorStop(0, 'rgba(218, 236, 252, 0.88)');
+      grad.addColorStop(1, 'rgba(182, 214, 244, 0.8)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(bx, by, boxW, boxH, 7);
+      ctx.fill();
+      ctx.strokeStyle = borderCol;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(bx + 1, by + 1, boxW - 2, boxH - 2, 6);
+      ctx.stroke();
+
+      ctx.fillStyle = textCol;
+      ctx.fillText(ann.text, bx + boxW * 0.5, by + boxH * 0.5 + 0.5);
+      cursorY = by - 3;
+    }
+    ctx.restore();
+  }
+
+  private playerTitleCache = new Map<
+    string,
+    { canvas: HTMLCanvasElement; textOffsetCssX: number; textCssWidth: number; iconCssHeight: number }
+  >();
+
+  private getPlayerTitleCanvas(
+    name: string,
+    isAdmin: boolean,
+    access: 'owner' | 'shared' | 'guest'
+  ): { canvas: HTMLCanvasElement; textOffsetCssX: number; textCssWidth: number; iconCssHeight: number } {
+    const displayName = name;
+    const roleIconKind = isAdmin ? 'admin' : access;
+    const cacheKey = `${displayName}::${roleIconKind}`;
+    const existing = this.playerTitleCache.get(cacheKey);
+    if (existing) return existing;
+
+    const scaleBoost = isAdmin ? 1.25 : 1;
+    const circleDia = Math.round(32 * scaleBoost); // 2x HiDPI: 16px normal, 20px admin
+    const gap = Math.round(7 * scaleBoost);
+    const fontPx = Math.round(20 * scaleBoost);
+    const fontStr = `bold ${fontPx}px "Pixelify Sans", monospace`;
+
+    const c = document.createElement('canvas');
+    const measureCtx = c.getContext('2d')!;
+    measureCtx.font = fontStr;
+    const textW = Math.ceil(measureCtx.measureText(displayName).width);
+    const padOuter = 5;
+
+    c.width = padOuter * 2 + circleDia + gap + textW + 4;
+    c.height = padOuter * 2 + circleDia;
+
+    const ctx = c.getContext('2d')!;
+    const cy = c.height / 2;
+
+    // 1. Left Role Icon directly next to the bare username (same elevation)
+    const circCx = padOuter + circleDia / 2;
+    const circCy = cy;
+    const r = circleDia / 2 - 2;
+
+    if (roleIconKind === 'admin') {
+      // Distinctive Game Administrator Medallion (crimson-obsidian circle + bright gold crest + pixel crown & gem)
+      ctx.fillStyle = '#2a0f18';
+      ctx.beginPath();
+      ctx.arc(circCx, circCy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ff9f1c';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      const u = Math.max(2, Math.round(circleDia * 0.11));
+      ctx.save();
+      // Golden Admin Crown silhouette
+      ctx.fillStyle = '#fde047';
+      ctx.fillRect(Math.round(circCx - u * 2.5), Math.round(circCy + u * 0.7), u * 5, u * 1.1);
+      ctx.fillRect(Math.round(circCx - u * 2.5), Math.round(circCy - u * 1.3), u * 1.1, u * 2.2);
+      ctx.fillRect(Math.round(circCx - u * 0.55), Math.round(circCy - u * 1.9), u * 1.1, u * 2.8);
+      ctx.fillRect(Math.round(circCx + u * 1.4), Math.round(circCy - u * 1.3), u * 1.1, u * 2.2);
+      ctx.fillRect(Math.round(circCx - u * 1.6), Math.round(circCy - u * 0.2), u * 3.2, u * 1.1);
+      // Warm orange base band + cyan core gem
+      ctx.fillStyle = '#ff9f1c';
+      ctx.fillRect(Math.round(circCx - u * 2.2), Math.round(circCy + u * 0.8), u * 4.4, u * 0.7);
+      ctx.fillStyle = '#38e8d8';
+      ctx.fillRect(Math.round(circCx - u * 0.4), Math.round(circCy - u * 0.2), u * 0.8, u * 0.8);
+      ctx.restore();
+    } else {
+      const ringColor =
+        roleIconKind === 'owner'
+          ? '#facc15'
+          : roleIconKind === 'shared'
+            ? '#34d399'
+            : '#94a3b8';
+
+      ctx.fillStyle = 'rgba(10, 18, 28, 0.55)';
+      ctx.beginPath();
+      ctx.arc(circCx, circCy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      ctx.save();
+      if (roleIconKind === 'owner') {
+        // Crown emblem for World Owner
+        ctx.fillStyle = '#fde047';
+        const u = Math.max(2, Math.round(circleDia * 0.1));
+        ctx.fillRect(Math.round(circCx - u * 2), Math.round(circCy + u * 0.2), u * 4, u * 1.2);
+        ctx.fillRect(Math.round(circCx - u * 2), Math.round(circCy - u), u, u * 1.2);
+        ctx.fillRect(Math.round(circCx - u * 0.5), Math.round(circCy - u * 1.3), u, u * 1.5);
+        ctx.fillRect(Math.round(circCx + u), Math.round(circCy - u), u, u * 1.2);
+      } else if (roleIconKind === 'shared') {
+        // Key / Builder badge for Shared Access
+        ctx.fillStyle = '#6ee7b7';
+        const u = Math.max(2, Math.round(circleDia * 0.1));
+        ctx.fillRect(Math.round(circCx - u * 1.5), Math.round(circCy - u * 0.5), u * 3, u);
+        ctx.fillRect(Math.round(circCx - u * 0.5), Math.round(circCy - u * 1.5), u, u * 3);
+      } else {
+        // Guest diamond pip
+        ctx.fillStyle = '#cbd5e1';
+        ctx.translate(circCx, circCy);
+        ctx.rotate(Math.PI / 4);
+        const sq = Math.round(circleDia * 0.28);
+        ctx.fillRect(-sq / 2, -sq / 2, sq, sq);
+      }
+      ctx.restore();
+    }
+
+    // 2. Bare Case-Sensitive Pixel-Art Username with thin black outline (no outer pill frame)
+    const textStartX = padOuter + circleDia + gap;
+    ctx.font = fontStr;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = isAdmin ? 5 : 4;
+    ctx.strokeStyle = '#05080f';
+    const textCenterX = textStartX + textW * 0.5;
+    const textY = cy + 1;
+    ctx.strokeText(displayName, textCenterX, textY);
+    ctx.fillStyle = isAdmin ? '#FF9F1C' : '#f4f1ea';
+    ctx.fillText(displayName, textCenterX, textY);
+
+    const result = {
+      canvas: c,
+      textOffsetCssX: textStartX / 2,
+      textCssWidth: textW / 2,
+      iconCssHeight: c.height / 2,
+    };
+    this.playerTitleCache.set(cacheKey, result);
+    return result;
+  }
+
   private getNameplateCanvas(name: string): HTMLCanvasElement {
-    let cached = this.nameplateCache.get(name);
+    const cacheKey = `np_glass::${name}`;
+    let cached = this.nameplateCache.get(cacheKey);
     if (cached) return cached;
     const c = document.createElement('canvas');
     const tmpCtx = c.getContext('2d')!;
-    tmpCtx.font = 'bold 14px "Press Start 2P", monospace';
+    tmpCtx.font = 'bold 24px "Plus Jakarta Sans", sans-serif';
     const textW = Math.ceil(tmpCtx.measureText(name).width);
     c.width = textW + 24;
-    c.height = 30;
+    c.height = 34;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = 'rgba(11, 22, 34, 0.84)';
-    ctx.fillRect(0, 0, c.width, c.height);
-    ctx.font = 'bold 14px "Press Start 2P", monospace';
-    ctx.fillStyle = '#f4f1ea';
+    const grad = ctx.createLinearGradient(0, 0, 0, c.height);
+    grad.addColorStop(0, 'rgba(218, 236, 252, 0.88)');
+    grad.addColorStop(1, 'rgba(182, 214, 244, 0.78)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(1, 1, c.width - 2, c.height - 2, 10);
+    ctx.fill();
+    ctx.strokeStyle = '#2c5885';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(1.5, 1.5, c.width - 3, c.height - 3, 9);
+    ctx.stroke();
+    ctx.font = 'bold 24px "Plus Jakarta Sans", sans-serif';
+    ctx.fillStyle = '#091e3a';
     ctx.textBaseline = 'middle';
     ctx.fillText(name, 12, c.height / 2 + 1);
-    this.nameplateCache.set(name, c);
+    this.nameplateCache.set(cacheKey, c);
     return c;
   }
 
   private getSignBannerCanvas(text: string): HTMLCanvasElement {
-    const cacheKey = `sign2x::${text}`;
+    const cacheKey = `sign2x_glass::${text}`;
     const cached = this.nameplateCache.get(cacheKey);
     if (cached) return cached;
     const c = document.createElement('canvas');
@@ -3516,13 +3751,20 @@ export class BlockgroveEngine {
     c.width = widest + 28;
     c.height = lines.length * lineH + 16;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = 'rgba(11, 22, 34, 0.9)';
-    ctx.fillRect(0, 0, c.width, c.height);
-    ctx.strokeStyle = '#78c8f5';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(1, 1, c.width - 2, c.height - 2);
+    const grad = ctx.createLinearGradient(0, 0, 0, c.height);
+    grad.addColorStop(0, 'rgba(218, 236, 252, 0.88)');
+    grad.addColorStop(1, 'rgba(182, 214, 244, 0.78)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(1, 1, c.width - 2, c.height - 2, 12);
+    ctx.fill();
+    ctx.strokeStyle = '#2c5885';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(1.5, 1.5, c.width - 3, c.height - 3, 11);
+    ctx.stroke();
     ctx.font = font;
-    ctx.fillStyle = '#f4f1ea';
+    ctx.fillStyle = '#091e3a';
     lines.forEach((line, idx) => {
       ctx.fillText(line, 14, 28 + idx * lineH);
     });
@@ -3549,34 +3791,24 @@ export class BlockgroveEngine {
     landing = false,
     fishingState: 'none' | 'hold' | 'reel' = 'none'
   ): number {
-    let pose: PlayerPose = (`idle${Math.floor(nowMs / 240) % 8}` as PlayerPose) || 'idle0';
-    if (punching) {
-      const pFrame = Math.min(3, Math.max(0, Math.floor(punchProgress * 4)));
-      pose = (`${actionKind}${pFrame}` as PlayerPose) || 'punch3';
-    } else if (placing) {
-      pose = 'place';
-    } else if (!grounded) {
-      pose = vy < 0 ? 'jump' : 'fall';
-    } else if (Math.abs(vx) > 15) {
-      const step = Math.floor(walkPhase) % 8;
-      pose = (`walk${step}` as PlayerPose) || 'walk0';
-    } else if (fishingState === 'reel') {
-      pose = 'fish_reel';
-    } else if (fishingState === 'hold') {
-      pose = 'fish_hold';
-    } else if (landing) {
-      pose = 'land';
-    }
-
-    const sprite = getPlayerSprite(pose, facing, shirtColor, equipped);
     const drawX = Math.round(screenX + (PLAYER_WIDTH - PLAYER_LOGICAL_W) * 0.5);
     const drawY = Math.round(screenY + PLAYER_HEIGHT - PLAYER_LOGICAL_H);
 
-    // Draw crisp 1:1 nearest-neighbor 2D pixel-art character sprite matching world tile pixel density
-    const prevSmoothing = ctx.imageSmoothingEnabled;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sprite, drawX, drawY, PLAYER_LOGICAL_W, PLAYER_LOGICAL_H);
-    ctx.imageSmoothingEnabled = prevSmoothing;
-    return drawY + 9;
+    return drawModularCharacter(ctx, drawX, drawY, {
+      facing,
+      vx,
+      vy,
+      grounded,
+      punching,
+      placing,
+      shirtColor,
+      walkPhase,
+      nowMs,
+      punchProgress,
+      actionKind,
+      landing,
+      fishingState,
+      equipped,
+    });
   }
 }

@@ -9,7 +9,6 @@ import {
 } from './constants.ts';
 import {
   CATALOG,
-  COLLECTION_DEV_DEFAULTS,
   GEM_STORE_LISTINGS,
   type DropEntry,
   type GemStoreListing,
@@ -85,7 +84,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
     growthMultiplier: 1,
     globalGemDropChance: 0.55,
   },
-  itemOverrides: JSON.parse(JSON.stringify(COLLECTION_DEV_DEFAULTS)) as Record<number, ItemConfigOverride>,
+  itemOverrides: {},
   storeListings: [...GEM_STORE_LISTINGS],
 };
 
@@ -142,7 +141,12 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
     reachTiles: clamp(m.reachTiles, DEFAULT_GAME_CONFIG.mechanics.reachTiles, 1.5, 8),
     punchCooldownMs: clamp(m.punchCooldownMs, DEFAULT_GAME_CONFIG.mechanics.punchCooldownMs, 60, 600),
     moveSpeed: clamp(m.moveSpeed, DEFAULT_GAME_CONFIG.mechanics.moveSpeed, 150, 720),
-    jumpVelocity: clamp(m.jumpVelocity, DEFAULT_GAME_CONFIG.mechanics.jumpVelocity, -1125, -375),
+    jumpVelocity: clamp(
+      m.jumpVelocity === -608 ? DEFAULT_GAME_CONFIG.mechanics.jumpVelocity : m.jumpVelocity,
+      DEFAULT_GAME_CONFIG.mechanics.jumpVelocity,
+      -1125,
+      -375
+    ),
     gravity: clamp(m.gravity, DEFAULT_GAME_CONFIG.mechanics.gravity, 750, 3600),
     dropMagnetRadius: clamp(m.dropMagnetRadius, DEFAULT_GAME_CONFIG.mechanics.dropMagnetRadius, 0, 210),
     growthMultiplier: clamp(m.growthMultiplier, DEFAULT_GAME_CONFIG.mechanics.growthMultiplier, 0.1, 5),
@@ -154,9 +158,7 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
     ),
   };
 
-  const itemOverrides: Record<number, ItemConfigOverride> = JSON.parse(
-    JSON.stringify(COLLECTION_DEV_DEFAULTS)
-  ) as Record<number, ItemConfigOverride>;
+  const itemOverrides: Record<number, ItemConfigOverride> = {};
   if (raw?.itemOverrides && typeof raw.itemOverrides === 'object') {
     for (const [k, ov] of Object.entries(raw.itemOverrides)) {
       const id = Number(k);
@@ -239,7 +241,7 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
         gemPrice: Math.max(1, Math.min(100000, Math.round(Number(l.gemPrice) || 10))),
         grants: l.grants.map((g) => ({
           itemId: Number(g.itemId),
-          qty: Math.max(1, Math.min(250, Math.round(Number(g.qty) || 1))),
+          qty: Math.max(1, Math.min(500, Math.round(Number(g.qty) || 1))),
         })),
       }));
     if (storeListings.length === 0) {

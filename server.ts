@@ -10,6 +10,9 @@ import { isCloudSqlConfigured } from './src/db/index.ts';
 import {
   getOrCreateUser,
   getUsers,
+  syncAppStateToSql,
+  syncPlayerSnapshotToSql,
+  syncWorldSnapshotToSql,
 } from './src/db/users.ts';
 import type { ClientMessage, ResumePosition, ServerMessage } from './src/game/network.ts';
 import { TILE_SIZE } from './src/game/constants.ts';
@@ -211,14 +214,13 @@ async function startServer() {
       alterbits: account.alterbits ?? 0,
       xp: account.xp,
       level: account.level,
-      cropMasteryLevel: account.cropMasteryLevel ?? 1,
       cropMasteryXp: account.cropMasteryXp ?? 0,
-      farmablockMasteryLevel: account.farmablockMasteryLevel ?? 1,
+      cropMasteryLevel: account.cropMasteryLevel ?? 1,
       farmablockMasteryXp: account.farmablockMasteryXp ?? 0,
+      farmablockMasteryLevel: account.farmablockMasteryLevel ?? 1,
       role: account.role,
       email: account.email,
       inventory: account.inventory,
-      overflowVault: account.overflowVault ?? [],
       equipped: account.equipped,
       stats: account.stats,
       claimedAchievements: account.claimedAchievements,
@@ -231,6 +233,18 @@ async function startServer() {
       hasClaimedStarterLootbox: Boolean(account.hasClaimedStarterLootbox),
       notice,
     });
+    if (isCloudSqlConfigured()) {
+      void syncPlayerSnapshotToSql({
+        uid: account.id,
+        email: account.email,
+        username: account.name,
+        role: account.role,
+        gems: account.gems,
+        xp: account.xp,
+        level: account.level,
+        profileData: account as unknown as Record<string, unknown>,
+      });
+    }
   }
 
   function sendProfileToPlayerId(playerId: string, notice?: string) {
@@ -276,6 +290,9 @@ async function startServer() {
       doorLink: live.state.doorLinks?.[key] ?? null,
       revision: live.state.revision,
     });
+    if (isCloudSqlConfigured()) {
+      void syncWorldSnapshotToSql(live.state);
+    }
   }
 
   function leaveCurrentWorld(session: ClientSession, explicitExit = false) {
@@ -362,13 +379,17 @@ async function startServer() {
       }
 
       if (msg.type === 'hello') {
-        if (!msg.token) {
-          sendTo(ws, { type: 'auth_error', message: 'Authentication required. Please log in.' });
-          return;
-        }
-        const account = store.getAccountByToken(msg.token);
-        if (!account) {
-          sendTo(ws, { type: 'auth_error', message: 'Session expired. Please log in again.' });
+        let account: PlayerAccount | null = null;
+        if (msg.token) {
+          account = store.getAccountByToken(msg.token);
+          if (!account) {
+            sendTo(ws, { type: 'auth_error', message: 'Session expired. Please log in again.' });
+            return;
+          }
+        } else if (msg.playerId) {
+          account = store.getOrCreatePlayer(msg.playerId, msg.playerName ?? 'Explorer');
+        } else {
+          sendTo(ws, { type: 'auth_error', message: 'Authentication required.' });
           return;
         }
         session.account = account;
@@ -382,12 +403,11 @@ async function startServer() {
           alterbits: account.alterbits ?? 0,
           xp: account.xp,
           level: account.level,
-          cropMasteryLevel: account.cropMasteryLevel ?? 1,
           cropMasteryXp: account.cropMasteryXp ?? 0,
-          farmablockMasteryLevel: account.farmablockMasteryLevel ?? 1,
+          cropMasteryLevel: account.cropMasteryLevel ?? 1,
           farmablockMasteryXp: account.farmablockMasteryXp ?? 0,
+          farmablockMasteryLevel: account.farmablockMasteryLevel ?? 1,
           inventory: account.inventory,
-          overflowVault: account.overflowVault ?? [],
           equipped: account.equipped,
           stats: account.stats,
           claimedAchievements: account.claimedAchievements,
@@ -594,16 +614,9 @@ async function startServer() {
           gameConfig: res.gameConfig,
           notice: `Game configuration updated by ${account.name}.`,
         });
-        return;
-      }
-
-      if (msg.type === 'claim_overflow_vault') {
-        const res = store.claimOverflowVault(account);
-        if (!res.ok) {
-          sendTo(ws, { type: 'world_error', message: res.message });
-          return;
+        if (isCloudSqlConfigured()) {
+          void syncAppStateToSql('game_config', res.gameConfig as unknown as Record<string, unknown>);
         }
-        sendProfileUpdate(ws, account, res.notice);
         return;
       }
 
@@ -658,6 +671,30 @@ async function startServer() {
               resumed: false,
             });
           }
+        }
+        sendProfileUpdate(ws, account, res.notice);
+        return;
+      }
+
+      if (msg.type === 'inspect_player') {
+        const profile = store.getPublicPlayerProfile(msg.targetPlayerId);
+        if (!profile) {
+          sendTo(ws, { type: 'world_error', message: 'Player profile not found.' });
+          return;
+        }
+        sendTo(ws, { type: 'player_profile', profile });
+        return;
+      }
+
+      if (msg.type === 'trash_inventory_item') {
+        const res = store.trashInventoryItem(account, {
+          itemId: msg.itemId,
+          qty: msg.qty,
+          rodInstanceId: msg.rodInstanceId,
+        });
+        if (!res.ok) {
+          sendTo(ws, { type: 'world_error', message: res.message });
+          return;
         }
         sendProfileUpdate(ws, account, res.notice);
         return;
@@ -831,15 +868,13 @@ async function startServer() {
       if (msg.type === 'pickup_drop') {
         const res = store.handlePickupDrop(live, account, msg.dropId);
         if (!res.ok) {
-          if (res.reason) {
-            sendTo(ws, { type: 'world_error', message: res.reason });
-          }
+          if (res.reason) sendTo(ws, { type: 'world_error', message: res.reason });
           return;
         }
-        if (res.removed) {
+        if (res.partialRemaining && res.partialRemaining > 0) {
+          broadcastWorld(live.state.name, { type: 'drop_spawned', drop: res.drop });
+        } else {
           broadcastWorld(live.state.name, { type: 'drop_removed', dropId: res.drop.id });
-        } else if (res.remainingDrop) {
-          broadcastWorld(live.state.name, { type: 'drop_spawned', drop: res.remainingDrop });
         }
         sendProfileUpdate(ws, account);
         return;
@@ -901,7 +936,7 @@ async function startServer() {
       }
 
       if (msg.type === 'claim_matteragen') {
-        const res = store.claimMatteragenEngine(live, account, msg.tx, msg.ty);
+        const res = store.claimMatteragenEngine(account, live.state.name, msg.tx, msg.ty);
         if (!res.ok) {
           sendTo(ws, { type: 'world_error', message: res.message });
           return;
@@ -921,21 +956,19 @@ async function startServer() {
       }
 
       if (msg.type === 'unlock_worldcore_furnace') {
-        const res = store.unlockWorldCoreFurnace(live, account);
+        const res = store.unlockWorldCoreFurnace(account, live.state.name);
         if (!res.ok) {
           sendTo(ws, { type: 'world_error', message: res.message });
           return;
         }
-        broadcastTileSnapshot(live, res.furnaceX, res.furnaceY);
-        if (live.state.worldLock) {
-          broadcastTileSnapshot(live, live.state.worldLock.x, live.state.worldLock.y);
-        }
+        broadcastTileSnapshot(live, res.tx, res.ty);
         broadcastWorld(live.state.name, {
           type: 'world_xp_updated',
           worldName: live.state.name,
           worldXp: live.state.worldXp ?? 0,
           worldLevel: live.state.worldLevel ?? 1,
-          coreTokens: live.state.coreTokens ?? 0,
+          coreTokens: res.coreTokens,
+          hasFurnaceExpansion: true,
         });
         sendProfileUpdate(ws, account, res.notice);
         return;
@@ -989,6 +1022,15 @@ async function startServer() {
           notice: res.notice,
         });
         broadcastWorld(live.state.name, { type: 'player_moved', player: res.remote }, ws);
+        return;
+      }
+
+      if (msg.type === 'use_entrance_portal') {
+        if (live.state.name === 'NEXUS') {
+          return;
+        }
+        store.clearSavedPose('NEXUS', account.id);
+        enterWorldSession(session, ws, account, 'NEXUS', undefined, false);
         return;
       }
 
@@ -1069,7 +1111,11 @@ async function startServer() {
     });
 
     ws.on('close', () => {
-      leaveCurrentWorld(session, false);
+      const playerId = session.account?.id;
+      const hasOtherSession = playerId
+        ? [...sessions].some((other) => other !== session && other.account?.id === playerId && other.ws.readyState === WebSocket.OPEN)
+        : false;
+            leaveCurrentWorld(session, false);
       sessions.delete(session);
     });
   });
@@ -1193,7 +1239,7 @@ async function startServer() {
 
   const flushOnExit = () => {
     try {
-      store.flushPendingSavesNow();
+      store.flushDirtyWorlds();
     } catch {
       // ignore
     }

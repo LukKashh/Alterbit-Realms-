@@ -835,6 +835,211 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       break;
     }
 
+    // Sci-fi Infusion Space Station Pack (15 items: 6 FG, 6 BG, 1 Door, 2 Platforms)
+    case ITEM_IDS.SCIFI_ORBITAL_HULL: {
+      drawFramedPanel16(ctx, '#64748b', { bolts: true });
+      p3(ctx, 2, 7, '#1e293b', 12, 2);
+      p3(ctx, 3, 7, '#cbd5e1', 10, 1);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_AIRLOCK_FRAME: {
+      drawFramedPanel16(ctx, '#475569', { bolts: true });
+      p3(ctx, 3, 2, '#0f172a', 10, 12);
+      p3(ctx, 4, 3, '#334155', 8, 10);
+      p3(ctx, 3, 3, '#38e8d8', 2, 2);
+      p3(ctx, 11, 3, '#38e8d8', 2, 2);
+      p3(ctx, 3, 11, '#38e8d8', 2, 2);
+      p3(ctx, 11, 11, '#38e8d8', 2, 2);
+      p3(ctx, 6, 5, '#1e293b', 4, 6);
+      p3(ctx, 7, 6, '#38bdf8', 2, 4);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_CRYO_PANEL: {
+      drawFramedPanel16(ctx, '#1e3a5f', { bolts: true });
+      p3(ctx, 3, 3, '#0c4a6e', 10, 10);
+      p3(ctx, 4, 4, '#0284c7', 8, 8);
+      p3(ctx, 5, 5, '#38bdf8', 6, 6);
+      p3(ctx, 6, 6, '#bae6fd', 4, 3);
+      p3(ctx, 6, 6, '#ffffff', 2, 1);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_SOLAR_LATTICE: {
+      p3(ctx, 0, 0, THEME.ink.outline, 16, 16);
+      p3(ctx, 1, 1, '#1e293b', 14, 14);
+      p3(ctx, 1, 1, '#94a3b8', 14, 1);
+      for (const [cx0, cy0] of [
+        [2, 2],
+        [9, 2],
+        [2, 9],
+        [9, 9],
+      ]) {
+        p3(ctx, cx0, cy0, '#0f172a', 5, 5);
+        p3(ctx, cx0, cy0, '#1d4ed8', 5, 4);
+        p3(ctx, cx0, cy0, '#3b82f6', 4, 2);
+        p3(ctx, cx0 + 1, cy0 + 1, '#93c5fd', 2, 1);
+      }
+      p3(ctx, 7, 2, '#64748b', 2, 12);
+      p3(ctx, 2, 7, '#64748b', 12, 2);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_VIEWGLASS: {
+      p3(ctx, 0, 0, THEME.ink.outline, 16, 16);
+      p3(ctx, 1, 1, '#475569', 14, 14);
+      p3(ctx, 2, 2, 'rgba(56, 189, 248, 0.34)', 12, 12);
+      ctx.clearRect(6, 6, 36, 36);
+      ctx.fillStyle = 'rgba(125, 211, 252, 0.30)';
+      ctx.fillRect(6, 6, 36, 36);
+      p3(ctx, 1, 1, '#94a3b8', 3, 2);
+      p3(ctx, 12, 1, '#94a3b8', 3, 2);
+      p3(ctx, 1, 13, '#64748b', 3, 2);
+      p3(ctx, 12, 13, '#64748b', 3, 2);
+      p3(ctx, 3, 3, '#e0f2fe', 3, 1);
+      p3(ctx, 3, 4, '#ffffff', 1, 2);
+      p3(ctx, 10, 11, '#bae6fd', 2, 1);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_ION_CONDUIT: {
+      p3(ctx, 0, 0, THEME.ink.outline, 16, 16);
+      p3(ctx, 1, 1, '#1e293b', 14, 14);
+      p3(ctx, 1, 1, '#475569', 14, 3);
+      p3(ctx, 1, 12, '#0f172a', 14, 3);
+      // Glowing central plasma rail
+      p3(ctx, 1, 6, '#0e7490', 14, 4);
+      p3(ctx, 1, 7, '#22d3ee', 14, 2);
+      p3(ctx, 3, 7, '#ecfeff', 4, 1);
+      p3(ctx, 10, 7, '#ecfeff', 3, 1);
+      p3(ctx, 7, 2, '#64748b', 2, 3);
+      p3(ctx, 7, 11, '#334155', 2, 3);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_BULKHEAD_BG: {
+      p3(ctx, 0, 0, '#0f172a', 16, 16);
+      p3(ctx, 1, 1, '#263344', 14, 14);
+      for (const rx of [2, 6, 10]) {
+        p3(ctx, rx, 2, '#1e293b', 3, 12);
+        p3(ctx, rx, 2, '#475569', 1, 12);
+      }
+      p3(ctx, 1, 7, '#151b26', 14, 2);
+      p3(ctx, 1, 7, '#64748b', 14, 1);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_TELEMETRY_BG: {
+      p3(ctx, 0, 0, '#090e17', 16, 16);
+      p3(ctx, 1, 1, '#1e293b', 14, 14);
+      p3(ctx, 2, 2, '#0b1524', 12, 12);
+      p3(ctx, 3, 4, '#0891b2', 5, 2);
+      p3(ctx, 3, 4, '#38e8d8', 3, 1);
+      p3(ctx, 9, 4, '#f59e0b', 4, 2);
+      p3(ctx, 3, 8, '#1e3a5f', 10, 1);
+      p3(ctx, 3, 10, '#22d3ee', 2, 2);
+      p3(ctx, 6, 9, '#22d3ee', 2, 3);
+      p3(ctx, 9, 10, '#38bdf8', 2, 2);
+      p3(ctx, 12, 8, '#38e8d8', 1, 4);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_STARFIELD_BG: {
+      p3(ctx, 0, 0, '#0f172a', 16, 16);
+      p3(ctx, 1, 1, '#334155', 14, 14);
+      p3(ctx, 2, 2, '#050914', 12, 12);
+      p3(ctx, 3, 4, '#0f1d3a', 10, 6);
+      p3(ctx, 4, 3, '#ffffff', 1, 1);
+      p3(ctx, 11, 4, '#bae6fd', 1, 1);
+      p3(ctx, 7, 7, '#38e8d8', 2, 1);
+      p3(ctx, 5, 11, '#ffffff', 1, 1);
+      p3(ctx, 12, 10, '#7dd3fc', 1, 1);
+      p3(ctx, 3, 8, '#38bdf8', 1, 1);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_POWER_SPINE_BG: {
+      p3(ctx, 0, 0, '#0f172a', 16, 16);
+      p3(ctx, 1, 1, '#1e293b', 14, 14);
+      p3(ctx, 4, 0, '#0b1524', 8, 16);
+      p3(ctx, 5, 0, '#0e7490', 6, 16);
+      p3(ctx, 6, 0, '#22d3ee', 4, 16);
+      p3(ctx, 7, 1, '#ecfeff', 2, 14);
+      p3(ctx, 3, 4, '#64748b', 10, 2);
+      p3(ctx, 3, 10, '#64748b', 10, 2);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_QUARANTINE_BG: {
+      p3(ctx, 0, 0, '#334155', 16, 16);
+      p3(ctx, 1, 1, '#cbd5e1', 14, 14);
+      p3(ctx, 1, 1, '#f8fafc', 14, 2);
+      p3(ctx, 2, 6, '#94a3b8', 12, 1);
+      p3(ctx, 2, 11, '#94a3b8', 12, 1);
+      p3(ctx, 11, 3, '#0891b2', 3, 2);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_HEX_REACTOR_BG: {
+      p3(ctx, 0, 0, '#090e17', 16, 16);
+      p3(ctx, 1, 1, '#273549', 14, 14);
+      for (const ly of [3, 7, 11]) {
+        p3(ctx, 2, ly, '#090e17', 12, 3);
+        p3(ctx, 3, ly + 1, '#0e7490', 10, 1);
+        p3(ctx, 5, ly + 1, '#38bdf8', 6, 1);
+      }
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_AIRLOCK_DOOR: {
+      // Pressurized sci-fi station blast doorway with glowing cyan lock seam
+      p3(ctx, 2, 0, THEME.ink.outline, 12, 16);
+      p3(ctx, 3, 1, '#475569', 10, 14);
+      p3(ctx, 3, 1, '#94a3b8', 10, 1);
+      // Inner recessed blast leaves
+      p3(ctx, 4, 3, '#1e293b', 8, 12);
+      p3(ctx, 4, 3, '#334155', 3, 12);
+      p3(ctx, 9, 3, '#334155', 3, 12);
+      // Center luminous lock seal + header diode
+      p3(ctx, 7, 3, '#0e7490', 2, 12);
+      p3(ctx, 7, 4, '#38e8d8', 2, 9);
+      p3(ctx, 7, 2, '#67e8f9', 2, 1);
+      p3(ctx, 5, 7, '#0f172a', 2, 3);
+      p3(ctx, 9, 7, '#0f172a', 2, 3);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_HOVER_PLATFORM: {
+      // Pass-through solid top alloy grate + twin repulsor thrusters beneath
+      p3(ctx, 0, 0, THEME.ink.outline, 16, 5);
+      p3(ctx, 0, 1, '#64748b', 16, 3);
+      p3(ctx, 0, 1, '#cbd5e1', 16, 1);
+      p3(ctx, 2, 2, '#1e293b', 2, 1);
+      p3(ctx, 7, 2, '#1e293b', 2, 1);
+      p3(ctx, 12, 2, '#1e293b', 2, 1);
+      // Twin underside repulsor emitters
+      p3(ctx, 2, 5, THEME.ink.outline, 4, 3);
+      p3(ctx, 3, 5, '#38bdf8', 2, 2);
+      p3(ctx, 10, 5, THEME.ink.outline, 4, 3);
+      p3(ctx, 11, 5, '#38bdf8', 2, 2);
+      break;
+    }
+
+    case ITEM_IDS.SCIFI_HOLO_CATWALK: {
+      // Jump-through hard-light cyan energy beam between compact emitter brackets
+      p3(ctx, 0, 0, THEME.ink.outline, 16, 4);
+      p3(ctx, 0, 1, '#0891b2', 16, 2);
+      p3(ctx, 2, 1, '#67e8f9', 12, 1);
+      p3(ctx, 4, 2, '#ecfeff', 8, 1);
+      // Left & right projector end-caps
+      p3(ctx, 0, 0, '#334155', 2, 5);
+      p3(ctx, 14, 0, '#334155', 2, 5);
+      p3(ctx, 1, 1, '#cbd5e1', 1, 2);
+      p3(ctx, 14, 1, '#cbd5e1', 1, 2);
+      break;
+    }
+
     case ITEM_IDS.GP_WINDOW: {
       p3(ctx, 1, 1, THEME.ink.outline, 14, 14);
       p3(ctx, 2, 2, THEME.wood.mid, 12, 12);
@@ -974,190 +1179,94 @@ function drawTile48(itemId: number): HTMLCanvasElement {
 
     // --- Desert Blast Biome Blocks (700..707) ---
     case ITEM_IDS.DESERT_SAND: {
-      // Natural wind-rippled dune sand (unframed organic terrain, distinct from beveled synthetic blocks)
-      const ramp = deriveColorRamp(def.colorPrimary);
-      p3(ctx, 0, 0, ramp.base, 16, 16);
-      p3(ctx, 0, 0, ramp.highlight, 16, 2);
-      // Wind-swept undulating dune crests & troughs
-      for (const [rx, ry, rw] of [
-        [0, 3, 6],
-        [7, 4, 9],
-        [2, 7, 8],
-        [11, 8, 5],
-        [0, 11, 7],
-        [8, 12, 8],
-      ]) {
-        p3(ctx, rx, ry, ramp.highlight, rw, 1);
-        p3(ctx, rx, ry + 1, ramp.shadow, rw, 1);
+      // Wind-rippled golden dune sand with fine stippled sand grains
+      p3(ctx, 0, 0, '#e6b85c', 16, 16);
+      p3(ctx, 0, 0, '#ffdf88', 16, 2);
+      // Sweeping diagonal wind ripples
+      p3(ctx, 1, 3, '#c9933b', 6, 1);
+      p3(ctx, 7, 4, '#c9933b', 7, 1);
+      p3(ctx, 2, 7, '#f7d176', 7, 1);
+      p3(ctx, 9, 8, '#c9933b', 6, 1);
+      p3(ctx, 0, 11, '#c9933b', 8, 1);
+      p3(ctx, 8, 12, '#f7d176', 6, 1);
+      p3(ctx, 0, 14, '#b37a2b', 16, 2);
+      // Individual sand grain flecks
+      for (const [gx, gy, gc] of [
+        [3, 5, '#fff0b3'], [11, 2, '#fff0b3'], [5, 9, '#9e6820'],
+        [13, 6, '#9e6820'], [2, 13, '#fff0b3'], [12, 14, '#9e6820'],
+      ] as const) {
+        p3(ctx, gx, gy, gc, 1, 1);
       }
-      // Fine quartz & ochre sand grains
-      for (const [gx, gy] of [
-        [3, 2],
-        [12, 3],
-        [5, 6],
-        [14, 7],
-        [2, 10],
-        [10, 10],
-        [6, 14],
-        [13, 14],
-      ]) {
-        p2(ctx, Math.round(gx * 1.5), Math.round(gy * 1.5), '#fff7d6', 1, 1);
-        p2(ctx, Math.round(gx * 1.5) + 1, Math.round(gy * 1.5) + 1, ramp.deep, 1, 1);
-      }
-      p3(ctx, 0, 15, ramp.deep, 16, 1);
       break;
     }
     case ITEM_IDS.SALT_CRUST: {
-      // Cracked evaporite salt-flat crust with crystalline polygons
-      const ramp = deriveColorRamp(def.colorPrimary);
-      p3(ctx, 0, 0, ramp.base, 16, 16);
+      // Chalk-white crystallized salt flat with polygonal desiccation cracks & crystal glints
+      p3(ctx, 0, 0, '#dbe4ec', 16, 16);
       p3(ctx, 0, 0, '#ffffff', 16, 2);
-      // Polygonal desiccation cracks
-      p3(ctx, 5, 2, ramp.shadow, 1, 6);
-      p3(ctx, 11, 3, ramp.shadow, 1, 5);
-      p3(ctx, 2, 7, ramp.shadow, 12, 1);
-      p3(ctx, 8, 8, ramp.shadow, 1, 7);
-      p3(ctx, 3, 12, ramp.shadow, 10, 1);
-      // Sparkling salt crystal highlights
-      p3(ctx, 2, 3, '#ffffff', 2, 1);
-      p3(ctx, 7, 4, '#ffffff', 3, 1);
-      p3(ctx, 3, 9, '#ffffff', 3, 1);
-      p3(ctx, 10, 10, '#ffffff', 3, 1);
-      p3(ctx, 0, 15, ramp.deep, 16, 1);
+      p3(ctx, 0, 14, '#9eb0c2', 16, 2);
+      // Hexagonal salt crust fracture lines
+      p3(ctx, 4, 2, '#7c91a6', 1, 5);
+      p3(ctx, 5, 7, '#7c91a6', 5, 1);
+      p3(ctx, 10, 3, '#7c91a6', 1, 8);
+      p3(ctx, 11, 6, '#7c91a6', 5, 1);
+      p3(ctx, 1, 9, '#7c91a6', 5, 1);
+      p3(ctx, 6, 10, '#7c91a6', 1, 5);
+      p3(ctx, 12, 11, '#7c91a6', 1, 4);
+      // Sparkling white crystal cubes
+      p3(ctx, 2, 4, '#ffffff', 2, 2);
+      p3(ctx, 7, 3, '#ffffff', 2, 1);
+      p3(ctx, 13, 8, '#ffffff', 2, 2);
+      p3(ctx, 3, 12, '#f0f7ff', 2, 1);
       break;
     }
-    case ITEM_IDS.WALLPAPER_WAINSCOT: {
-      // Cream Regency striped upper wall + rich oak lower wainscoting panel
-      p3(ctx, 0, 0, '#e8dcc4', 16, 9);
-      for (let x = 1; x < 16; x += 3) {
-        p3(ctx, x, 0, '#d5c4a1', 1, 9);
+    case ITEM_IDS.RED_SANDSTONE: {
+      // Sedimentary red-rock horizontal canyon strata (distinct from brick masonry)
+      const bands: Array<[number, number, string]> = [
+        [0, 3, '#c8603a'],
+        [3, 2, '#a34424'],
+        [5, 4, '#d97448'],
+        [9, 2, '#8a3519'],
+        [11, 3, '#be5834'],
+        [14, 2, '#732912'],
+      ];
+      for (const [by, bh, col] of bands) {
+        p3(ctx, 0, by, col, 16, bh);
       }
-      // Chair rail molding
-      p3(ctx, 0, 8, '#4a2c11', 16, 1);
-      p3(ctx, 0, 9, '#c89d66', 16, 1);
-      // Lower oak wainscot panels
-      p3(ctx, 0, 10, '#6e4720', 16, 6);
-      p3(ctx, 2, 11, '#8c5a2b', 5, 4);
-      p3(ctx, 9, 11, '#8c5a2b', 5, 4);
-      p3(ctx, 3, 12, '#a8703a', 3, 2);
-      p3(ctx, 10, 12, '#a8703a', 3, 2);
+      // Subtle sunlit upper rim & eroded pits
+      p3(ctx, 0, 0, '#f09465', 16, 1);
+      p3(ctx, 3, 6, '#f09465', 4, 1);
+      p3(ctx, 10, 6, '#732912', 3, 1);
+      p3(ctx, 4, 12, '#732912', 3, 1);
+      p3(ctx, 11, 12, '#e68356', 3, 1);
       break;
     }
-    case ITEM_IDS.WALLPAPER_ROYAL_DAMASK: {
-      // Deep crimson velvet with woven gold diamond damask motif
-      p3(ctx, 0, 0, '#5c1624', 16, 16);
-      for (let y = 0; y < 16; y += 8) {
-        for (let x = 0; x < 16; x += 8) {
-          p3(ctx, x + 3, y + 1, '#8c1d32', 2, 6);
-          p3(ctx, x + 1, y + 3, '#8c1d32', 6, 2);
-          p3(ctx, x + 3, y + 2, '#f59e0b', 2, 4);
-          p3(ctx, x + 2, y + 3, '#f59e0b', 4, 2);
-          p3(ctx, x + 3, y + 3, '#fde047', 2, 2);
-        }
-      }
-      break;
-    }
-    case ITEM_IDS.WALLPAPER_BOTANICAL: {
-      // Sage parchment with climbing emerald vines and cream blossoms
-      p3(ctx, 0, 0, '#1e3f2b', 16, 16);
-      for (const vx of [3, 11]) {
-        p3(ctx, vx, 0, '#2e6f40', 2, 16);
-        p3(ctx, vx - 2, 3, '#4ade80', 2, 2);
-        p3(ctx, vx + 2, 7, '#4ade80', 2, 2);
-        p3(ctx, vx - 2, 11, '#4ade80', 2, 2);
-        p3(ctx, vx, 4, '#fef08a', 1, 1);
-        p3(ctx, vx + 1, 12, '#fef08a', 1, 1);
-      }
-      break;
-    }
-    case ITEM_IDS.WALLPAPER_STARLIGHT: {
-      // Midnight indigo wall with golden constellations & stardust
-      p3(ctx, 0, 0, '#0f172a', 16, 16);
-      p3(ctx, 0, 4, '#1e1b4b', 16, 4);
-      p3(ctx, 0, 12, '#1e1b4b', 16, 4);
-      for (const [sx, sy] of [
-        [3, 3],
-        [11, 2],
-        [7, 8],
-        [2, 12],
-        [12, 11],
-      ]) {
-        p3(ctx, sx, sy - 1, '#f59e0b', 1, 3);
-        p3(ctx, sx - 1, sy, '#f59e0b', 3, 1);
-        p3(ctx, sx, sy, '#fef08a', 1, 1);
-      }
-      break;
-    }
-    case ITEM_IDS.WALLPAPER_PASTEL_STRIPE: {
-      // Pastel rose-blush vertical stripes with pearl-white pinstripes
-      p3(ctx, 0, 0, '#fbcfe8', 16, 16);
-      for (let x = 0; x < 16; x += 4) {
-        p3(ctx, x, 0, '#f472b6', 2, 16);
-        p3(ctx, x + 2, 0, '#fff1f2', 1, 16);
-      }
-      break;
-    }
-    case ITEM_IDS.WALLPAPER_ART_DECO: {
-      // Obsidian charcoal with geometric brass Art Deco fan arches
-      p3(ctx, 0, 0, '#18181b', 16, 16);
-      for (const [ax, ay] of [
-        [0, 0],
-        [8, 0],
-        [4, 8],
-      ]) {
-        p3(ctx, ax + 1, ay + 5, '#d97706', 6, 1);
-        p3(ctx, ax + 2, ay + 3, '#f59e0b', 4, 2);
-        p3(ctx, ax + 3, ay + 1, '#fde047', 2, 2);
-        p3(ctx, ax + 3, ay + 6, '#713f12', 2, 2);
-      }
-      break;
-    }
-    case ITEM_IDS.WALLPAPER_SAKURA: {
-      // Warm plum-parchment backdrop with sakura branches & pink blossoms
-      p3(ctx, 0, 0, '#4a1d34', 16, 16);
-      p3(ctx, 0, 3, '#2d1220', 11, 1);
-      p3(ctx, 5, 4, '#2d1220', 8, 1);
-      p3(ctx, 3, 10, '#2d1220', 13, 1);
-      for (const [bx, by] of [
-        [3, 2],
-        [9, 3],
-        [13, 6],
-        [5, 9],
-        [11, 11],
-        [2, 13],
-      ]) {
-        p3(ctx, bx, by, '#f472b6', 3, 2);
-        p3(ctx, bx + 1, by, '#fce7f3', 1, 1);
-      }
-      break;
-    }
-    case ITEM_IDS.WALLPAPER_MOROCCAN_MOSAIC: {
-      // Deep teal zellige tilework with turquoise & gold quatrefoils
-      p3(ctx, 0, 0, '#134e4a', 16, 16);
-      for (let y = 0; y < 16; y += 8) {
-        for (let x = 0; x < 16; x += 8) {
-          p3(ctx, x + 2, y + 1, '#0d9488', 4, 6);
-          p3(ctx, x + 1, y + 2, '#0d9488', 6, 4);
-          p3(ctx, x + 2, y + 2, '#2dd4bf', 4, 4);
-          p3(ctx, x + 3, y + 3, '#fef08a', 2, 2);
-        }
-      }
-      break;
-    }
-    case ITEM_IDS.RED_SANDSTONE:
     case ITEM_IDS.DESERT_HARDPAN: {
-      const ramp = deriveColorRamp(def.colorPrimary);
-      drawMasonryBricks16(ctx, ramp.highlight, ramp.base, ramp.shadow, ramp.outline);
-      p3(ctx, 2, 5, ramp.highlight, 12, 1);
-      p3(ctx, 2, 11, ramp.shadow, 12, 1);
+      // Sun-baked parched clay mudflat with wide cracked plates
+      p3(ctx, 0, 0, '#9a5a32', 16, 16);
+      p3(ctx, 1, 1, '#b56e40', 6, 5);
+      p3(ctx, 9, 1, '#ab6539', 6, 6);
+      p3(ctx, 1, 8, '#a66137', 7, 6);
+      p3(ctx, 10, 9, '#b56e40', 5, 5);
+      // Sunlit curled edges along deep cracks
+      p3(ctx, 7, 0, '#4f2814', 2, 8);
+      p3(ctx, 0, 6, '#4f2814', 16, 2);
+      p3(ctx, 8, 8, '#4f2814', 2, 8);
+      p3(ctx, 2, 2, '#cf8555', 4, 1);
+      p3(ctx, 10, 2, '#cf8555', 4, 1);
+      p3(ctx, 2, 9, '#cf8555', 5, 1);
       break;
     }
     case ITEM_IDS.DUNE_GRASS: {
-      drawFramedPanel16(ctx, '#d9b96b');
-      p3(ctx, 2, 2, '#656532', 12, 4);
-      p3(ctx, 3, 2, '#a9a04f', 10, 3);
-      p3(ctx, 4, 2, '#d3c978', 3, 2);
-      p3(ctx, 9, 2, '#d3c978', 3, 2);
+      p3(ctx, 0, 0, '#d9b96b', 16, 16);
+      p3(ctx, 0, 5, '#c29e4f', 16, 11);
+      // Tufted arid sage-olive scrub blades along crest
+      p3(ctx, 0, 0, '#5a6328', 16, 4);
+      for (const sx of [1, 5, 9, 13]) {
+        p3(ctx, sx, 0, '#a9a64c', 2, 4);
+        p3(ctx, sx, 0, '#dedb7c', 1, 2);
+      }
+      p3(ctx, 3, 8, '#a37e37', 4, 1);
+      p3(ctx, 10, 11, '#a37e37', 4, 1);
       break;
     }
     case ITEM_IDS.CACTUS: {
@@ -1171,84 +1280,200 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       break;
     }
     case ITEM_IDS.DRY_ROOT: {
-      drawFramedPanel16(ctx, '#b8945e');
-      p3(ctx, 6, 2, '#5b422e', 3, 12);
-      p3(ctx, 4, 6, '#5b422e', 3, 2);
-      p3(ctx, 9, 8, '#5b422e', 3, 2);
-      p3(ctx, 7, 3, '#c79c63', 1, 9);
+      // Sun-bleached tangled desert root & scrub earth
+      p3(ctx, 0, 0, '#a8844c', 16, 16);
+      p3(ctx, 0, 0, '#c7a267', 16, 2);
+      p3(ctx, 6, 1, '#47301e', 4, 14);
+      p3(ctx, 7, 2, '#785435', 2, 12);
+      p3(ctx, 2, 5, '#47301e', 5, 2);
+      p3(ctx, 3, 5, '#8f6743', 3, 1);
+      p3(ctx, 9, 8, '#47301e', 5, 2);
+      p3(ctx, 10, 8, '#8f6743', 3, 1);
+      p3(ctx, 2, 12, '#47301e', 4, 2);
       break;
     }
     case ITEM_IDS.DESERT_GRAVEL:
     case ITEM_IDS.CAVE_GRAVEL: {
-      drawFramedPanel16(ctx, def.colorPrimary);
+      // Loose rounded pebble conglomerate (no smooth box frame)
       const ramp = deriveColorRamp(def.colorPrimary);
-      for (const [gx, gy] of [
-        [3, 3],
-        [9, 4],
-        [5, 8],
-        [10, 10],
-        [4, 12],
-      ]) {
-        p3(ctx, gx, gy, ramp.shadow, 3, 2);
-        p3(ctx, gx, gy, ramp.highlight, 2, 1);
-      }
+      p3(ctx, 0, 0, ramp.deep, 16, 16);
+      const stones: Array<[number, number, number, number]> = [
+        [1, 1, 5, 4], [7, 1, 6, 3], [13, 2, 3, 4],
+        [0, 6, 4, 4], [5, 5, 5, 5], [11, 6, 5, 4],
+        [2, 11, 5, 4], [8, 11, 4, 4], [12, 10, 4, 5],
+      ];
+      stones.forEach(([gx, gy, gw, gh], idx) => {
+        p3(ctx, gx, gy, idx % 2 === 0 ? ramp.base : ramp.shadow, gw, gh);
+        p3(ctx, gx, gy, ramp.highlight, Math.max(1, gw - 1), 1);
+        p3(ctx, gx, gy + gh - 1, ramp.outline, gw, 1);
+      });
       break;
     }
 
     // --- Arctic Tundra Biome Blocks (720..727) ---
-    case ITEM_IDS.FROST_SNOW:
+    case ITEM_IDS.FROST_SNOW: {
+      // Soft drifted powder snow with gentle shadow curves
+      p3(ctx, 0, 0, '#e8f5ff', 16, 16);
+      p3(ctx, 0, 0, '#ffffff', 16, 3);
+      p3(ctx, 0, 6, '#c6e2f7', 7, 2);
+      p3(ctx, 7, 8, '#c6e2f7', 9, 2);
+      p3(ctx, 0, 12, '#a8cee8', 16, 4);
+      p3(ctx, 3, 4, '#ffffff', 4, 1);
+      p3(ctx, 11, 5, '#ffffff', 3, 1);
+      break;
+    }
     case ITEM_IDS.PACKED_SNOW: {
-      drawFramedPanel16(ctx, def.colorPrimary);
-      p3(ctx, 2, 2, '#ffffff', 12, 3);
-      p3(ctx, 4, 8, '#ffffff', 3, 2);
-      p3(ctx, 10, 10, def.colorSecondary, 3, 2);
+      // Dense compressed igloo-cut snow blocks with cool cyan seams
+      p3(ctx, 0, 0, '#b5d6eb', 16, 16);
+      p3(ctx, 0, 1, '#dceefa', 7, 6);
+      p3(ctx, 8, 1, '#d0e8f7', 7, 6);
+      p3(ctx, 0, 8, '#d0e8f7', 4, 7);
+      p3(ctx, 5, 8, '#dceefa', 10, 7);
+      p3(ctx, 1, 1, '#ffffff', 5, 1);
+      p3(ctx, 6, 8, '#ffffff', 6, 1);
+      p3(ctx, 0, 7, '#8db8d6', 16, 1);
+      p3(ctx, 7, 0, '#8db8d6', 1, 7);
+      p3(ctx, 4, 8, '#8db8d6', 1, 8);
       break;
     }
-    case ITEM_IDS.GLACIER_ICE:
+    case ITEM_IDS.GLACIER_ICE: {
+      // Clear pale cyan glacier ice with crisp diagonal specular streaks
+      p3(ctx, 0, 0, '#74ccf2', 16, 16);
+      p3(ctx, 0, 0, '#b8f0ff', 16, 2);
+      p3(ctx, 2, 3, '#e6fcff', 4, 2);
+      p3(ctx, 4, 5, '#ffffff', 3, 2);
+      p3(ctx, 9, 8, '#b8f0ff', 5, 2);
+      p3(ctx, 11, 10, '#ffffff', 2, 2);
+      p3(ctx, 0, 14, '#3e96c4', 16, 2);
+      break;
+    }
     case ITEM_IDS.BLUE_ICE: {
-      drawFramedPanel16(ctx, def.colorPrimary);
-      p3(ctx, 3, 3, def.colorAccent, 5, 2);
-      p3(ctx, 5, 5, '#ffffff', 4, 1);
-      p3(ctx, 8, 9, def.colorAccent, 4, 2);
-      p3(ctx, 3, 11, def.colorSecondary, 5, 2);
+      // Deep sapphire dense ice with crystalline internal fractures
+      p3(ctx, 0, 0, '#2a6bb8', 16, 16);
+      p3(ctx, 1, 1, '#3d86db', 14, 14);
+      p3(ctx, 2, 2, '#73b8ff', 6, 2);
+      p3(ctx, 7, 4, '#b8e2ff', 2, 6);
+      p3(ctx, 9, 9, '#73b8ff', 5, 2);
+      p3(ctx, 3, 11, '#1c4a85', 5, 2);
+      p3(ctx, 0, 14, '#153969', 16, 2);
       break;
     }
-    case ITEM_IDS.PERMAFROST:
+    case ITEM_IDS.PERMAFROST: {
+      // Dark frozen turf capped by icy frost crust & ice shards
+      drawDirtBody16(ctx, 3);
+      p3(ctx, 0, 0, '#ffffff', 16, 2);
+      p3(ctx, 0, 2, '#7fd9f2', 16, 2);
+      p3(ctx, 3, 4, '#54b4d4', 3, 2);
+      p3(ctx, 10, 4, '#54b4d4', 4, 2);
+      p3(ctx, 6, 9, '#7fd9f2', 3, 1);
+      break;
+    }
     case ITEM_IDS.FROZEN_DIRT: {
-      drawFramedPanel16(ctx, def.colorPrimary);
-      p3(ctx, 2, 2, '#d5f8ff', 12, 2);
-      p3(ctx, 4, 7, def.colorSecondary, 3, 3);
-      p3(ctx, 10, 9, def.colorAccent, 3, 2);
+      // Cold slate-brown soil speckled with rime frost crystals
+      drawDirtBody16(ctx, 0);
+      p3(ctx, 0, 0, '#8db4c9', 16, 1);
+      for (const [fx, fy] of [[2, 3], [8, 5], [12, 2], [4, 10], [11, 12]] as const) {
+        p3(ctx, fx, fy, '#d8f4ff', 2, 1);
+      }
       break;
     }
-    case ITEM_IDS.FROST_ROCK:
-    case ITEM_IDS.CAVE_LIMESTONE:
-    case ITEM_IDS.CAVE_SHALE:
-    case ITEM_IDS.GRANITE:
+    case ITEM_IDS.FROST_ROCK: {
+      // Jagged cold blue-grey rock with frozen cyan veins & top frost rim
+      p3(ctx, 0, 0, '#46586e', 16, 16);
+      p3(ctx, 0, 0, '#c9ecff', 16, 2);
+      p3(ctx, 1, 3, '#637a94', 6, 5);
+      p3(ctx, 8, 2, '#5a6f87', 7, 6);
+      p3(ctx, 2, 9, '#556980', 7, 6);
+      p3(ctx, 10, 9, '#637a94', 5, 6);
+      // Icy blue mineral fissures
+      p3(ctx, 6, 4, '#8fe8ff', 2, 5);
+      p3(ctx, 3, 8, '#8fe8ff', 5, 1);
+      p3(ctx, 11, 11, '#8fe8ff', 3, 1);
+      p3(ctx, 0, 15, '#2b3747', 16, 1);
+      break;
+    }
+    case ITEM_IDS.CAVE_LIMESTONE: {
+      // Pale buff chalky limestone with horizontal bedding joints & pitted pores
+      p3(ctx, 0, 0, '#b8b09c', 16, 16);
+      p3(ctx, 0, 0, '#ded7c3', 16, 2);
+      p3(ctx, 0, 5, '#8a8270', 16, 1);
+      p3(ctx, 0, 11, '#8a8270', 16, 1);
+      p3(ctx, 6, 1, '#9c9480', 1, 4);
+      p3(ctx, 11, 6, '#9c9480', 1, 5);
+      p3(ctx, 3, 12, '#9c9480', 1, 4);
+      // Karst pores & fossil specks
+      for (const [px, py] of [[3, 3], [12, 2], [5, 8], [13, 9], [8, 13]] as const) {
+        p3(ctx, px, py, '#6e6756', 2, 1);
+      }
+      break;
+    }
+    case ITEM_IDS.CAVE_SHALE: {
+      // Dark fissile slate rock with tight thin horizontal cleavage layers
+      p3(ctx, 0, 0, '#363f4d', 16, 16);
+      for (let y = 0; y < 16; y += 2) {
+        p3(ctx, 0, y, y % 4 === 0 ? '#4d596b' : '#262d38', 16, 1);
+      }
+      // Subtle chipped diagonal cleavage cracks
+      p3(ctx, 3, 2, '#69788f', 5, 1);
+      p3(ctx, 9, 6, '#1b2029', 5, 1);
+      p3(ctx, 2, 10, '#69788f', 6, 1);
+      p3(ctx, 10, 14, '#1b2029', 4, 1);
+      break;
+    }
+    case ITEM_IDS.GRANITE: {
+      // Coarse salt-and-pepper igneous granite (pink feldspar, quartz, dark mica)
+      p3(ctx, 0, 0, '#7a7578', 16, 16);
+      p3(ctx, 0, 0, '#9c9496', 16, 2);
+      for (let y = 1; y < 15; y += 2) {
+        for (let x = 0; x < 16; x += 2) {
+          const v = (x * 7 + y * 13) % 5;
+          const col =
+            v === 0 ? '#d99b8c' : v === 1 ? '#ebeef2' : v === 2 ? '#343842' : '#9c918e';
+          p3(ctx, x, y, col, 2, 2);
+        }
+      }
+      p3(ctx, 0, 15, '#4c484b', 16, 1);
+      break;
+    }
     case ITEM_IDS.UNDERGROUND_CLAY: {
-      const ramp = deriveColorRamp(def.colorPrimary);
-      drawMasonryBricks16(ctx, ramp.highlight, ramp.base, ramp.shadow, ramp.outline);
-      p3(ctx, 4, 4, ramp.highlight, 3, 2);
-      p3(ctx, 10, 9, ramp.shadow, 3, 2);
+      // Smooth dense wet riverbed clay with curved trowel striations
+      p3(ctx, 0, 0, '#7c828c', 16, 16);
+      p3(ctx, 0, 0, '#a3aab5', 16, 2);
+      p3(ctx, 2, 4, '#9299a3', 8, 2);
+      p3(ctx, 5, 8, '#626873', 9, 2);
+      p3(ctx, 1, 11, '#9299a3', 7, 2);
+      p3(ctx, 0, 14, '#525761', 16, 2);
       break;
     }
-    case ITEM_IDS.ICICLE:
+    case ITEM_IDS.ICICLE: {
+      // Translucent pointed ice crystal spear hanging from ceiling
+      p3(ctx, 2, 0, '#1c4a85', 12, 3);
+      p3(ctx, 4, 3, '#1c4a85', 8, 5);
+      p3(ctx, 6, 8, '#1c4a85', 4, 6);
+      p3(ctx, 3, 0, '#7ce8ff', 10, 3);
+      p3(ctx, 5, 3, '#a8f5ff', 6, 5);
+      p3(ctx, 7, 8, '#ffffff', 2, 5);
+      p3(ctx, 4, 1, '#ffffff', 2, 3);
+      break;
+    }
     case ITEM_IDS.STALACTITE: {
+      // Earthy mineral cavern dripstone hanging down
       p3(ctx, 2, 0, THEME.ink.outline, 12, 4);
       p3(ctx, 4, 4, THEME.ink.outline, 8, 5);
       p3(ctx, 6, 9, THEME.ink.outline, 4, 5);
-      p3(ctx, 3, 1, def.colorPrimary, 10, 3);
-      p3(ctx, 5, 4, def.colorPrimary, 6, 5);
-      p3(ctx, 7, 9, def.colorAccent, 2, 4);
+      p3(ctx, 3, 1, '#786e60', 10, 3);
+      p3(ctx, 5, 4, '#948877', 6, 5);
+      p3(ctx, 7, 9, '#b8ab97', 2, 4);
+      p3(ctx, 4, 2, '#cfc2ae', 3, 1);
       break;
     }
     case ITEM_IDS.STALAGMITE: {
       p3(ctx, 6, 2, THEME.ink.outline, 4, 5);
       p3(ctx, 4, 7, THEME.ink.outline, 8, 5);
       p3(ctx, 2, 12, THEME.ink.outline, 12, 4);
-      p3(ctx, 7, 3, def.colorAccent, 2, 4);
-      p3(ctx, 5, 7, def.colorPrimary, 6, 5);
-      p3(ctx, 3, 12, def.colorPrimary, 10, 3);
+      p3(ctx, 7, 3, '#b8ab97', 2, 4);
+      p3(ctx, 5, 7, '#948877', 6, 5);
+      p3(ctx, 3, 12, '#786e60', 10, 3);
       break;
     }
     case ITEM_IDS.CRYSTAL_ORE: {
@@ -1708,19 +1933,55 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       if (def.category === 'seed') {
         const ramp = deriveColorRamp(def.colorPrimary);
         const isFarmableSeed = Boolean(def.farmableTier);
-        // Sprout leaves on top
-        p3(ctx, 7, 1, THEME.ink.outline, 2, 4);
-        p3(ctx, 4, 2, THEME.ink.outline, 4, 3);
-        p3(ctx, 8, 2, THEME.ink.outline, 4, 3);
-        p3(ctx, 5, 2, isFarmableSeed ? '#fde047' : THEME.earth.grassLit, 3, 2);
-        p3(ctx, 8, 2, isFarmableSeed ? '#facc15' : THEME.earth.grassRim, 3, 2);
-        // Seed bulb body with stripes & sheen
-        p3(ctx, 3, 4, isFarmableSeed ? '#ca8a04' : ramp.outline, 10, 10);
-        p3(ctx, 4, 5, ramp.base, 8, 8);
-        p3(ctx, 4, 5, ramp.highlight, 5, 3);
+        const rimDark = isFarmableSeed ? '#2b1908' : ramp.outline;
+        const sproutMain = isFarmableSeed ? '#fde047' : '#4ade80';
+        const sproutShade = isFarmableSeed ? '#eab308' : '#16a34a';
+
+        // Little sprout leaf nib emerging from top-right tip of the seed
+        p3(ctx, 10, 1, '#151b26', 3, 1);
+        p3(ctx, 9, 2, '#151b26', 5, 2);
+        p3(ctx, 10, 4, '#151b26', 3, 1);
+        p3(ctx, 10, 2, sproutMain, 3, 1);
+        p3(ctx, 10, 3, sproutShade, 2, 1);
+
+        // Crisp 1px dark outer silhouette of an angled plump almond/teardrop seed pod
+        p3(ctx, 8, 3, rimDark, 3, 1);
+        p3(ctx, 6, 4, rimDark, 6, 1);
+        p3(ctx, 5, 5, rimDark, 8, 1);
+        p3(ctx, 4, 6, rimDark, 9, 2);
+        p3(ctx, 3, 8, rimDark, 10, 3);
+        p3(ctx, 3, 11, rimDark, 9, 2);
+        p3(ctx, 4, 13, rimDark, 6, 1);
+        p3(ctx, 5, 14, rimDark, 4, 1);
+
+        // Interior seed coat body
+        p3(ctx, 8, 4, def.colorSecondary, 2, 1);
+        p3(ctx, 6, 5, ramp.base, 6, 1);
+        p3(ctx, 5, 6, ramp.base, 7, 2);
+        p3(ctx, 4, 8, ramp.base, 8, 3);
+        p3(ctx, 4, 11, ramp.shadow, 7, 2);
+        p3(ctx, 5, 13, ramp.shadow, 4, 1);
+
+        // Upper-left bright highlight crest + white gleam pixel
+        p3(ctx, 6, 5, ramp.highlight, 3, 1);
+        p3(ctx, 5, 6, ramp.highlight, 3, 2);
+        p3(ctx, 4, 8, ramp.highlight, 2, 2);
         p3(ctx, 5, 6, '#ffffff', 2, 1);
-        p3(ctx, 6, 8, def.colorSecondary, 5, 2);
-        p3(ctx, 5, 11, ramp.shadow, 6, 2);
+        p3(ctx, 5, 7, '#ffffff', 1, 1);
+
+        // Diagonal organic seed-coat stripe & accent vein matching species palette
+        p3(ctx, 9, 6, def.colorSecondary, 2, 2);
+        p3(ctx, 7, 8, def.colorSecondary, 3, 2);
+        p3(ctx, 5, 10, def.colorSecondary, 3, 2);
+        p3(ctx, 8, 8, def.colorAccent, 2, 1);
+        p3(ctx, 6, 10, def.colorAccent, 2, 1);
+        if (isFarmableSeed) {
+          // Subtle warm gold glint dot on Farmablock seeds so tier identity stays clear
+          p3(ctx, 10, 9, '#fef08a', 1, 2);
+        } else {
+          // Subtle inner botanical rib dot on Crop seeds
+          p3(ctx, 9, 10, ramp.highlight, 1, 1);
+        }
       } else if (def.key.endsWith('_ingot') || def.name.toLowerCase().includes('ingot')) {
         p3(ctx, 2, 5, THEME.ink.outline, 12, 7);
         p3(ctx, 3, 6, def.colorSecondary, 10, 5);
@@ -1753,8 +2014,11 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       } else if (def.category === 'background') {
         const ramp = deriveColorRamp(def.colorPrimary);
         drawMasonryBricks16(ctx, ramp.highlight, ramp.base, ramp.shadow, ramp.outline);
+      } else if (def.key.startsWith('gp_') && def.key.endsWith('_block')) {
+        // Painted color building blocks: crisp beveled glossy architectural tile with rivets
+        drawFramedPanel16(ctx, def.colorPrimary, { bolts: true });
       } else {
-        // Differentiate blocks by deterministic pattern (masonry, crystal inlay, timber, or rune-bolted)
+        // Differentiate other blocks by deterministic pattern
         const pattern = itemSeed(itemId) % 3;
         const ramp = deriveColorRamp(def.colorPrimary);
         if (pattern === 0) {

@@ -20,7 +20,7 @@ export const MOVE_DECEL = 1480;
 export const MAX_RUN_SPEED = 228;
 export const GRAVITY = 1480;
 export const MAX_FALL_SPEED = 820;
-export const JUMP_VELOCITY = -608;
+export const JUMP_VELOCITY = -769;
 export const COYOTE_TIME = 0.1;
 export const JUMP_BUFFER_TIME = 0.12;
 
@@ -28,10 +28,6 @@ export const PUNCH_COOLDOWN_MS = 310;
 export const PLANT_DEFAULT_GROWTH_MS = 20_000;
 export const DROP_MAGNET_RADIUS = 69;
 export const DROP_PICKUP_RADIUS = 36;
-
 export const MAX_INVENTORY_SLOTS = 20;
-export const MAX_STACK_SIZE = 500;
-export const WORLDCORE_FURNACE_UNLOCK_LEVEL = 5;
-export const WORLDCORE_FURNACE_DIGIBIT_COST = 2500;
-export const WORLDCORE_FURNACE_TOKEN_COST = 3;
+export const MAX_INVENTORY_STACK = 500;
 

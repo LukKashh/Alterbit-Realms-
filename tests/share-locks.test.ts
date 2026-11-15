@@ -57,7 +57,7 @@ test('Share Lock rectangles cannot overlap', () => {
 test('Nexus generation places the Landlord NPC and Terra Blast selects a special theme', async () => {
   const { ITEM_IDS } = await import('../src/game/catalog.ts');
   const nexus = generateWorld('NEXUS');
-  const landlordIndex = nexus.spawnY * nexus.width + Math.min(nexus.width - 4, nexus.spawnX + 4);
+  const landlordIndex = 27 * nexus.width + 75;
   assert.equal(nexus.fg[landlordIndex], ITEM_IDS.LANDLORD_NPC);
 
   const blasted = generateWorld('TERRA_TEST', true);

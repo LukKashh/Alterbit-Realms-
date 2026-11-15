@@ -1,43 +1,44 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Backpack,
-  BookOpen,
-  ChevronLeft,
-  Globe,
-  Lock,
+  Eye,
   Maximize2,
   Menu,
   MessageSquare,
   Paintbrush,
-  Search,
   Shield,
   Smartphone,
   Sparkles,
-  Sprout,
   Star,
   Timer,
+  Trash2,
   Users,
   Volume2,
   VolumeX,
+  Wallet,
+  ZoomIn,
 } from 'lucide-react';
 import {
   ACHIEVEMENTS,
   CROP_SPECS,
-  FARMABLE_SPECS,
   GEM_STORE_LISTINGS,
   getItemDef,
   getMatteragenBranch,
-  getMatteragenIntervalMs,
+  getEffectiveMatteragenIntervalMs,
   isCropItem,
-  isCropSeed,
   ITEM_IDS,
   MATTERAGEN_UPGRADE_COSTS,
-  type FarmableBranch,
   type PlayerStatKey,
   type StoreSection,
 } from '../game/catalog.ts';
+import { DEFAULT_VIEW_SCALE, MAX_INVENTORY_SLOTS } from '../game/constants.ts';
 import { getItemIconUrl, type EquippedWearables } from '../game/pixelArt.ts';
-import { worldXpForNextLevel, xpForNextLevel } from '../game/rules.ts';
+import {
+  getCropMasteryRequiredLevel,
+  masteryXpForNextLevel,
+  worldXpForNextLevel,
+  xpForNextLevel,
+} from '../game/rules.ts';
 import type {
   ActiveBuff,
   ChatMessage,
@@ -45,15 +46,18 @@ import type {
   FriendEntry,
   FriendRequestEntry,
   InventorySlot,
+  PublicPlayerProfile,
   UserRole,
   WorldSummary,
 } from '../game/network.ts';
 import type { GameConfig } from '../game/config.ts';
 import type { TileInspectInfo } from '../game/engine.ts';
 import { NEXUS_DOOR_DESTINATIONS } from '../game/worldGen.ts';
+import { formatHudNumber } from '../game/format.ts';
 import { AdminPanel, type AdminActionPayload } from './AdminPanel.tsx';
 import { ExchangeModal } from './ExchangeModal.tsx';
 import { AtmPanel, BfgPanel, FurnacePanel, VaultboxPanel } from './MachinePanels.tsx';
+import { RedGemIcon } from './RedGemIcon.tsx';
 
 interface GameHudProps {
   mode: 'playing' | 'paused';
@@ -71,12 +75,19 @@ interface GameHudProps {
   worldXp?: number;
   worldLevel?: number;
   worldCoreTokens?: number;
+  worldHasFurnaceExpansion?: boolean;
   playerCount: number;
   coords: { tx: number; ty: number };
   gems: number;
   alterbits?: number;
   xp: number;
   level: number;
+  cropMasteryXp?: number;
+  cropMasteryLevel?: number;
+  farmablockMasteryXp?: number;
+  farmablockMasteryLevel?: number;
+  publicProfile?: PublicPlayerProfile | null;
+  onDismissPublicProfile?: () => void;
   inventory: InventorySlot[];
   equipped: EquippedWearables;
   stats: Record<PlayerStatKey, number>;
@@ -88,6 +99,7 @@ interface GameHudProps {
   hotbarItemIds: number[];
   selectedItemId: number;
   onSelectItem: (itemId: number) => void;
+  onTapPrimarySlot?: () => void;
   onAssignHotbar: (slotIndex: number, itemId: number) => void;
   muted: boolean;
   onToggleMute: () => void;
@@ -173,6 +185,9 @@ interface GameHudProps {
     listingId?: string;
   }) => void;
   onUpgradeMatteragen?: (tx: number, ty: number) => void;
+  onClaimMatteragen?: (tx: number, ty: number) => void;
+  onUnlockWorldCoreFurnace?: () => void;
+  onTrashInventoryItem?: (opts: { itemId: number; qty?: number; rodInstanceId?: string }) => void;
   onConfigureVaultbox?: (
     tx: number,
     ty: number,
@@ -194,6 +209,8 @@ interface GameHudProps {
   onConfigureDoor?: (tx: number, ty: number, targetX: number, targetY: number, label?: string) => void;
   onUseDoor?: (tx: number, ty: number) => void;
   onNexusTeleport?: (targetX: number, targetY: number, label?: string) => void;
+  viewZoom?: number;
+  onChangeViewZoom?: (scale: number) => void;
 }
 
 type ActivePanel =
@@ -280,26 +297,26 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
         if (pointerIdRef.current !== e.pointerId) return;
         resetStick();
       }}
-      className={`relative w-14 h-14 sm:w-[68px] sm:h-[68px] rounded-2xl border-2 flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing shadow-[0_4px_0_rgba(6,12,20,0.85)] transition-colors ${
+      className={`relative w-14 h-14 sm:w-[68px] sm:h-[68px] rounded-[12px] border-[2.5px] flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing backdrop-blur-md shadow-[0_3px_0_rgba(15,42,74,0.3)] transition-colors ${
         active
-          ? 'bg-[#2a1512]/90 border-[#ffb89e]'
-          : 'bg-[#0f1d2c]/88 border-[#e0896b]/85'
+          ? 'bg-[#cfe7fc]/85 border-[#0284c7]'
+          : 'bg-[#d8ecfc]/75 border-[#2c5885]'
       }`}
     >
       {/* Directional ring crosshair guides */}
-      <div className="pointer-events-none absolute inset-2 rounded-xl border border-dashed border-[#e0896b]/35" />
-      <span className="pointer-events-none absolute top-1 text-[8px] font-bold text-[#ffb89e]/70 leading-none">▲</span>
-      <span className="pointer-events-none absolute bottom-1 text-[8px] font-bold text-[#ffb89e]/70 leading-none">▼</span>
-      <span className="pointer-events-none absolute left-1.5 text-[8px] font-bold text-[#ffb89e]/70 leading-none">◀</span>
-      <span className="pointer-events-none absolute right-1.5 text-[8px] font-bold text-[#ffb89e]/70 leading-none">▶</span>
+      <div className="pointer-events-none absolute inset-2 rounded-[9px] border border-dashed border-[#2c5885]/45" />
+      <span className="pointer-events-none absolute top-1 text-[8px] font-bold text-[#091e3a] leading-none">▲</span>
+      <span className="pointer-events-none absolute bottom-1 text-[8px] font-bold text-[#091e3a] leading-none">▼</span>
+      <span className="pointer-events-none absolute left-1.5 text-[8px] font-bold text-[#091e3a] leading-none">◀</span>
+      <span className="pointer-events-none absolute right-1.5 text-[8px] font-bold text-[#091e3a] leading-none">▶</span>
 
       {/* Movable thumb knob */}
       <div
         ref={knobElRef}
-        className={`pointer-events-none w-8 h-8 sm:w-10 sm:h-10 rounded-xl border-2 flex flex-col items-center justify-center shadow-[0_3px_0_rgba(0,0,0,0.7)] will-change-transform ${
+        className={`pointer-events-none w-8 h-8 sm:w-10 sm:h-10 rounded-xl border-2 flex flex-col items-center justify-center shadow-[0_2px_0_rgba(15,23,42,0.45)] will-change-transform ${
           active
-            ? 'bg-[#c95738] border-[#ffe3d6]'
-            : 'bg-[#94422c] border-[#e89d82]'
+            ? 'bg-[#b91c1c] border-[#fecaca]'
+            : 'bg-[#dc2626] border-[#7f1d1d]'
         }`}
         style={{
           transform: 'translate3d(0px, 0px, 0)',
@@ -331,6 +348,43 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
   );
 };
 
+const RoleBadgeIcon: React.FC<{ kind: 'admin' | 'owner' | 'guest' }> = ({ kind }) => {
+  if (kind === 'admin') {
+    return (
+      <svg
+        viewBox="0 0 20 20"
+        className="w-4 h-4 shrink-0"
+        aria-label="Administrator"
+      >
+        <circle cx="10" cy="10" r="8.5" fill="#2a0f18" stroke="#ff9f1c" strokeWidth="2" />
+        <rect x="5" y="11" width="10" height="2.2" fill="#fde047" />
+        <rect x="5" y="7" width="2.2" height="4.5" fill="#fde047" />
+        <rect x="8.9" y="5.8" width="2.2" height="5.6" fill="#fde047" />
+        <rect x="12.8" y="7" width="2.2" height="4.5" fill="#fde047" />
+        <rect x="6.8" y="9" width="6.4" height="2.2" fill="#fde047" />
+        <rect x="9.1" y="9.1" width="1.8" height="1.8" fill="#38e8d8" />
+      </svg>
+    );
+  }
+  if (kind === 'owner') {
+    return (
+      <svg viewBox="0 0 18 18" className="w-4 h-4 shrink-0" aria-label="World Owner">
+        <circle cx="9" cy="9" r="7.5" fill="#132336" stroke="#facc15" strokeWidth="1.8" />
+        <rect x="5" y="9.5" width="8" height="2.2" fill="#fde047" />
+        <rect x="5" y="6.8" width="2" height="2.8" fill="#fde047" />
+        <rect x="8" y="6.2" width="2" height="3.4" fill="#fde047" />
+        <rect x="11" y="6.8" width="2" height="2.8" fill="#fde047" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 18 18" className="w-4 h-4 shrink-0" aria-label="Explorer">
+      <circle cx="9" cy="9" r="7.5" fill="#132336" stroke="#94a3b8" strokeWidth="1.8" />
+      <polygon points="9,5.3 12.7,9 9,12.7 5.3,9" fill="#cbd5e1" />
+    </svg>
+  );
+};
+
 export const GameHud: React.FC<GameHudProps> = ({
   mode,
   playerId,
@@ -347,12 +401,19 @@ export const GameHud: React.FC<GameHudProps> = ({
   worldXp = 0,
   worldLevel = 1,
   worldCoreTokens = 0,
+  worldHasFurnaceExpansion = false,
   playerCount,
   coords,
   gems,
   alterbits = 0,
   xp,
   level,
+  cropMasteryXp = 0,
+  cropMasteryLevel = 1,
+  farmablockMasteryXp = 0,
+  farmablockMasteryLevel = 1,
+  publicProfile = null,
+  onDismissPublicProfile,
   inventory,
   equipped,
   stats,
@@ -364,6 +425,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   hotbarItemIds,
   selectedItemId,
   onSelectItem,
+  onTapPrimarySlot,
   onAssignHotbar,
   muted,
   onToggleMute,
@@ -416,36 +478,56 @@ export const GameHud: React.FC<GameHudProps> = ({
   onConfigureBfg,
   onExchangeAction,
   onUpgradeMatteragen,
+  onClaimMatteragen,
+  onUnlockWorldCoreFurnace,
+  onTrashInventoryItem,
   onConfigureVaultbox,
-  hasClaimedStarterLootbox = false,
+  hasClaimedStarterLootbox: _hasClaimedStarterLootbox = false,
   onVendorAction,
   onConfigureDoor,
   onUseDoor,
   onNexusTeleport,
+  viewZoom = DEFAULT_VIEW_SCALE,
+  onChangeViewZoom,
 }) => {
+  void _hasClaimedStarterLootbox;
   const [activePanel, setActivePanel] = useState<ActivePanel>('none');
+  const [showPanelView, setShowPanelView] = useState<boolean>(true);
+  const [zoomOpen, setZoomOpen] = useState<boolean>(false);
+  const zoomContainerRef = useRef<HTMLDivElement | null>(null);
   const [worldInput, setWorldInput] = useState('');
   const [newWorldName, setNewWorldName] = useState('');
   const [useTerraBlast, setUseTerraBlast] = useState(false);
   const [worldTab, setWorldTab] = useState<'public' | 'favorites' | 'recent'>('public');
   const [chatInput, setChatInput] = useState('');
   const [bagFilter, setBagFilter] = useState<'all' | 'farmable' | 'seed' | 'block'>('all');
-  const [assignSlot, setAssignSlot] = useState<number>(2);
+  const [assignSlot, setAssignSlot] = useState<number>(1);
   const [storeCategory, setStoreCategory] = useState<StoreSection>('seeds');
-  const [profileTab, setProfileTab] = useState<'achievements' | 'wardrobe'>('achievements');
-  const [menuTab, setMenuTab] = useState<'menu' | 'seediary'>('menu');
-  const [seediaryQuery, setSeediaryQuery] = useState('');
-  const [seediaryBranch, setSeediaryBranch] = useState<'all' | FarmableBranch>('all');
+  const [profileTab, setProfileTab] = useState<'wallet' | 'achievements' | 'wardrobe'>('wallet');
   void _onSpliceSeeds;
   const [friendInput, setFriendInput] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    if (mode !== 'paused') {
-      setMenuTab('menu');
-    }
-  }, [mode]);
+    if (!zoomOpen) return;
+    const handleOutside = (e: Event) => {
+      if (zoomContainerRef.current && !zoomContainerRef.current.contains(e.target as Node)) {
+        setZoomOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setZoomOpen(false);
+    };
+    document.addEventListener('pointerdown', handleOutside, true);
+    document.addEventListener('mousedown', handleOutside, true);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutside, true);
+      document.removeEventListener('mousedown', handleOutside, true);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [zoomOpen]);
 
   useEffect(() => {
     const syncFullscreenState = () => setIsFullscreen(Boolean(document.fullscreenElement));
@@ -536,22 +618,6 @@ export const GameHud: React.FC<GameHudProps> = ({
   const nextXp = xpForNextLevel(level);
   const xpPct = Math.min(100, Math.round((xp / nextXp) * 100));
   const selectedDef = getItemDef(selectedItemId);
-  const filteredFarmables = useMemo(() => {
-    const q = seediaryQuery.trim().toLowerCase();
-    return FARMABLE_SPECS.filter((spec) => {
-      if (seediaryBranch !== 'all' && spec.branch !== seediaryBranch) return false;
-      if (!q) return true;
-      const seedName = getItemDef(spec.seedId)?.name.toLowerCase() ?? '';
-      return (
-        spec.name.toLowerCase().includes(q) ||
-        seedName.includes(q) ||
-        spec.branch.includes(q) ||
-        spec.description.toLowerCase().includes(q) ||
-        `t${spec.tier}`.includes(q) ||
-        `tier ${spec.tier}`.includes(q)
-      );
-    });
-  }, [seediaryBranch, seediaryQuery]);
   const wearablesInBag = inventory.filter(
     (s) => getItemDef(s.itemId)?.category === 'wearable' && s.qty > 0
   );
@@ -559,9 +625,8 @@ export const GameHud: React.FC<GameHudProps> = ({
     const d = getItemDef(s.itemId);
     return d && d.tradeable && s.qty > 0 && s.itemId !== ITEM_IDS.FIST && s.itemId !== ITEM_IDS.WRENCH;
   });
-
-  const claimableCount = ACHIEVEMENTS.filter(
-    (a) => (stats[a.statKey] ?? 0) >= a.target && !claimedAchievements.includes(a.id)
+  const bagSlotsUsed = inventory.filter(
+    (s) => s.qty > 0 && s.itemId !== ITEM_IDS.FIST && s.itemId !== ITEM_IDS.WRENCH
   ).length;
 
   const togglePanel = (panel: ActivePanel) => {
@@ -584,109 +649,78 @@ export const GameHud: React.FC<GameHudProps> = ({
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-1.5 sm:p-2.5">
       {/* Top Perimeter Bar (Responsive status + World Chat below top-left + Menu button) */}
       <div className="flex items-start justify-between gap-1.5 sm:gap-2">
-        {/* Top-left Column: Panel View (Profile, Gem Store, World) + World Chat / Admin SysEdit */}
-        <div className="flex flex-col items-start gap-1.5 min-w-0 max-w-[calc(100vw-5.75rem)] sm:max-w-[calc(100vw-7.5rem)]">
-          <div className="pointer-events-auto pixel-box flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-2 sm:py-1 max-w-full overflow-hidden">
-            {/* Profile Trigger (Identity, Level & XP) */}
-            <button
-              type="button"
-              tabIndex={-1}
-              data-testid="hud-profile-button"
-              aria-label="Profile"
-              aria-expanded={activePanel === 'profile'}
-              onClick={(e) => {
-                e.currentTarget.blur();
-                togglePanel('profile');
-              }}
-              className={`relative flex flex-col text-left min-w-0 px-1.5 py-0.5 border transition-colors cursor-pointer ${
-                activePanel === 'profile'
-                  ? 'bg-[#1c354f] border-[#f2b738]'
-                  : 'border-transparent hover:bg-[#1e324a]'
-              }`}
-            >
-              <div className="flex items-center gap-1 sm:gap-1.5">
-                <span className="text-[11px] sm:text-xs font-bold text-[#f7f4eb] ui-text-shadow whitespace-nowrap truncate max-w-[74px] sm:max-w-none">
-                  {playerName}
-                </span>
-                <span className="text-[10px] sm:text-[11px] font-mono-num font-bold text-[#89d6ff] whitespace-nowrap">
-                  LVL {level}
-                </span>
-                {claimableCount > 0 && (
-                  <span
-                    aria-label={`${claimableCount} claimable achievements`}
-                    className="w-3.5 h-3.5 bg-[#10b981] border border-[#064e3b] text-[9px] font-mono-num font-bold text-[#ecfdf5] flex items-center justify-center shrink-0"
-                  >
-                    {claimableCount}
-                  </span>
-                )}
-              </div>
-              <div className="w-14 sm:w-24 h-1.5 bg-[#03060a] border border-[#1c2b3d] overflow-hidden mt-0.5">
-                <div
-                  className="h-full bg-[#4ec46a] transition-[width] duration-150"
-                  style={{ width: `${xpPct}%` }}
-                />
-              </div>
-            </button>
-
-            <div className="h-6 w-0.5 bg-[#090e17] shrink-0" />
-
-            {/* Gem Store Trigger */}
-            <button
-              type="button"
-              tabIndex={-1}
-              data-testid="hud-gemstore-button"
-              aria-label={`Gem Store (${Math.round(gems)} Gems)`}
-              aria-expanded={activePanel === 'store'}
-              onClick={(e) => {
-                e.currentTarget.blur();
-                togglePanel('store');
-              }}
-              className={`flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 border transition-colors shrink-0 cursor-pointer ${
-                activePanel === 'store'
-                  ? 'bg-[#143647] border-[#38e8d8]'
-                  : 'border-transparent hover:bg-[#1e324a]'
-              }`}
-            >
-              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" aria-hidden="true">
-                <polygon points="12,2 21,9 12,22 3,9" fill="#38e8d8" stroke="#0b2430" strokeWidth="2" />
-                <polygon points="12,4 17,9 12,18 7,9" fill="#a8fff7" />
-              </svg>
-              <span className="text-[11px] sm:text-xs font-mono-num font-bold text-[#8cf7ee] ui-text-shadow">{Math.round(gems)}</span>
-            </button>
-
-            <div className="h-6 w-0.5 bg-[#090e17] shrink-0" />
-
-            {/* Digibits Central Currency Readout */}
+        {/* Top-left Column: Recompartmentalized Profile Box + Separated Tight-Fit Gem Box + Chat & Friends */}
+        <div className="flex flex-col items-start gap-1.5 min-w-0 max-w-[calc(100vw-8.5rem)] sm:max-w-[calc(100vw-11rem)]">
+          {showPanelView && (
             <div
-              data-testid="hud-alterbits-counter"
-              title="Digibits (DB) · Earned by selling harvested crops to the Fresh Greens Vendor in NEXUS"
-              className="flex items-center gap-1 px-1.5 py-1 shrink-0"
+              data-testid="hud-panel-view"
+              className="pointer-events-auto flex items-center gap-1.5 max-w-full"
             >
-              <span className="w-3.5 h-3.5 bg-[#16a34a] border border-[#fde047] flex items-center justify-center text-[8px] font-pixel text-[#fef08a] leading-none shrink-0">
-                D
-              </span>
-              <span className="text-[11px] sm:text-xs font-mono-num font-bold text-[#86efac] ui-text-shadow">
-                {Math.round(alterbits)}
-              </span>
-              <span className="hidden sm:inline text-[9px] font-bold text-[#4ade80] uppercase">DB</span>
+              {/* Player Profile Box (+1/3 height, retains 1/2 freed Gem width, Name + Role Icon row above Progression Bar + Level) */}
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="hud-profile-button"
+                aria-label="Profile"
+                aria-expanded={activePanel === 'profile'}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  togglePanel('profile');
+                }}
+                className={`pixel-box relative flex flex-col justify-between text-left min-w-[168px] sm:min-w-[196px] min-h-[54px] sm:min-h-[56px] px-2.5 py-1.5 transition-all cursor-pointer ${
+                  activePanel === 'profile'
+                    ? '!border-[#0284c7] ring-2 ring-[#38bdf8]/45'
+                    : 'hover:brightness-[1.03]'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <RoleBadgeIcon
+                    kind={role === 'admin' ? 'admin' : worldOwner === playerId ? 'owner' : 'guest'}
+                  />
+                  <span className="font-pixel text-[11px] sm:text-xs font-bold text-[#091e3a] whitespace-nowrap truncate max-w-[125px] sm:max-w-[155px] leading-none">
+                    {playerName}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 w-full mt-1">
+                  <div className="flex-1 h-2 rounded-[6px] bg-white/75 border border-[#4172a3] overflow-hidden">
+                    <div
+                      className="h-full rounded-[4px] bg-[#0284c7] transition-[width] duration-150"
+                      style={{ width: `${xpPct}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-mono-num font-bold text-[#091e3a] whitespace-nowrap leading-none">
+                    Lv.{formatHudNumber(level)}
+                  </span>
+                </div>
+              </button>
+
+              {/* Separated Tight-Fit Gem Balance Box (drastically compact, grows rightward for larger balances) */}
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="hud-gemstore-button"
+                aria-label={`Gem Store (${formatHudNumber(gems)} Gems)`}
+                aria-expanded={activePanel === 'store'}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  togglePanel('store');
+                }}
+                className={`pixel-box !rounded-[10px] w-fit shrink-0 px-2 py-1 flex items-center gap-1 transition-all whitespace-nowrap cursor-pointer ${
+                  activePanel === 'store'
+                    ? '!border-[#0284c7] ring-2 ring-[#38bdf8]/45'
+                    : 'hover:brightness-[1.03]'
+                }`}
+              >
+                <RedGemIcon className="w-4 h-4 shrink-0" />
+                <span className="text-[11px] font-mono-num font-bold text-[#091e3a] leading-none">
+                  {formatHudNumber(gems)}
+                </span>
+              </button>
             </div>
+          )}
 
-            <div className="h-6 w-0.5 bg-[#090e17] shrink-0" />
-
-            {/* Active World Status */}
-            <div className="flex items-center gap-1 sm:gap-1.5 px-0.5 sm:px-1.5 py-0.5 text-[11px] sm:text-xs font-bold text-[#ffe18c] ui-text-shadow whitespace-nowrap truncate">
-              {worldOwner ? <Lock className="w-3 h-3 text-[#f2b738] shrink-0" /> : <Globe className="w-3 h-3 text-[#78c8f5] shrink-0" />}
-              <span className="truncate max-w-[64px] sm:max-w-none">{worldName}</span>
-              <span className="hidden sm:inline text-[11px] font-mono-num text-[#b5cde3]">({playerCount}/{worldOwner ? 10 : 20})</span>
-            </div>
-
-            <span className="hidden md:inline text-[11px] font-mono-num text-[#8aa4bd] whitespace-nowrap pr-1">
-              {coords.tx},{coords.ty}
-            </span>
-          </div>
-
-          {/* World Chat + Admin SysEdit Controls positioned cleanly below Top-Left Panel */}
-          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5">
+          {/* World Chat + Icon-Only Friends Button */}
+          <div className="pointer-events-auto flex items-center gap-1.5">
             <button
               type="button"
               tabIndex={-1}
@@ -697,80 +731,136 @@ export const GameHud: React.FC<GameHudProps> = ({
                 e.currentTarget.blur();
                 togglePanel('chat');
               }}
-              className={`pixel-btn !h-7 sm:!h-8 !px-2.5 gap-1.5 !text-[10px] sm:!text-[11px] ${
-                activePanel === 'chat'
-                  ? 'pixel-btn-primary'
-                  : 'bg-[#111c2b] border-[#090e17] text-[#c7d9eb] shadow-[inset_1px_1px_0_#334e68,0_2px_0_#060a10] hover:brightness-110'
+              className={`pixel-btn !h-7 !px-2.5 gap-1 !text-[10px] !rounded-[8px] ${
+                activePanel === 'chat' ? 'pixel-btn-primary' : ''
               }`}
             >
-              <MessageSquare className="w-3.5 h-3.5 text-[#89d6ff] shrink-0" />
+              <MessageSquare
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  activePanel === 'chat' ? 'text-white' : 'text-[#091e3a]'
+                }`}
+              />
               <span>Chat</span>
             </button>
 
-            {role === 'admin' && (
-              <>
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  data-testid="hud-sysedit-button"
-                  onClick={(e) => {
-                    e.currentTarget.blur();
-                    onToggleAdminWorldEdit?.(!adminWorldEdit);
-                  }}
-                  className={`pixel-btn !h-7 sm:!h-8 !px-2 gap-1 !text-[10px] ${
-                    adminWorldEdit
-                      ? 'pixel-btn-emerald'
-                      : 'pixel-btn-wood'
-                  }`}
-                >
-                  <Paintbrush className="w-3 h-3 shrink-0" />
-                  <span>SysEdit: {adminWorldEdit ? 'ON' : 'OFF'}</span>
-                </button>
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  data-testid="hud-admin-panel-button"
-                  onClick={(e) => {
-                    e.currentTarget.blur();
-                    togglePanel('admin');
-                  }}
-                  className={`pixel-btn !h-7 sm:!h-8 !px-2 gap-1 !text-[10px] ${
-                    activePanel === 'admin'
-                      ? 'pixel-btn-gold'
-                      : 'pixel-btn-wood'
-                  }`}
-                >
-                  <Shield className="w-3 h-3 shrink-0" />
-                  <span className="hidden sm:inline">Admin</span>
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              tabIndex={-1}
+              data-testid="hud-friends-button"
+              aria-label="Friends"
+              title="Friends"
+              aria-expanded={activePanel === 'friends'}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                togglePanel('friends');
+              }}
+              className={`pixel-btn relative !w-7 !h-7 !p-0 !rounded-[8px] flex items-center justify-center ${
+                activePanel === 'friends' ? 'pixel-btn-primary' : ''
+              }`}
+            >
+              <Users
+                className={`w-3.5 h-3.5 ${
+                  activePanel === 'friends' ? 'text-white' : 'text-[#091e3a]'
+                }`}
+              />
+              {incomingRequests.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-[5px] bg-[#dc2626] border border-[#7f1d1d] text-[8px] font-mono-num font-bold text-white flex items-center justify-center">
+                  {incomingRequests.length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 
-        {/* Top-right: Mine Shaft Exit / Status + Single Menu Button */}
-        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
+        {/* Top-right: Mine Exit / Status + Collapsible View Zoom Box + Menu Button */}
+        <div className="pointer-events-auto flex items-center gap-1.5 shrink-0">
           {worldKind === 'mine_shaft' && (
             <button
               type="button"
               data-testid="leave-mine-button"
               onClick={onExitMineShaft}
-              className="h-9 sm:h-10 px-2.5 rounded-md bg-[#332210]/95 hover:bg-[#4a3117] border-2 border-[#f2b738] text-[#ffe18c] flex items-center gap-1.5 font-mono-num font-bold text-xs shadow-[0_3px_0_rgba(6,12,20,0.8)] cursor-pointer"
+              className="h-8 sm:h-9 px-2.5 rounded-[9px] bg-[#fef3c7]/90 hover:bg-[#fde68a] backdrop-blur-md border-2 border-[#b45309] text-[#451a03] flex items-center gap-1 font-mono-num font-bold text-xs shadow-[0_2px_0_rgba(15,42,74,0.25)] cursor-pointer"
             >
               <Timer className="w-3.5 h-3.5 shrink-0" />
               <span>{mineTimerText ?? 'Mine'}</span>
-              <span className="text-[10px] uppercase text-[#fff3cf]">Exit</span>
+              <span className="text-[10px] uppercase">Exit</span>
             </button>
           )}
           {!connected && (
             <button
               type="button"
               onClick={onReconnectNow}
-              className="px-2.5 py-1 rounded bg-[#3b181b] hover:bg-[#542227] border border-[#80333a] text-[11px] font-bold text-[#ffb0b0] cursor-pointer whitespace-nowrap"
+              className="px-2.5 py-1 rounded-[8px] bg-[#fee2e2]/90 hover:bg-[#fecaca] backdrop-blur-md border-2 border-[#dc2626] text-[10px] font-bold text-[#7f1d1d] cursor-pointer whitespace-nowrap"
             >
-              Reconnecting · Retry
+              Retry
             </button>
           )}
+
+          {/* Upper-Right Expandable View Zoom Box */}
+          <div
+            ref={zoomContainerRef}
+            className="relative flex items-center justify-end shrink-0"
+          >
+            {!zoomOpen ? (
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="hud-zoom-toggle"
+                aria-label="View Zoom"
+                aria-expanded={false}
+                title={`View Zoom (${viewZoom.toFixed(2).replace(/0$/, '')}×)`}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  setZoomOpen(true);
+                }}
+                className="pixel-box !rounded-[9px] w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center text-[#091e3a] hover:brightness-[1.04] cursor-pointer"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+            ) : (
+              <div
+                data-testid="hud-zoom-popover"
+                className="pixel-box !rounded-[10px] h-8 sm:h-9 px-2.5 flex items-center gap-1.5 shrink-0"
+              >
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label="Collapse View Zoom"
+                  onClick={() => setZoomOpen(false)}
+                  className="text-[#091e3a] hover:text-[#0369a1] cursor-pointer shrink-0"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+                <div className="relative flex items-center w-20 sm:w-28">
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-1/2 -translate-x-1/2 w-0.5 h-3 rounded-full bg-[#2c5885]/70"
+                  />
+                  <input
+                    type="range"
+                    data-testid="hud-zoom-slider"
+                    aria-label="View Zoom"
+                    min={0.75}
+                    max={2.25}
+                    step={0.05}
+                    value={viewZoom}
+                    onChange={(e) => onChangeViewZoom?.(Number(e.target.value))}
+                    className="hud-zoom-range relative z-10 w-full cursor-pointer"
+                  />
+                </div>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  title="Reset zoom to default (1.5×)"
+                  onClick={() => onChangeViewZoom?.(DEFAULT_VIEW_SCALE)}
+                  className="text-[10px] font-mono-num font-bold text-[#091e3a] hover:text-[#0369a1] w-8 text-right shrink-0 cursor-pointer"
+                >
+                  {viewZoom.toFixed(2).replace(/0$/, '')}×
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             tabIndex={-1}
@@ -780,12 +870,12 @@ export const GameHud: React.FC<GameHudProps> = ({
               e.currentTarget.blur();
               onPause();
             }}
-            className="pixel-btn pixel-btn-wood relative !h-9 sm:!h-10 !px-2.5 sm:!px-3.5 gap-1.5 sm:gap-2 !text-xs"
+            className="pixel-btn pixel-btn-wood relative !h-8 sm:!h-9 !px-2.5 sm:!px-3 gap-1.5 !text-xs !rounded-[9px]"
           >
-            <Menu className="w-4 h-4 text-[#ffe18c]" />
+            <Menu className="w-3.5 h-3.5 text-[#091e3a]" />
             <span>Menu</span>
             {incomingRequests.length > 0 && (
-              <span className="w-4 h-4 bg-[#ef4444] border border-[#7f1d1d] text-[9px] font-mono-num font-bold text-white flex items-center justify-center">
+              <span className="w-4 h-4 rounded-[5px] bg-[#dc2626] border border-[#7f1d1d] text-[9px] font-mono-num font-bold text-white flex items-center justify-center">
                 {incomingRequests.length}
               </span>
             )}
@@ -798,13 +888,13 @@ export const GameHud: React.FC<GameHudProps> = ({
         {worldName === 'NEXUS' && myRealms.length === 0 && (
           <div
             data-testid="nexus-first-login-nudge"
-            className="pixel-box px-3 py-1.5 text-[11px] font-bold text-[#fde047] border-[#38e8d8] text-center max-w-[92vw]"
+            className="pixel-box px-3.5 py-1.5 text-[11px] font-bold text-[#091e3a] text-center max-w-[92vw]"
           >
             Welcome to NEXUS! Head East (→) to the Realm Steward Deck to conjure your 50×40 personal world and open your Starter Supply Lootbox!
           </div>
         )}
         {liveBuffs.length > 0 && (
-          <div className="pixel-box flex flex-wrap items-center justify-center gap-1.5 px-2.5 py-1 text-[10px] font-mono-num text-[#8cf7ee]">
+          <div className="pixel-box flex flex-wrap items-center justify-center gap-1.5 px-2.5 py-1 text-[10px] font-mono-num text-[#0f766e]">
             {liveBuffs.map((b) => {
               const remSec = Math.max(0, Math.ceil((b.expiresAt - nowMs) / 1000));
               const m = Math.floor(remSec / 60);
@@ -830,53 +920,45 @@ export const GameHud: React.FC<GameHudProps> = ({
             }`}
           >
             {fishingBiting ? `! BITE ! Depth ${fishingDepthLevel ?? '?'} / 6 · Reel ${Math.round(fishingProgress)}%` : `Fishing · Depth ${fishingDepthLevel ?? '?'} / 6 · Tap to Reel`}
-            {fishingBiting && <span className="block h-1.5 w-full mt-1 bg-[#09131d] overflow-hidden"><span className="block h-full bg-[#4ec46a] transition-[width]" style={{ width: `${Math.max(0, Math.min(100, fishingProgress))}%` }} /></span>}
-            {fishingBiting && <span className="mt-1 flex items-center justify-between gap-2 text-[9px] font-mono-num"><span className="uppercase tracking-wide">{fishingFightPattern.replace('_', ' ')} fight</span><span className={fishingLineTension > 0.82 ? 'text-[#ff6255]' : fishingLineTension < 0.38 ? 'text-[#77e7ff]' : 'text-[#ffe18c]'}>LINE TENSION {Math.round(fishingLineTension * 100)}%</span></span>}
+            {fishingBiting && <span className="block h-1.5 w-full mt-1 rounded-full bg-white/75 border border-[#4172a3]/60 overflow-hidden"><span className="block h-full rounded-full bg-[#16a34a] transition-[width]" style={{ width: `${Math.max(0, Math.min(100, fishingProgress))}%` }} /></span>}
+            {fishingBiting && <span className="mt-1 flex items-center justify-between gap-2 text-[9px] font-mono-num"><span className="uppercase tracking-wide">{fishingFightPattern.replace('_', ' ')} fight</span><span className={fishingLineTension > 0.82 ? 'text-[#dc2626]' : fishingLineTension < 0.38 ? 'text-[#0284c7]' : 'text-[#92400e]'}>LINE TENSION {Math.round(fishingLineTension * 100)}%</span></span>}
           </button>
         )}
 
         {toastMessage && (
-          <div className="pixel-wood-box text-[#fef3c7] ui-text-shadow text-xs font-bold px-3.5 py-1.5 border-[#eab308]">
+          <div className="pixel-wood-box text-[#091e3a] text-xs font-bold px-3.5 py-1.5 border-[#b45309]">
             {toastMessage}
           </div>
         )}
         {inspectInfo && (
           <div className="pointer-events-auto pixel-box p-3 w-80 max-w-[92vw] max-h-[calc(100dvh-12rem)] overflow-y-auto text-xs flex flex-col gap-2">
             <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-4">
-              <span className="ui-pixel-heading text-[11px] text-[#89d6ff] truncate">
+              <span className="ui-pixel-heading text-[11px] text-[#091e3a] truncate">
                 {inspectInfo.fgName} ({inspectInfo.tx}, {inspectInfo.ty})
               </span>
               <button
                 type="button"
                 onClick={onDismissInspect}
-                className="text-[11px] font-pixel text-[#9cb5cc] hover:text-white cursor-pointer"
+                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
               >
                 [X]
               </button>
-            </div>
-            <div className="flex flex-col gap-0.5 text-[11px] text-[#c7d9eb]">
-              <span>Background: {inspectInfo.bgName}</span>
-              {inspectInfo.plantInfo && <span>Tree: {inspectInfo.plantInfo}</span>}
-              {inspectInfo.lockInfo && <span className="text-[#ffe18c] font-semibold">{inspectInfo.lockInfo}</span>}
             </div>
 
             {/* NEXUS Single Multi-Way Navigational Door Window */}
             {inspectInfo.isNexusDoor && (
               <div
                 data-testid="nexus-multiway-door-window"
-                className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2"
+                className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-pixel text-[11px] text-[#38e8d8]">
-                    NEXUS MULTI-WAY GATEWAY
+                  <h3 className="font-pixel text-[11px] text-[#0369a1]">
+                    NEXUS GATEWAY
                   </h3>
-                  <span className="px-1.5 py-0.5 bg-[#0f172a] border border-[#38bdf8] text-[9px] font-mono-num font-bold text-[#7dd3fc]">
-                    SELECT DECK
+                  <span className="px-1.5 py-0.5 rounded-[6px] bg-[#e0f2fe]/85 border border-[#2c5885] text-[9px] font-mono-num font-bold text-[#091e3a]">
+                    TELEPORT
                   </span>
                 </div>
-                <p className="text-[10px] text-[#9cb5cc]">
-                  Choose a NEXUS floating deck destination to transit immediately:
-                </p>
                 <div className="flex flex-col gap-1.5">
                   {NEXUS_DOOR_DESTINATIONS.map((dest) => (
                     <button
@@ -887,18 +969,13 @@ export const GameHud: React.FC<GameHudProps> = ({
                         onNexusTeleport?.(dest.tx, dest.ty, dest.label);
                         onDismissInspect();
                       }}
-                      className="pixel-slot p-2 text-left flex flex-col gap-0.5 cursor-pointer hover:border-[#38e8d8] hover:bg-[#10263a] transition-colors"
+                      className="pixel-slot p-2 text-left flex items-center justify-between gap-2 cursor-pointer hover:border-[#0284c7] transition-colors"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-pixel text-[10px] text-[#fde047]">
-                          {dest.label}
-                        </span>
-                        <span className="text-[9px] font-mono-num text-[#8cf7ee]">
-                          ({dest.tx}, {dest.ty})
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-[#c7d9eb]">
-                        {dest.subtitle}
+                      <span className="font-pixel text-[10px] text-[#091e3a]">
+                        {dest.label}
+                      </span>
+                      <span className="text-[9px] font-mono-num text-[#0369a1] font-bold">
+                        ({dest.tx}, {dest.ty})
                       </span>
                     </button>
                   ))}
@@ -906,35 +983,22 @@ export const GameHud: React.FC<GameHudProps> = ({
               </div>
             )}
 
-            {/* Player-World Background Door with Gateway Linking Capability */}
-            {inspectInfo.isDoor && !inspectInfo.isNexusDoor && (
+            {/* Player-World Background Door Data Editor (Wrench & authorized builders only) */}
+            {inspectInfo.isDoor && !inspectInfo.isNexusDoor && inspectInfo.canEditDoor && (
               <div
                 data-testid="gateway-door-panel"
-                className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2"
+                className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-pixel text-[10px] text-[#8cf7ee]">
-                    BACKGROUND GATEWAY DOOR
+                  <span className="font-pixel text-[10px] text-[#0369a1]">
+                    DOOR DATA
                   </span>
-                  <span className="text-[10px] font-mono-num text-[#fde047]">
+                  <span className="text-[10px] font-mono-num text-[#92400e] font-bold">
                     {inspectInfo.doorLink
-                      ? `Linked → (${inspectInfo.doorLink.targetX}, ${inspectInfo.doorLink.targetY})`
+                      ? `(${inspectInfo.doorLink.targetX}, ${inspectInfo.doorLink.targetY})`
                       : 'Unlinked'}
                   </span>
                 </div>
-                {inspectInfo.doorLink && (
-                  <button
-                    type="button"
-                    data-testid="enter-gateway-door-btn"
-                    onClick={() => {
-                      onUseDoor?.(inspectInfo.tx, inspectInfo.ty);
-                      onDismissInspect();
-                    }}
-                    className="pixel-btn pixel-btn-emerald w-full !py-1.5 !text-[10px]"
-                  >
-                    Enter Doorway → {inspectInfo.doorLink.label || `(${inspectInfo.doorLink.targetX}, ${inspectInfo.doorLink.targetY})`}
-                  </button>
-                )}
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -946,13 +1010,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                       doorLabel.trim() || undefined
                     );
                   }}
-                  className="bg-[#090e17] border border-[#1c2b3d] p-2 flex flex-col gap-1.5"
+                  className="hud-subpanel p-2 flex flex-col gap-1.5"
                 >
-                  <span className="text-[10px] font-bold text-[#ffe18c]">
-                    Configure Gateway Link Coordinates
-                  </span>
                   <div className="grid grid-cols-2 gap-1.5">
-                    <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc]">
+                    <label className="flex flex-col gap-0.5 text-[10px] text-[#23476d] font-semibold">
                       <span>Target X</span>
                       <input
                         type="number"
@@ -960,10 +1021,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                         max={99}
                         value={doorTargetX}
                         onChange={(e) => setDoorTargetX(Number(e.target.value))}
-                        className="px-2 py-1 bg-[#05080f] border border-[#1c2b3d] text-xs font-mono-num text-white"
+                        className="hud-input px-2 py-1 text-xs font-mono-num"
                       />
                     </label>
-                    <label className="flex flex-col gap-0.5 text-[10px] text-[#9cb5cc]">
+                    <label className="flex flex-col gap-0.5 text-[10px] text-[#23476d] font-semibold">
                       <span>Target Y</span>
                       <input
                         type="number"
@@ -971,7 +1032,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                         max={59}
                         value={doorTargetY}
                         onChange={(e) => setDoorTargetY(Number(e.target.value))}
-                        className="px-2 py-1 bg-[#05080f] border border-[#1c2b3d] text-xs font-mono-num text-white"
+                        className="hud-input px-2 py-1 text-xs font-mono-num"
                       />
                     </label>
                   </div>
@@ -980,15 +1041,15 @@ export const GameHud: React.FC<GameHudProps> = ({
                     maxLength={32}
                     value={doorLabel}
                     onChange={(e) => setDoorLabel(e.target.value)}
-                    placeholder="Optional Destination Label..."
-                    className="px-2 py-1 bg-[#05080f] border border-[#1c2b3d] text-xs text-white"
+                    placeholder="Label (optional)"
+                    className="hud-input px-2 py-1 text-xs"
                   />
                   <button
                     type="submit"
                     data-testid="save-gateway-door-btn"
                     className="pixel-btn pixel-btn-primary w-full !py-1 !text-[10px]"
                   >
-                    Save Gateway Link
+                    Save Link
                   </button>
                 </form>
               </div>
@@ -996,28 +1057,27 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             {/* Share Lock Permissions Panel */}
             {activeLock && (
-              <div className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2">
+              <div className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-[#8cf7ee]">
+                  <span className="font-bold text-[#0e7490]">
                     {getItemDef(activeLock.itemId)?.name ?? 'Share Lock'} · {activeLock.width}×{activeLock.height}
                   </span>
-                  <span className="text-[10px] text-[#89d6ff]">Owner: {activeLock.ownerName}</span>
+                  <span className="text-[10px] text-[#0369a1] font-bold">{activeLock.ownerName}</span>
                 </div>
-                <p className="text-[10px] text-[#9cb5cc]">Access is limited to this claimed rectangle. Permissions can be changed independently.</p>
                 <div className="flex flex-col gap-1">
                   {Object.entries(activeLock.access ?? {}).length === 0 ? (
-                    <span className="text-[11px] text-[#6d8ba8]">No players have been granted access.</span>
+                    <span className="text-[11px] text-[#23476d]">No shared editors.</span>
                   ) : Object.entries(activeLock.access ?? {}).map(([targetId, grant]) => (
                     <div key={targetId} className="pixel-slot p-2 flex flex-col gap-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold text-[#eaf2fa]">{grant.playerName}</span>
-                        {isLockOwner && <button type="button" onClick={() => onConfigureLock(inspectInfo.tx, inspectInfo.ty, { removeEditorId: targetId })} className="text-[#ff9b9b] font-bold cursor-pointer">Revoke</button>}
+                        <span className="font-bold text-[#091e3a]">{grant.playerName}</span>
+                        {isLockOwner && <button type="button" onClick={() => onConfigureLock(inspectInfo.tx, inspectInfo.ty, { removeEditorId: targetId })} className="text-[#b91c1c] font-bold cursor-pointer">Revoke</button>}
                       </div>
                       <div className="grid grid-cols-3 gap-1">
                         {(['build', 'break', 'interact'] as const).map((permission) => (
                           <button key={permission} type="button" disabled={!isLockOwner}
                             onClick={() => onConfigureLock(inspectInfo.tx, inspectInfo.ty, { permissionTargetId: targetId, permissions: { [permission]: !grant.permissions[permission] } })}
-                            className={`px-1 py-1 border-2 text-[10px] font-bold capitalize ${grant.permissions[permission] ? 'bg-[#174a37] border-[#4ec46a] text-[#b7ffd7]' : 'bg-[#3b1b1f] border-[#80333a] text-[#ffb0b0]'} ${isLockOwner ? 'cursor-pointer' : 'cursor-default'}`}>
+                            className={`px-1 py-1 rounded-[7px] border-2 text-[10px] font-bold capitalize ${grant.permissions[permission] ? 'bg-[#dcfce7]/90 border-[#16a34a] text-[#14532d]' : 'bg-[#fee2e2]/90 border-[#dc2626] text-[#991b1b]'} ${isLockOwner ? 'cursor-pointer' : 'cursor-default'}`}>
                             {permission}: {grant.permissions[permission] ? 'On' : 'Off'}
                           </button>
                         ))}
@@ -1027,7 +1087,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </div>
                 {isLockOwner && (
                   <form onSubmit={(e) => { e.preventDefault(); if (editorInput.trim()) { onConfigureLock(inspectInfo.tx, inspectInfo.ty, { addEditorName: editorInput.trim() }); setEditorInput(''); } }} className="flex gap-1.5">
-                    <input type="text" value={editorInput} onChange={(e) => setEditorInput(e.target.value)} placeholder="Grant access by username..." className="flex-1 min-w-0 px-2 py-1 bg-[#05080f] border-2 border-[#1c2b3d] text-xs text-white focus:outline-none focus:border-[#38e8d8]" />
+                    <input type="text" value={editorInput} onChange={(e) => setEditorInput(e.target.value)} placeholder="Username..." className="hud-input flex-1 min-w-0 px-2 py-1 text-xs" />
                     <button type="submit" className="pixel-btn pixel-btn-emerald !px-2.5 !py-1 !text-[10px]">Grant</button>
                   </form>
                 )}
@@ -1036,137 +1096,119 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             {/* Nexus Landlord: personal realm management */}
             {inspectInfo.isLandlord && worldName === 'NEXUS' && (
-              <div className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2">
-                <div>
-                  <h3 className="font-pixel text-[11px] text-[#ffe18c]">LANDLORD · REALM STEWARD</h3>
-                  <p className="text-[11px] text-[#9cb5cc]">
-                    Each player can conjure one personal 50×40 sanctuary realm locked to their account, complete with an indestructible starting foundation and a one-time Starter Supply Lootbox.
-                  </p>
-                </div>
+              <div className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#8cf7ee]">My Realm ({myRealms.length}/1)</span>
-                  <button type="button" onClick={onRefreshWorlds} className="text-[10px] text-[#89d6ff] font-bold cursor-pointer">Refresh</button>
+                  <h3 className="font-pixel text-[11px] text-[#92400e]">REALM STEWARD</h3>
+                  <button type="button" onClick={onRefreshWorlds} className="text-[10px] text-[#0369a1] font-bold cursor-pointer">Refresh</button>
                 </div>
-                {myRealms.length === 0 ? (
-                  <span className="text-[11px] text-[#6d8ba8]">You have not created your personal 50×40 realm yet.</span>
-                ) : myRealms.map((realm) => (
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-bold text-[#0e7490]">My Realm ({myRealms.length}/1)</span>
+                  <span className="text-[10px] text-[#23476d]">50×40 Personal World</span>
+                </div>
+                {myRealms.map((realm) => (
                   <button key={realm.name} type="button" onClick={() => onJoinWorld(realm.name)}
-                    className="pixel-slot flex items-center justify-between p-2 text-left cursor-pointer hover:border-[#38e8d8]">
-                    <span className="font-bold text-[#f7f4eb]">{realm.name}</span>
-                    <span className="text-[10px] text-[#8cf7ee] font-mono-num">{realm.playerCount}/10 · Enter</span>
+                    className="pixel-slot flex items-center justify-between p-2 text-left cursor-pointer hover:border-[#0284c7]">
+                    <span className="font-bold text-[#091e3a]">{realm.name}</span>
+                    <span className="text-[10px] text-[#0369a1] font-mono-num font-bold">{realm.playerCount}/10 · Enter</span>
                   </button>
                 ))}
                 {myRealms.length === 0 && (
                   <form onSubmit={(e) => { e.preventDefault(); if (newWorldName.trim()) { onCreateWorld(newWorldName.trim(), useTerraBlast); setNewWorldName(''); setUseTerraBlast(false); } }}
-                    className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-1.5">
-                    <label className="text-[11px] font-bold text-[#ffe18c]">Conjure Personal Realm (50×40)</label>
+                    className="border-t border-[#4172a3]/30 pt-2 flex flex-col gap-1.5">
                     <input value={newWorldName} onChange={(e) => setNewWorldName(e.target.value.toUpperCase())}
-                      maxLength={20} placeholder="Choose a unique realm name"
-                      className="w-full px-2 py-1.5 bg-[#05080f] border-2 border-[#1c2b3d] text-xs text-white uppercase focus:outline-none focus:border-[#38e8d8]" />
+                      maxLength={20} placeholder="Realm name..."
+                      className="hud-input w-full px-2 py-1.5 text-xs uppercase" />
                     {getQty(ITEM_IDS.WORLD_BLAST) > 0 && (
-                      <label className="flex items-center gap-2 text-[11px] text-[#d8c3ff]">
+                      <label className="flex items-center gap-2 text-[11px] text-[#6d28d9] font-semibold">
                         <input type="checkbox" checked={useTerraBlast} onChange={(e) => setUseTerraBlast(e.target.checked)} />
-                        Use World Blast · {getQty(ITEM_IDS.WORLD_BLAST)} available
+                        World Blast ({getQty(ITEM_IDS.WORLD_BLAST)})
                       </label>
                     )}
                     <button type="submit" disabled={!newWorldName.trim() || (useTerraBlast && getQty(ITEM_IDS.WORLD_BLAST) < 1)}
                       className="pixel-btn pixel-btn-emerald w-full disabled:opacity-40 !text-[10px]">
-                      Create Private Realm
+                      Create Realm
                     </button>
                   </form>
                 )}
               </div>
             )}
 
-            {/* WorldCore: World View Panel & World Leveling */}
+            {/* WorldCore: Streamlined View + Lv.5 Furnace Expansion */}
             {inspectInfo.isWorldCore && inspectInfo.worldLock && (() => {
               const nextWorldXp = worldXpForNextLevel(worldLevel);
               const worldXpPct = Math.min(100, Math.round((worldXp / Math.max(1, nextWorldXp)) * 100));
               const isOwner = inspectInfo.worldLock.ownerId === playerId;
+              const canUnlockFurnace = isOwner && alterbits >= 2500 && worldCoreTokens >= 3;
               return (
                 <div
                   data-testid="world-view-panel"
-                  className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2"
+                  className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-pixel text-[11px] text-[#ffe18c]">WORLD VIEW PANEL</h3>
+                    <h3 className="font-pixel text-[11px] text-[#92400e]">WORLDCORE</h3>
                     <span
                       data-testid="world-level-badge"
-                      className="px-1.5 py-0.5 bg-[#1e293b] border border-[#facc15] text-[10px] font-mono-num font-bold text-[#fde047]"
+                      className="px-1.5 py-0.5 rounded-[6px] bg-[#fef3c7]/90 border border-[#b45309] text-[10px] font-mono-num font-bold text-[#92400e]"
                     >
-                      WORLD LVL {worldLevel}
+                      WORLD LVL {formatHudNumber(worldLevel)}
                     </span>
                   </div>
 
-                  {/* World XP & Leveling Progress */}
-                  <div className="bg-[#090e17] border-2 border-[#1c2b3d] p-2 flex flex-col gap-1.5">
+                  {/* World XP Bar */}
+                  <div className="hud-subpanel p-2 flex flex-col gap-1">
                     <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-bold text-[#8cf7ee]">Realm Mastery XP</span>
+                      <span className="font-bold text-[#0e7490]">World XP</span>
                       <span
                         data-testid="world-xp-readout"
-                        className="font-mono-num font-bold text-[#fde047]"
+                        className="font-mono-num font-bold text-[#92400e]"
                       >
-                        {worldXp} / {nextWorldXp} XP ({worldXpPct}%)
+                        {formatHudNumber(worldXp)} / {formatHudNumber(nextWorldXp)}
                       </span>
                     </div>
-                    <div className="h-2.5 bg-[#03060a] border border-[#1c2b3d] overflow-hidden">
+                    <div className="h-2 rounded-[6px] bg-white/80 border border-[#4172a3] overflow-hidden">
                       <div
-                        className="h-full bg-[#f59e0b] transition-[width] duration-200"
+                        className="h-full rounded-[4px] bg-[#d97706] transition-[width] duration-200"
                         style={{ width: `${worldXpPct}%` }}
                       />
                     </div>
-                    <span className="text-[10px] text-[#9cb5cc]">
-                      World gains separate World XP whenever the owner breaks blocks, plows soil, harvests trees/crops, or collects generators inside this world.
-                    </span>
                   </div>
 
-                  {/* WorldCore Core Tokens Storage (World-Relative Facility Upgrade Currency) */}
+                  {/* Core Tokens Counter */}
                   <div
                     data-testid="world-core-tokens-card"
-                    className="bg-[#091826] border-2 border-[#38bdf8] p-2 flex flex-col gap-1"
+                    className="rounded-[8px] bg-[#dff1ff]/80 border-2 border-[#2c5885] px-2 py-1.5 flex items-center justify-between gap-2"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-pixel text-[10px] text-[#7dd3fc]">
-                        CORE TOKENS STORAGE
-                      </span>
-                      <span
-                        data-testid="world-core-tokens"
-                        className="px-2 py-0.5 bg-[#04101c] border border-[#38e8d8] font-mono-num text-xs font-bold text-[#fde047]"
-                      >
-                        {worldCoreTokens} Tokens
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-[#bae6fd]">
-                      Earned exclusively by the World Owner via Harvesting Crops, Farmables, and Matteragen Engines (0.85%–10% odds by source tier, always +1). Automatically stored here with no capacity limit for upgrading in-world facility blocks!
+                    <span className="font-pixel text-[10px] text-[#091e3a]">Core Tokens</span>
+                    <span
+                      data-testid="world-core-tokens"
+                      className="px-2 py-0.5 rounded-[6px] bg-white/85 border border-[#4172a3] font-mono-num text-xs font-bold text-[#091e3a]"
+                    >
+                      {formatHudNumber(worldCoreTokens)}
                     </span>
                   </div>
 
-                  <div className="pixel-slot p-2 text-[11px] text-[#d5e4f2] flex flex-col gap-0.5">
-                    <div>
-                      World: <span className="font-bold text-[#ffe18c]">{worldName}</span>
-                    </div>
-                    <div>
-                      Owner: <span className="font-bold text-white">{inspectInfo.worldLock.ownerName}</span>
-                    </div>
-                    <div>
-                      Players Active: <span className="font-mono-num font-bold text-[#8cf7ee]">{playerCount}/10</span>
-                    </div>
-                    <div>Access: Hard-Locked · Share Locks grant area access</div>
+                  <div className="pixel-slot px-2 py-1.5 text-[11px] text-[#23476d] flex items-center justify-between">
+                    <span>Owner: <strong className="text-[#091e3a]">{inspectInfo.worldLock.ownerName}</strong></span>
+                    <span className="font-mono-num text-[#0369a1] font-bold">{playerCount}/10</span>
                   </div>
-                  {isOwner ? (
-                    <span className="text-[10px] text-[#86efac]">
-                      You are the sovereign owner of {worldName}. Your XP-yielding actions here actively level up this WorldCore and earn Core Tokens!
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-[#ffcf8b]">
-                      Only {inspectInfo.worldLock.ownerName}'s actions inside {worldName} grant World XP and Core Tokens.
-                    </span>
+
+                  {/* WorldCore Expansion: revealed strictly at World Level 5+, zero teaser prior */}
+                  {worldLevel >= 5 && !worldHasFurnaceExpansion && (
+                    <button
+                      type="button"
+                      data-testid="worldcore-expansion-btn"
+                      disabled={!canUnlockFurnace}
+                      onClick={() => onUnlockWorldCoreFurnace?.()}
+                      className="pixel-btn pixel-btn-gold w-full disabled:opacity-45 !py-1.5 !text-[10px]"
+                    >
+                      WorldCore Expansion: Furnace (2,500 DB · 3 Core Tokens)
+                    </button>
                   )}
                 </div>
               );
             })()}
 
-            {/* Nexus Fresh Greens Vendor: Crop Seeds & Digibits Marketplace */}
+            {/* Nexus Fresh Greens Vendor: Compact Crops & Mastery-Unlocked Seeds (No Hoe) */}
             {inspectInfo.isGreensVendor && (() => {
               const harvestedCropsInBag = inventory.filter(
                 (s) => isCropItem(s.itemId) && s.qty > 0
@@ -1175,67 +1217,22 @@ export const GameHud: React.FC<GameHudProps> = ({
                 const def = getItemDef(s.itemId);
                 return acc + s.qty * (def?.cropSellAlterbits ?? 2);
               }, 0);
-              const hasHoe = getQty(ITEM_IDS.FARMING_HOE) > 0;
               return (
                 <div
                   data-testid="greens-vendor-panel"
-                  className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2.5"
+                  className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <h3 className="font-pixel text-[11px] text-[#86efac]">
-                        FRESH GREENS VENDOR
-                      </h3>
-                      <p className="text-[10px] text-[#9cb5cc]">
-                        Trade Crop Seeds &amp; Harvested Crops exclusively for Digibits (DB)!
-                      </p>
-                    </div>
-                    <div className="px-2 py-1 bg-[#052e16] border border-[#22c55e] text-right shrink-0">
-                      <div className="text-[9px] text-[#86efac] uppercase font-bold">Digibits</div>
-                      <div className="text-xs font-mono-num font-bold text-[#fef08a]">
-                        {Math.round(alterbits)} DB
-                      </div>
-                    </div>
+                    <h3 className="font-pixel text-[11px] text-[#047857]">FRESH GREENS</h3>
+                    <span className="px-2 py-0.5 rounded-[6px] bg-[#dcfce7]/90 border border-[#16a34a] text-xs font-mono-num font-bold text-[#14532d]">
+                      {formatHudNumber(alterbits)} DB
+                    </span>
                   </div>
 
-                  {/* Starter Farming Hoe Status & Emergency 0-DB Reclaim */}
-                  <div className="pixel-slot p-2 flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={getItemIconUrl(ITEM_IDS.FARMING_HOE)}
-                          alt="Farming Hoe"
-                          className="w-6 h-6 pixelated"
-                          referrerPolicy="no-referrer"
-                        />
-                        <div>
-                          <div className="font-bold text-[#f7f4eb] text-[11px]">
-                            Farming Hoe {hasHoe ? `(Owned ×${getQty(ITEM_IDS.FARMING_HOE)})` : '(In Starter Supply Lootbox)'}
-                          </div>
-                          <div className="text-[10px] text-[#9cb5cc]">
-                            Obtained from the One-Time Starter Supply Lootbox on your personal world's starting platform.
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    {hasClaimedStarterLootbox && !hasHoe && (
-                      <button
-                        type="button"
-                        data-testid="vendor-reclaim-hoe-btn"
-                        onClick={() => onVendorAction?.({ action: 'reclaim_hoe' })}
-                        className="pixel-btn pixel-btn-emerald w-full !py-1 !text-[10px]"
-                      >
-                        Reclaim Lost Farming Hoe (0 DB)
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Sell Harvested Crops for Digibits */}
-                  <div className="bg-[#090e17] border-2 border-[#14532d] p-2 flex flex-col gap-1.5">
+                  {/* Sell Crops */}
+                  <div className="rounded-[8px] bg-[#e2f5ec]/75 border border-[#16a34a] p-2 flex flex-col gap-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-[#86efac] text-[11px]">
-                        Sell Harvested Crops
-                      </span>
+                      <span className="font-bold text-[#14532d] text-[11px]">Sell Crops</span>
                       {harvestedCropsInBag.length > 0 && (
                         <button
                           type="button"
@@ -1243,14 +1240,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                           onClick={() => onVendorAction?.({ action: 'sell_all_crops' })}
                           className="pixel-btn pixel-btn-gold !px-2 !py-0.5 !text-[9px]"
                         >
-                          Sell All (+{totalSellableDb} DB)
+                          Sell All (+{formatHudNumber(totalSellableDb)} DB)
                         </button>
                       )}
                     </div>
                     {harvestedCropsInBag.length === 0 ? (
-                      <span className="text-[10px] text-[#6d8ba8]">
-                        No harvested crops in bag. Open your Starter Supply Lootbox for a Farming Hoe, Dirt, and Radish Seeds, plow Dirt Soil, harvest mature crops, and sell them here for Digibits!
-                      </span>
+                      <span className="text-[10px] text-[#23476d]">No crops in bag.</span>
                     ) : (
                       <div className="flex flex-col gap-1">
                         {harvestedCropsInBag.map((slot) => {
@@ -1268,10 +1263,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                                   className="w-5 h-5 pixelated shrink-0"
                                   referrerPolicy="no-referrer"
                                 />
-                                <div className="truncate">
-                                  <span className="font-bold text-[#f7f4eb]">{def?.name}</span>{' '}
-                                  <span className="text-[10px] font-mono-num text-[#fde047]">
-                                    ×{slot.qty}
+                                <div className="truncate text-[11px]">
+                                  <span className="font-bold text-[#091e3a]">{def?.name}</span>{' '}
+                                  <span className="font-mono-num font-bold text-[#92400e]">
+                                    ×{formatHudNumber(slot.qty)}
                                   </span>
                                 </div>
                               </div>
@@ -1279,28 +1274,20 @@ export const GameHud: React.FC<GameHudProps> = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    onVendorAction?.({
-                                      action: 'sell_crop',
-                                      itemId: slot.itemId,
-                                      qty: 1,
-                                    })
+                                    onVendorAction?.({ action: 'sell_crop', itemId: slot.itemId, qty: 1 })
                                   }
                                   className="pixel-btn !px-1.5 !py-0.5 !text-[9px]"
                                 >
-                                  1 (+{unitDb} DB)
+                                  1 (+{formatHudNumber(unitDb)})
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    onVendorAction?.({
-                                      action: 'sell_crop',
-                                      itemId: slot.itemId,
-                                      qty: slot.qty,
-                                    })
+                                    onVendorAction?.({ action: 'sell_crop', itemId: slot.itemId, qty: slot.qty })
                                   }
                                   className="pixel-btn pixel-btn-emerald !px-1.5 !py-0.5 !text-[9px]"
                                 >
-                                  All (+{slot.qty * unitDb} DB)
+                                  All (+{formatHudNumber(slot.qty * unitDb)})
                                 </button>
                               </div>
                             </div>
@@ -1310,75 +1297,88 @@ export const GameHud: React.FC<GameHudProps> = ({
                     )}
                   </div>
 
-                  {/* Buy Unique Crop Seeds (Digibits Only) */}
+                  {/* Crop Seeds (Mastery Gated) */}
                   <div className="flex flex-col gap-1.5">
-                    <span className="font-bold text-[#ffe18c] text-[11px]">
-                      Crop Seeds Catalog (Digibits Market)
-                    </span>
-                    <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-0.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#92400e] text-[11px]">Crop Seeds</span>
+                      <span className="text-[10px] font-mono-num font-bold text-[#047857]">
+                        Crop Mastery Lv.{cropMasteryLevel}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1 max-h-60 overflow-y-auto pr-0.5">
                       {CROP_SPECS.map((crop) => {
                         const seedDef = getItemDef(crop.seedId);
                         const ownedSeeds = getQty(crop.seedId);
-                        const growthSec = crop.growthTimeSec;
+                        const reqLv = getCropMasteryRequiredLevel(crop.seedId);
+                        const unlocked = cropMasteryLevel >= reqLv;
                         return (
                           <div
                             key={crop.seedId}
                             data-testid={`vendor-seed-${crop.keyBase}`}
-                            className="pixel-slot p-2 flex flex-col gap-1"
+                            className={`pixel-slot p-1.5 flex items-center justify-between gap-2 ${
+                              !unlocked ? 'opacity-65' : ''
+                            }`}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <img
-                                  src={getItemIconUrl(crop.seedId)}
-                                  alt={seedDef?.name ?? crop.name}
-                                  className="w-6 h-6 pixelated shrink-0"
-                                  referrerPolicy="no-referrer"
-                                />
-                                <div className="min-w-0">
-                                  <div className="font-bold text-[#f7f4eb] text-[11px] truncate">
-                                    {seedDef?.name ?? `${crop.name} Seed`}{' '}
-                                    {ownedSeeds > 0 && (
-                                      <span className="text-[10px] font-mono-num text-[#8cf7ee]">
-                                        (×{ownedSeeds})
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-[10px] text-[#9cb5cc]">
-                                    Grow {growthSec}s · Drops {crop.minYield}–{crop.maxYield}× {crop.name} ({crop.sellAlterbits} DB ea)
-                                  </div>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <img
+                                src={getItemIconUrl(crop.seedId)}
+                                alt={seedDef?.name ?? crop.name}
+                                className="w-6 h-6 pixelated shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="min-w-0">
+                                <div className="font-bold text-[#091e3a] text-[11px] truncate">
+                                  {crop.name}{' '}
+                                  {ownedSeeds > 0 && (
+                                    <span className="text-[10px] font-mono-num text-[#0e7490]">
+                                      ×{formatHudNumber(ownedSeeds)}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] font-mono-num text-[#23476d]">
+                                  {crop.growthTimeSec}s · {formatHudNumber(crop.sellAlterbits)} DB
+                                  {!unlocked && (
+                                    <span className="text-[#b91c1c] font-bold ml-1">· Crop Lv.{reqLv}</span>
+                                  )}
                                 </div>
                               </div>
                             </div>
-                            <div className="flex flex-wrap gap-1 pt-0.5">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onVendorAction?.({
-                                    action: 'buy_seed',
-                                    itemId: crop.seedId,
-                                    qty: 1,
-                                    currency: 'digibits',
-                                  })
-                                }
-                                className="pixel-btn pixel-btn-emerald flex-1 !py-0.5 !text-[9px]"
-                              >
-                                Buy 1 ({crop.seedAlterbitPrice} DB)
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onVendorAction?.({
-                                    action: 'buy_seed',
-                                    itemId: crop.seedId,
-                                    qty: 5,
-                                    currency: 'digibits',
-                                  })
-                                }
-                                className="pixel-btn flex-1 !py-0.5 !text-[9px]"
-                              >
-                                Buy 5 ({crop.seedAlterbitPrice * 5} DB)
-                              </button>
-                            </div>
+                            {unlocked ? (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onVendorAction?.({
+                                      action: 'buy_seed',
+                                      itemId: crop.seedId,
+                                      qty: 1,
+                                      currency: 'digibits',
+                                    })
+                                  }
+                                  className="pixel-btn pixel-btn-emerald !px-1.5 !py-1 !text-[9px]"
+                                >
+                                  1 ({formatHudNumber(crop.seedAlterbitPrice)})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onVendorAction?.({
+                                      action: 'buy_seed',
+                                      itemId: crop.seedId,
+                                      qty: 5,
+                                      currency: 'digibits',
+                                    })
+                                  }
+                                  className="pixel-btn !px-1.5 !py-1 !text-[9px]"
+                                >
+                                  5 ({formatHudNumber(crop.seedAlterbitPrice * 5)})
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded-[6px] bg-[#fee2e2]/90 border border-[#dc2626] text-[9px] font-mono-num font-bold text-[#991b1b] shrink-0">
+                                Lv.{reqLv}
+                              </span>
+                            )}
                           </div>
                         );
                       })}
@@ -1390,10 +1390,10 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             {/* Personal Vending Machine Panel */}
             {inspectInfo.vendingMachine && (
-              <div className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2">
+              <div className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#38e8d8]">Vending Shop</span>
-                  <span className="text-[11px] text-[#9cb5cc]">
+                  <span className="font-bold text-[#0e7490]">Vending Shop</span>
+                  <span className="text-[11px] text-[#23476d]">
                     By {inspectInfo.vendingMachine.ownerName}
                   </span>
                 </div>
@@ -1408,12 +1408,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                         referrerPolicy="no-referrer"
                       />
                       <div>
-                        <div className="font-bold text-[#f7f4eb]">
+                        <div className="font-bold text-[#091e3a]">
                           {getItemDef(inspectInfo.vendingMachine.stockItemId)?.name} (×
-                          {inspectInfo.vendingMachine.stockQty} left)
+                          {formatHudNumber(inspectInfo.vendingMachine.stockQty)} left)
                         </div>
-                        <div className="text-[11px] text-[#ffe18c]">
-                          Price: {inspectInfo.vendingMachine.priceQty}×{' '}
+                        <div className="text-[11px] text-[#92400e] font-semibold">
+                          Price: {formatHudNumber(inspectInfo.vendingMachine.priceQty)}×{' '}
                           {getItemDef(inspectInfo.vendingMachine.priceItemId)?.name}
                         </div>
                       </div>
@@ -1427,23 +1427,23 @@ export const GameHud: React.FC<GameHudProps> = ({
                     </button>
                   </div>
                 ) : (
-                  <div className="pixel-slot text-[11px] text-[#8aa4bd] p-2">
+                  <div className="pixel-slot text-[11px] text-[#23476d] p-2">
                     This Vending Machine is currently out of stock.
                   </div>
                 )}
 
                 {(inspectInfo.vendingMachine.ownerId === playerId || isAdminBypass) && (
-                  <div className="flex flex-col gap-1.5 border-t-2 border-[#1c2b3d] pt-2">
-                    <span className="text-[11px] font-bold text-[#ffe18c]">Owner Management</span>
+                  <div className="flex flex-col gap-1.5 border-t-2 border-[#4172a3]/35 pt-2">
+                    <span className="text-[11px] font-bold text-[#92400e]">Owner Management</span>
                     <div className="grid grid-cols-2 gap-1.5">
                       <select
                         value={vmItemId}
                         onChange={(e) => setVmItemId(Number(e.target.value))}
-                        className="px-1.5 py-1 bg-[#05080f] border-2 border-[#1c2b3d] text-[11px] text-white"
+                        className="hud-input px-1.5 py-1 text-[11px]"
                       >
                         {tradeablesInBag.map((s, idx) => (
                           <option key={s.rodInstanceId ?? `${s.itemId}-${idx}`} value={s.itemId}>
-                            {getItemDef(s.itemId)?.name} ({s.qty})
+                            {getItemDef(s.itemId)?.name} ({formatHudNumber(s.qty)})
                           </option>
                         ))}
                       </select>
@@ -1454,12 +1454,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                         value={vmStockQty}
                         onChange={(e) => setVmStockQty(Math.max(1, Number(e.target.value)))}
                         placeholder="Qty to stock"
-                        className="px-2 py-1 bg-[#05080f] border-2 border-[#1c2b3d] text-[11px] text-white font-mono-num"
+                        className="hud-input px-2 py-1 text-[11px] font-mono-num"
                       />
                       <select
                         value={vmPriceItemId}
                         onChange={(e) => setVmPriceItemId(Number(e.target.value))}
-                        className="px-1.5 py-1 bg-[#05080f] border-2 border-[#1c2b3d] text-[11px] text-white"
+                        className="hud-input px-1.5 py-1 text-[11px]"
                       >
                         <option value={ITEM_IDS.GP_RED_BRICKS}>Price in: Red Bricks</option>
                       </select>
@@ -1470,7 +1470,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                         value={vmPriceQty}
                         onChange={(e) => setVmPriceQty(Math.max(1, Number(e.target.value)))}
                         placeholder="Price per 1"
-                        className="px-2 py-1 bg-[#05080f] border-2 border-[#1c2b3d] text-[11px] text-white font-mono-num"
+                        className="hud-input px-2 py-1 text-[11px] font-mono-num"
                       />
                     </div>
                     <div className="flex gap-1.5">
@@ -1498,7 +1498,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                           }
                           className="pixel-btn pixel-btn-gold flex-1 !py-1 !text-[10px]"
                         >
-                          Withdraw ({inspectInfo.vendingMachine.earningsQty} earned)
+                          Withdraw ({formatHudNumber(inspectInfo.vendingMachine.earningsQty)} earned)
                         </button>
                       )}
                     </div>
@@ -1507,16 +1507,16 @@ export const GameHud: React.FC<GameHudProps> = ({
               </div>
             )}
 
-            {/* Signboard Editor */}
-            {inspectInfo.signText !== undefined && inspectInfo.signText !== null && (
+            {/* Signboard Editor (authorized users only) */}
+            {inspectInfo.signText !== undefined && inspectInfo.signText !== null && inspectInfo.canEditSign !== false && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   onConfigureSign(inspectInfo.tx, inspectInfo.ty, signDraft);
                 }}
-                className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-1.5"
+                className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-1.5"
               >
-                <span className="text-[11px] font-bold text-[#ffe18c]">Signboard Message</span>
+                <span className="text-[11px] font-bold text-[#92400e]">Signboard Message</span>
                 <div className="flex gap-1.5">
                   <input
                     type="text"
@@ -1524,7 +1524,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     value={signDraft}
                     onChange={(e) => setSignDraft(e.target.value)}
                     placeholder="Write message on sign..."
-                    className="flex-1 px-2 py-1 bg-[#05080f] border-2 border-[#1c2b3d] text-xs text-white focus:outline-none focus:border-[#38e8d8]"
+                    className="hud-input flex-1 px-2 py-1 text-xs"
                   />
                   <button
                     type="submit"
@@ -1547,12 +1547,6 @@ export const GameHud: React.FC<GameHudProps> = ({
                 onCollect={() =>
                   onConfigureFurnace(inspectInfo.tx, inspectInfo.ty, { action: 'collect' })
                 }
-                onRepair={(toolItemId) =>
-                  onConfigureFurnace(inspectInfo.tx, inspectInfo.ty, {
-                    action: 'repair',
-                    toolItemId,
-                  })
-                }
               />
             )}
 
@@ -1574,12 +1568,12 @@ export const GameHud: React.FC<GameHudProps> = ({
               />
             )}
 
-            {/* Matteragen Engine Panel */}
+            {/* Matteragen Engine Panel (Claim via Interact UI + -5% time/upgrade) */}
             {inspectInfo.matteragenEngine && (() => {
               const eng = inspectInfo.matteragenEngine;
               const engDef = getItemDef(eng.typeId);
               const branch = getMatteragenBranch(eng.typeId);
-              const intervalMs = getMatteragenIntervalMs(eng.typeId);
+              const intervalMs = getEffectiveMatteragenIntervalMs(eng.typeId, eng.level);
               const elapsedMs = Math.max(0, nowMs - (eng.lastHarvestMs || eng.placedAtMs || nowMs));
               const remSec = Math.max(0, Math.ceil((intervalMs - elapsedMs) / 1000));
               const remMin = Math.floor(remSec / 60);
@@ -1589,50 +1583,73 @@ export const GameHud: React.FC<GameHudProps> = ({
               return (
                 <div
                   data-testid="matteragen-panel"
-                  className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-2"
+                  className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-pixel text-[10px] text-[#38e8d8]">
+                    <span className="font-pixel text-[10px] text-[#0369a1]">
                       {engDef?.name ?? 'Matteragen Engine'}
                     </span>
-                    <span className="px-1.5 py-0.5 bg-[#090e17] border border-[#facc15] text-[10px] font-mono-num font-bold text-[#fde047]">
-                      LV. {eng.level} / 5
+                    <span className="px-1.5 py-0.5 rounded-[6px] bg-[#fef3c7]/90 border border-[#b45309] text-[10px] font-mono-num font-bold text-[#92400e]">
+                      LV. {eng.level}/5
                     </span>
                   </div>
-                  <div className="text-[10px] text-[#9cb5cc]">
-                    Branch: <span className="uppercase font-bold text-[#e0f2fe]">{branch}</span> · Generates random {branch} farmables
+                  <div className="flex items-center justify-between text-[10px] text-[#23476d]">
+                    <span className="uppercase font-bold text-[#091e3a]">{branch}</span>
+                    {eng.level > 1 && (
+                      <span className="font-mono-num font-bold text-[#047857]">
+                        -{(eng.level - 1) * 5}% time
+                      </span>
+                    )}
                   </div>
                   {eng.isReady ? (
-                    <div className="bg-[#064e3b] border-2 border-[#10b981] p-2 flex flex-col gap-1">
-                      <span className="font-pixel text-[10px] text-[#a7f3d0]">
-                        READY! PUNCH ENGINE TO COLLECT!
-                      </span>
-                      <div className="flex flex-wrap gap-1.5 text-[11px] font-mono-num text-white">
+                    <div className="rounded-[8px] bg-[#dcfce7]/90 border-2 border-[#16a34a] p-2 flex flex-col gap-2">
+                      <div className="flex flex-wrap gap-1.5 text-[11px] font-mono-num text-[#14532d]">
                         {(eng.storedDrops ?? []).map((d, idx) => (
-                          <span key={idx} className="bg-[#022c22] px-1.5 py-0.5 border border-[#059669]">
-                            {d.count}× {getItemDef(d.itemId)?.name ?? `#${d.itemId}`}
+                          <span
+                            key={idx}
+                            className="flex items-center gap-1 rounded-[6px] bg-white/90 px-1.5 py-0.5 border border-[#16a34a]"
+                          >
+                            <img
+                              src={getItemIconUrl(d.itemId)}
+                              alt={getItemDef(d.itemId)?.name ?? 'Block'}
+                              className="w-4 h-4 pixelated"
+                              referrerPolicy="no-referrer"
+                            />
+                            <span>
+                              {d.count}× {getItemDef(d.itemId)?.name ?? `#${d.itemId}`}
+                            </span>
                           </span>
                         ))}
                       </div>
+                      <button
+                        type="button"
+                        data-testid="claim-matteragen-btn"
+                        onClick={() => onClaimMatteragen?.(inspectInfo.tx, inspectInfo.ty)}
+                        className="pixel-btn pixel-btn-gold w-full !py-1.5 !text-[10px]"
+                      >
+                        Claim Yield
+                      </button>
                     </div>
                   ) : (
-                    <div className="bg-[#090e17] border border-[#1c2b3d] p-2 flex flex-col gap-1">
+                    <div className="hud-subpanel p-2 flex flex-col gap-1">
                       <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-[#9cb5cc]">Synthesis Progress</span>
-                        <span className="font-mono-num font-bold text-[#38bdf8]">
+                        <span className="text-[#23476d]">Generating</span>
+                        <span className="font-mono-num font-bold text-[#0369a1]">
                           {remMin}m {String(remS).padStart(2, '0')}s
                         </span>
                       </div>
-                      <div className="h-2 bg-[#03060a] border border-[#1c2b3d] overflow-hidden">
-                        <div className="h-full bg-[#38bdf8] transition-[width]" style={{ width: `${pct}%` }} />
+                      <div className="h-2 rounded-[6px] bg-white/80 border border-[#4172a3] overflow-hidden">
+                        <div className="h-full rounded-[4px] bg-[#0284c7] transition-[width]" style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   )}
-                  <div className="flex items-center justify-between text-[10px] bg-[#091826] border border-[#1e3a5f] px-2 py-1">
-                    <span className="text-[#7dd3fc] font-semibold">WorldCore Token Storage:</span>
-                    <span className="font-mono-num font-bold text-[#fde047]">{worldCoreTokens} Core Tokens</span>
+                  <div className="flex items-center justify-between text-[10px] rounded-[8px] bg-[#dff1ff]/80 border border-[#2c5885] px-2 py-1">
+                    <span className="text-[#091e3a] font-semibold">Core Tokens</span>
+                    <span className="font-mono-num font-bold text-[#091e3a]">
+                      {formatHudNumber(worldCoreTokens)}
+                    </span>
                   </div>
-                  {eng.level < 5 && nextCost && (
+                  {eng.level < 5 && nextCost ? (
                     <button
                       type="button"
                       data-testid="upgrade-matteragen-btn"
@@ -1640,12 +1657,11 @@ export const GameHud: React.FC<GameHudProps> = ({
                       onClick={() => onUpgradeMatteragen?.(inspectInfo.tx, inspectInfo.ty)}
                       className="pixel-btn pixel-btn-gold w-full disabled:opacity-45 !text-[10px]"
                     >
-                      Upgrade to LV. {eng.level + 1} ({nextCost} Core Tokens)
+                      Upgrade LV. {eng.level + 1} ({formatHudNumber(nextCost)} Tokens)
                     </button>
-                  )}
-                  {eng.level >= 5 && (
-                    <span className="text-center font-pixel text-[9px] text-[#fde047]">
-                      MAX LEVEL 5 ACHIEVED
+                  ) : (
+                    <span className="text-center font-pixel text-[9px] text-[#92400e]">
+                      MAX LV. 5
                     </span>
                   )}
                 </div>
@@ -1685,8 +1701,8 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             {/* Global Exchange Terminal Quick Launch */}
             {inspectInfo.isExchangeTerminal && (
-              <div className="border-t-2 border-[#1c2b3d] pt-2 flex flex-col gap-1.5">
-                <span className="text-[11px] text-[#9cb5cc]">
+              <div className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-1.5">
+                <span className="text-[11px] text-[#23476d]">
                   Trade World Lock bundles cross-world via the Global Exchange.
                 </span>
                 <button
@@ -1708,13 +1724,13 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Bottom Perimeter: Portrait-friendly 2-row stack (<740px) & Single Row (>=740px Landscape) */}
       <div className="flex flex-col min-[740px]:flex-row min-[740px]:items-end min-[740px]:justify-between gap-1.5 sm:gap-2">
-        {/* Center Hotbar (top row in portrait, middle in landscape) */}
-        <div className="pointer-events-auto order-1 min-[740px]:order-2 flex flex-col items-center gap-1 self-center max-w-full">
+        {/* Center Hotbar (top row in portrait, middle in landscape; 4 quick slots + Fist/Wrench + Bag, 20% slimmer) */}
+        <div className="pointer-events-auto order-1 min-[740px]:order-2 flex flex-col items-center gap-0.5 self-center max-w-full">
           {(selectedDef || (role === 'admin' && adminWorldEdit)) && (
-            <div className="pixel-box text-[10px] sm:text-[11px] font-bold text-[#fef3c7] ui-text-shadow px-2.5 py-0.5 whitespace-nowrap max-w-[92vw] truncate">
-              {selectedDef ? `${selectedDef.name} · ${selectedDef.category}` : 'System Edit Mode'}
+            <div className="pixel-box !rounded-[8px] text-[9px] sm:text-[10px] font-bold text-[#091e3a] px-2 py-[2px] whitespace-nowrap max-w-[92vw] truncate">
+              {selectedDef ? selectedDef.name : 'System Edit Mode'}
               {role === 'admin' && adminWorldEdit && (
-                <span className="text-[#8cf7ee] font-bold">
+                <span className="text-[#0369a1] font-bold">
                   {' '}
                   · SysEdit Active
                 </span>
@@ -1723,71 +1739,83 @@ export const GameHud: React.FC<GameHudProps> = ({
           )}
           <div
             data-testid="hud-hotbar"
-            className="pixel-wood-box flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 max-w-full overflow-x-auto"
+            className="pixel-wood-box !rounded-[9px] flex items-center gap-[3px] sm:gap-1 p-[3px] sm:p-1 max-w-full overflow-x-auto"
           >
             {hotbarItemIds.map((itemId, idx) => {
-              const def = getItemDef(itemId);
-              const invSlot = inventory.find((s) => s.itemId === itemId);
-              const isExemptTool = itemId === ITEM_IDS.FIST || itemId === ITEM_IDS.WRENCH;
-              const qty = isExemptTool ? null : getQty(itemId);
-              const showItemLabel = itemId !== ITEM_IDS.AIR && !isExemptTool && Boolean(def?.name);
-              const active = selectedItemId === itemId;
+              const isPrimarySlot = idx === 0;
+              const effectiveId = isPrimarySlot
+                ? selectedItemId === ITEM_IDS.WRENCH
+                  ? ITEM_IDS.WRENCH
+                  : ITEM_IDS.FIST
+                : itemId;
+              const def = getItemDef(effectiveId);
+              const invSlot = inventory.find((s) => s.itemId === effectiveId);
+              const isExemptTool = effectiveId === ITEM_IDS.FIST || effectiveId === ITEM_IDS.WRENCH;
+              const qty = isExemptTool ? null : getQty(effectiveId);
+              const active = isPrimarySlot
+                ? selectedItemId === ITEM_IDS.FIST || selectedItemId === ITEM_IDS.WRENCH
+                : selectedItemId === effectiveId;
               const hasDurability = typeof invSlot?.maxDurability === 'number' && invSlot.maxDurability > 0;
               const durRatio = hasDurability
                 ? Math.max(0, Math.min(1, (invSlot!.durability ?? invSlot!.maxDurability!) / invSlot!.maxDurability!))
                 : 1;
               return (
                 <button
-                  key={`${idx}-${itemId}`}
+                  key={`${idx}-${effectiveId}`}
                   type="button"
                   tabIndex={-1}
                   data-testid={`hotbar-slot-${idx + 1}`}
-                  aria-label={`Slot ${idx + 1}: ${def?.name ?? 'Empty'}`}
-                  title={def ? `${def.name}${qty !== null ? ` (${qty})` : ''}` : `Slot ${idx + 1}: Empty`}
+                  aria-label={
+                    isPrimarySlot
+                      ? `Slot 1: ${selectedItemId === ITEM_IDS.WRENCH ? 'Wrench (Inspect)' : 'Fist (Tap again for Wrench)'}`
+                      : `Slot ${idx + 1}: ${def?.name ?? 'Empty'}`
+                  }
+                  title={
+                    isPrimarySlot
+                      ? `${def?.name ?? 'Fist'} · Tap while selected to toggle Fist/Wrench`
+                      : def
+                        ? `${def.name}${qty !== null ? ` (${formatHudNumber(qty)})` : ''}`
+                        : `Slot ${idx + 1}: Empty`
+                  }
                   onClick={(e) => {
                     e.currentTarget.blur();
+                    if (isPrimarySlot) {
+                      if (onTapPrimarySlot) onTapPrimarySlot();
+                      else onSelectItem(selectedItemId === ITEM_IDS.FIST ? ITEM_IDS.WRENCH : ITEM_IDS.FIST);
+                      return;
+                    }
                     setAssignSlot(idx);
-                    if (itemId !== ITEM_IDS.AIR) onSelectItem(itemId);
+                    if (effectiveId !== ITEM_IDS.AIR) onSelectItem(effectiveId);
                   }}
-                  className={`pixel-slot relative w-[46px] h-[54px] min-[480px]:w-14 min-[480px]:h-14 sm:w-[62px] sm:h-[60px] shrink-0 flex flex-col items-center justify-center touch-none select-none cursor-pointer transition-transform ${
+                  className={`pixel-slot relative w-[40px] h-[45px] min-[480px]:w-[45px] min-[480px]:h-[45px] sm:w-[51px] sm:h-[51px] shrink-0 flex flex-col items-center justify-center touch-none select-none cursor-pointer transition-transform ${
                     active
-                      ? '!bg-[#2a2210] !border-[#facc15] -translate-y-0.5 shadow-[0_0_12px_rgba(250,204,21,0.45)]'
+                      ? effectiveId === ITEM_IDS.WRENCH
+                        ? '!bg-[#cffafe] !border-[#0284c7] -translate-y-0.5 shadow-[0_0_8px_rgba(2,132,199,0.28)]'
+                        : '!bg-[#fef3c7] !border-[#b45309] -translate-y-0.5 shadow-[0_0_8px_rgba(180,83,9,0.28)]'
                       : ''
                   }`}
                 >
-                  <span className="absolute top-0.5 left-1 text-[8px] sm:text-[9px] font-mono-num font-bold text-[#9cb5cc] leading-none">
-                    {idx + 1}
-                  </span>
-                  {qty !== null && !hasDurability && (
-                    <span className="absolute top-0.5 right-1 text-[8px] sm:text-[9px] font-mono-num font-bold text-[#fde047] ui-text-shadow leading-none">
-                      {qty}
-                    </span>
-                  )}
-                  {itemId !== ITEM_IDS.AIR && (
+                  {effectiveId !== ITEM_IDS.AIR && (
                     <img
-                      src={getItemIconUrl(itemId)}
+                      src={getItemIconUrl(effectiveId)}
                       alt={def?.name ?? 'Item'}
-                      className={`pixelated shrink-0 ${
-                        showItemLabel ? 'w-5 h-5 sm:w-6 sm:h-6 mb-2.5' : 'w-6 h-6 sm:w-7 sm:h-7'
-                      }`}
+                      className="pixelated shrink-0 w-[26px] h-[26px] sm:w-[29px] sm:h-[29px]"
                       referrerPolicy="no-referrer"
                     />
                   )}
-                  {showItemLabel && def && (
+                  {qty !== null && !hasDurability && (
                     <span
-                      data-testid={`hotbar-item-name-${idx + 1}`}
-                      className={`absolute inset-x-0.5 ${
-                        hasDurability ? 'bottom-1.5' : 'bottom-0.5'
-                      } text-[7px] sm:text-[8px] font-bold text-[#fef3c7] truncate text-center leading-none`}
+                      data-testid={`hotbar-item-qty-${idx + 1}`}
+                      className="absolute bottom-[2px] right-[2px] rounded-full bg-[#eaf5ff]/95 border border-[#2c5885] px-[4px] py-[1px] text-[7px] sm:text-[8px] font-mono-num font-bold text-[#091e3a] leading-none shadow-[0_1px_0_rgba(15,42,74,0.2)]"
                     >
-                      {def.name}
+                      {formatHudNumber(qty)}x
                     </span>
                   )}
                   {hasDurability && (
-                    <div className="absolute inset-x-1 bottom-0.5 h-1 bg-[#03060a] overflow-hidden">
+                    <div className="absolute inset-x-1 bottom-0.5 h-1 rounded-full bg-white/80 overflow-hidden">
                       <div
                         className={`h-full ${
-                          durRatio > 0.4 ? 'bg-[#4ec46a]' : durRatio > 0.15 ? 'bg-[#f2b738]' : 'bg-[#e6482e]'
+                          durRatio > 0.4 ? 'bg-[#16a34a]' : durRatio > 0.15 ? 'bg-[#d97706]' : 'bg-[#dc2626]'
                         }`}
                         style={{ width: `${Math.round(durRatio * 100)}%` }}
                       />
@@ -1796,7 +1824,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </button>
               );
             })}
-            <div className="h-8 sm:h-9 w-0.5 bg-[#140b06] mx-0.5 shrink-0" />
+            <div className="h-6 sm:h-7 w-[1.5px] rounded-full bg-[#4172a3]/60 mx-0.5 shrink-0" />
             <button
               type="button"
               tabIndex={-1}
@@ -1807,14 +1835,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                 e.currentTarget.blur();
                 setActivePanel((cur) => (cur === 'backpack' ? 'none' : 'backpack'));
               }}
-              className={`pixel-slot relative w-[46px] h-[54px] min-[480px]:w-14 min-[480px]:h-14 sm:w-[62px] sm:h-[60px] shrink-0 flex flex-col items-center justify-center gap-0.5 touch-none select-none cursor-pointer transition-transform ${
+              className={`pixel-slot relative w-[40px] h-[45px] min-[480px]:w-[45px] min-[480px]:h-[45px] sm:w-[51px] sm:h-[51px] shrink-0 flex flex-col items-center justify-center gap-0.5 touch-none select-none cursor-pointer transition-transform ${
                 activePanel === 'backpack'
-                  ? '!bg-[#2a2210] !border-[#facc15] text-[#fde047] -translate-y-0.5'
-                  : 'text-[#fef3c7]'
+                  ? '!bg-[#fef3c7]/90 !border-[#b45309] text-[#92400e] -translate-y-0.5'
+                  : 'text-[#091e3a]'
               }`}
             >
-              <Backpack className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
-              <span className="text-[8px] font-pixel uppercase leading-none">Bag</span>
+              <Backpack className="w-4 h-4" />
+              <span className="text-[7px] font-pixel uppercase leading-none">Bag</span>
             </button>
           </div>
         </div>
@@ -1838,7 +1866,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchMove('left', false)}
                   onPointerCancel={() => onTouchMove('left', false)}
-                  className="pixel-slot w-14 h-14 sm:w-[68px] sm:h-[68px] active:!bg-[#1b2e45] active:!border-[#38e8d8] text-white font-bold text-lg sm:text-xl flex items-center justify-center touch-none select-none cursor-pointer"
+                  className="pixel-slot w-14 h-14 sm:w-[68px] sm:h-[68px] active:!bg-[#dbeafe] active:!border-[#0284c7] text-[#091e3a] font-bold text-lg sm:text-xl flex items-center justify-center touch-none select-none cursor-pointer"
                 >
                   ◀
                 </button>
@@ -1855,7 +1883,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchMove('right', false)}
                   onPointerCancel={() => onTouchMove('right', false)}
-                  className="pixel-slot w-14 h-14 sm:w-[68px] sm:h-[68px] active:!bg-[#1b2e45] active:!border-[#38e8d8] text-white font-bold text-lg sm:text-xl flex items-center justify-center touch-none select-none cursor-pointer"
+                  className="pixel-slot w-14 h-14 sm:w-[68px] sm:h-[68px] active:!bg-[#dbeafe] active:!border-[#0284c7] text-[#091e3a] font-bold text-lg sm:text-xl flex items-center justify-center touch-none select-none cursor-pointer"
                 >
                   ▶
                 </button>
@@ -1884,7 +1912,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchJump(false)}
                   onPointerCancel={() => onTouchJump(false)}
-                  className="pixel-btn pixel-btn-emerald w-14 h-14 sm:w-[68px] sm:h-[68px] flex flex-col items-center justify-center gap-0.5 touch-none select-none"
+                  className="pixel-btn pixel-btn-emerald w-14 h-14 sm:w-[68px] sm:h-[68px] !rounded-[11px] flex flex-col items-center justify-center gap-0.5 touch-none select-none"
                 >
                   <span className="text-lg sm:text-xl leading-none">▲</span>
                   <span className="text-[8px] sm:text-[9px] uppercase tracking-wider leading-none">Jump</span>
@@ -1895,18 +1923,21 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       </div>
 
-      {/* Gem Store Drawer (anchored below Top-Left Panel View) */}
+      {/* Gem Store Drawer (anchored below Top-Left Panel View + Chat row) */}
       {activePanel === 'store' && (
-        <div className="pointer-events-auto fixed left-2 top-[54px] sm:top-[60px] z-20 w-[min(22rem,calc(100vw-1rem))] max-h-[calc(100dvh-10.5rem)] min-[740px]:max-h-[calc(100dvh-8.25rem)] pixel-box p-3 flex flex-col gap-2.5">
+        <div className="pointer-events-auto fixed left-2 top-[98px] sm:top-[106px] z-20 w-[min(22rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] pixel-box p-3 flex flex-col gap-2.5">
           <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h2 className="ui-pixel-heading text-xs text-[#8cf7ee]">Gem Store</h2>
-              <span className="text-xs font-mono-num font-bold text-[#fde047]">{Math.round(gems)} Gems</span>
+              <h2 className="ui-pixel-heading text-xs text-[#091e3a]">Gem Store</h2>
+              <span className="inline-flex items-center gap-1 text-xs font-mono-num font-bold text-[#091e3a]">
+                <RedGemIcon className="w-3.5 h-3.5 shrink-0" />
+                <span>{formatHudNumber(gems)}</span>
+              </span>
             </div>
             <button
               type="button"
               onClick={() => setActivePanel('none')}
-              className="text-[11px] font-pixel text-[#9cb5cc] hover:text-white cursor-pointer"
+              className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
             >
               [X]
             </button>
@@ -1917,10 +1948,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                 key={cat}
                 type="button"
                 onClick={() => setStoreCategory(cat)}
-                className={`py-1.5 border-2 text-[10px] font-pixel uppercase cursor-pointer ${
+                className={`py-1.5 rounded-[8px] border-2 text-[10px] font-pixel uppercase cursor-pointer ${
                   storeCategory === cat
-                    ? 'bg-[#153447] border-[#38e8d8] text-[#8cf7ee]'
-                    : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:border-[#334e68]'
+                    ? 'bg-white/90 border-[#0284c7] text-[#091e3a]'
+                    : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d] hover:bg-white/60'
                 }`}
               >
                 {cat === 'seeds' ? 'Farming' : cat === 'blocks' ? 'Blocks & Tech' : 'Gear'}
@@ -1945,8 +1976,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                       referrerPolicy="no-referrer"
                     />
                     <div>
-                      <div className="text-xs font-bold text-[#f7f4eb]">{listing.name}</div>
-                      <div className="text-[10px] text-[#9cb5cc]">{listing.description}</div>
+                      <div className="text-xs font-bold text-[#091e3a]">{listing.name}</div>
+                      <div className="text-[10px] text-[#23476d]">{listing.description}</div>
                     </div>
                   </div>
                   <button
@@ -1955,7 +1986,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     onClick={() => onBuyGemStore(listing.id)}
                     className="pixel-btn pixel-btn-primary disabled:opacity-40 !py-1.5 !px-2.5 !text-[10px] font-mono-num shrink-0"
                   >
-                    {listing.gemPrice} G
+                    {formatHudNumber(listing.gemPrice)} G
                   </button>
                 </div>
               );
@@ -1964,11 +1995,11 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Backpack Drawer (Inventory View Only — anchored cleanly above bottom Toolbar) */}
+      {/* Backpack Drawer (20-slot capacity, 500 max stack, large icons) */}
       {activePanel === 'backpack' && (
         <div
           data-testid="backpack-drawer"
-          className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[142px] min-[740px]:bottom-[96px] z-20 w-[min(24rem,calc(100vw-1rem))] max-h-[calc(100dvh-12rem)] min-[740px]:max-h-[calc(100dvh-8.5rem)] pixel-wood-box p-3 flex flex-col gap-2"
+          className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[124px] min-[740px]:bottom-[84px] z-20 w-[min(24rem,calc(100vw-1rem))] max-h-[calc(100dvh-12rem)] min-[740px]:max-h-[calc(100dvh-8.5rem)] pixel-wood-box p-3 flex flex-col gap-2"
         >
           <div className="pixel-wood-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1 flex-wrap">
@@ -1984,10 +2015,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                   key={tab.id}
                   type="button"
                   onClick={() => setBagFilter(tab.id)}
-                  className={`px-2 py-0.5 text-[10px] font-bold cursor-pointer border-2 ${
+                  className={`px-2 py-0.5 rounded-[7px] text-[10px] font-bold cursor-pointer border-2 ${
                     bagFilter === tab.id
-                      ? 'bg-[#eab308] border-[#713f12] text-[#422006]'
-                      : 'bg-[#1c1009] border-[#3e2414] text-[#fde68a] hover:border-[#945832]'
+                      ? 'bg-[#0284c7] border-[#164e7a] text-white'
+                      : 'bg-[#e3f1fd]/80 border-[#4172a3] text-[#091e3a] hover:bg-white/80'
                   }`}
                 >
                   {tab.label}
@@ -1999,25 +2030,38 @@ export const GameHud: React.FC<GameHudProps> = ({
                   data-testid="backpack-admin-clear-btn"
                   onClick={() => onAdminAction({ action: 'clear_inventory' })}
                   title="Admin: Clear all non-default inventory slots"
-                  className="px-2 py-0.5 text-[10px] font-bold cursor-pointer border-2 bg-[#450a0a] border-[#ef4444] text-[#fecaca] hover:bg-[#7f1d1d]"
+                  className="px-2 py-0.5 rounded-[7px] text-[10px] font-bold cursor-pointer border-2 bg-[#fee2e2]/90 border-[#dc2626] text-[#991b1b] hover:bg-[#fecaca]"
                 >
                   Clear Inv
                 </button>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setActivePanel('none')}
-              className="text-[11px] font-pixel text-[#fde68a] hover:text-white cursor-pointer"
-            >
-              [X]
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <span
+                data-testid="backpack-slot-counter"
+                className={`text-[10px] font-mono-num font-bold ${
+                  bagSlotsUsed >= MAX_INVENTORY_SLOTS ? 'text-[#b91c1c]' : 'text-[#047857]'
+                }`}
+              >
+                {bagSlotsUsed}/{MAX_INVENTORY_SLOTS}
+              </span>
+              <button
+                type="button"
+                onClick={() => setActivePanel('none')}
+                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
+              >
+                [X]
+              </button>
+            </div>
           </div>
-          <div className="flex items-center justify-between gap-2 text-[10px] text-[#fde68a] bg-[#140b06] border border-[#59351e] px-2 py-1">
-            <span>Tap item to equip slot {assignSlot < 2 ? 3 : assignSlot + 1}.</span>
-            <span className="flex items-center gap-1 text-[#86efac] font-semibold">
+          <div className="hud-subpanel flex items-center justify-between gap-2 text-[10px] text-[#091e3a] px-2 py-1">
+            <span>
+              Tap to equip Slot{' '}
+              {assignSlot < 1 || assignSlot >= hotbarItemIds.length ? 2 : assignSlot + 1}
+            </span>
+            <span className="flex items-center gap-1 text-[#047857] font-semibold">
               <Sparkles className="w-3 h-3 shrink-0" />
-              <span>Seeds plant inside Seed Pots!</span>
+              <span>Max 500/slot</span>
             </span>
           </div>
           {selectedDef?.category === 'consumable' && (
@@ -2066,11 +2110,16 @@ export const GameHud: React.FC<GameHudProps> = ({
                   ? Math.max(0, Math.min(1, (slot.durability ?? slot.maxDurability!) / slot.maxDurability!))
                   : 1;
                 const isFarmable = def.category === 'farmable' || Boolean(def.farmableTier);
+                const isProtectedTool =
+                  slot.itemId === ITEM_IDS.FIST || slot.itemId === ITEM_IDS.WRENCH;
+                const canTrash =
+                  !isProtectedTool &&
+                  (role === 'admin' || slot.itemId !== ITEM_IDS.FARMING_HOE);
                 return (
                   <button
                     key={slot.rodInstanceId ?? `${slot.itemId}-${idx}`}
                     type="button"
-                    title={`${def.name} (${slot.qty})${isFarmable ? ` · Tier ${def.farmableTier ?? 1} Farmable` : ''}`}
+                    title={`${def.name} (${formatHudNumber(slot.qty)})${isFarmable ? ` · T${def.farmableTier ?? 1}` : ''}`}
                     onClick={() => {
                       if (def.category === 'wearable') {
                         onEquipWearable(slot.itemId);
@@ -2078,68 +2127,80 @@ export const GameHud: React.FC<GameHudProps> = ({
                       }
                       onSelectItem(slot.itemId);
                       if (slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH) {
-                        const targetIdx = assignSlot >= 2 ? assignSlot : 2;
+                        const targetIdx =
+                          assignSlot >= 1 && assignSlot < hotbarItemIds.length ? assignSlot : 1;
                         onAssignHotbar(targetIdx, slot.itemId);
                       }
                     }}
-                    className={`relative h-16 rounded border-2 flex flex-col items-center justify-between p-1 cursor-pointer ${
+                    className={`relative h-[74px] rounded-[8px] border-2 flex flex-col items-center justify-between p-1 cursor-pointer ${
                       isEquippedWearable
-                        ? 'bg-[#2b4d34] border-[#82e068]'
+                        ? 'bg-[#dcfce7]/90 border-[#16a34a]'
                         : isSelected
-                          ? 'bg-[#254463] border-[#f2b738]'
+                          ? 'bg-[#dbeafe]/90 border-[#0284c7]'
                           : isFarmable
-                            ? 'bg-[#12261a] border-[#3d7a4f] hover:border-[#82e068]'
-                            : 'bg-[#09131d] border-[#263c52] hover:border-[#4b7299]'
+                            ? 'bg-[#ecfdf5]/85 border-[#059669] hover:border-[#047857]'
+                            : 'bg-white/75 border-[#4172a3] hover:border-[#0284c7]'
                     }`}
                   >
                     <div className="flex items-center justify-between w-full px-0.5">
                       {isFarmable ? (
-                        <span className="text-[8px] font-mono-num font-bold text-[#fde047]">
+                        <span className="text-[8px] font-mono-num font-bold text-[#92400e]">
                           T{def.farmableTier ?? 1}
                         </span>
                       ) : <span />}
-                      {slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH && !hasDur && (
-                        <span className="text-[9px] font-mono-num font-bold text-white">
-                          {slot.qty}
+                      {!isProtectedTool && !hasDur && (
+                        <span className="text-[9px] font-mono-num font-bold text-[#091e3a]">
+                          {formatHudNumber(slot.qty)}
                         </span>
                       )}
                     </div>
                     <img
                       src={getItemIconUrl(slot.itemId)}
                       alt={def.name}
-                      className="w-6 h-6 pixelated my-0.5"
+                      className="w-9 h-9 sm:w-10 sm:h-10 pixelated"
                       referrerPolicy="no-referrer"
                     />
-                    <span className="text-[8px] font-bold text-[#e2f0d9] truncate w-full text-center px-0.5 leading-tight">
+                    <span className="text-[8px] font-bold text-[#091e3a] truncate w-full text-center px-0.5 leading-tight">
                       {def.name}
                     </span>
                     {hasDur && (
-                      <div className="absolute inset-x-1 bottom-1 h-1 bg-[#060d14] rounded-xs overflow-hidden">
+                      <div className="absolute inset-x-1 bottom-1 h-1 bg-[#d8ecfc] rounded-full overflow-hidden">
                         <div
                           className={`h-full ${
-                            durRatio > 0.4 ? 'bg-[#4ec46a]' : durRatio > 0.15 ? 'bg-[#f2b738]' : 'bg-[#e6482e]'
+                            durRatio > 0.4 ? 'bg-[#16a34a]' : durRatio > 0.15 ? 'bg-[#d97706]' : 'bg-[#dc2626]'
                           }`}
                           style={{ width: `${Math.round(durRatio * 100)}%` }}
                         />
                       </div>
                     )}
-                    {role === 'admin' && slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH && (
+                    {canTrash && (
                       <span
                         role="button"
                         tabIndex={-1}
                         data-testid={`backpack-delete-slot-${slot.itemId}`}
-                        title={`Admin: Delete ${def.name} slot`}
+                        title={
+                          role === 'admin'
+                            ? `Admin: Delete ${def.name} slot`
+                            : `Discard ${def.name} from bag`
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
-                          onAdminAction({
-                            action: 'delete_inventory_slot',
-                            itemId: slot.itemId,
-                            rodInstanceId: slot.rodInstanceId,
-                          });
+                          if (role === 'admin') {
+                            onAdminAction({
+                              action: 'delete_inventory_slot',
+                              itemId: slot.itemId,
+                              rodInstanceId: slot.rodInstanceId,
+                            });
+                          } else {
+                            onTrashInventoryItem?.({
+                              itemId: slot.itemId,
+                              rodInstanceId: slot.rodInstanceId,
+                            });
+                          }
                         }}
-                        className="absolute -top-1 -right-1 w-4 h-4 bg-[#7f1d1d] hover:bg-[#dc2626] border border-[#fca5a5] text-[9px] font-bold text-white flex items-center justify-center leading-none z-10"
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-[5px] bg-[#b91c1c] hover:bg-[#dc2626] border border-[#fecaca] text-white flex items-center justify-center leading-none z-10"
                       >
-                        ×
+                        <Trash2 className="w-2.5 h-2.5" />
                       </span>
                     )}
                   </button>
@@ -2151,13 +2212,13 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Friends & Social Drawer */}
       {activePanel === 'friends' && (
-        <div className="pointer-events-auto fixed right-2 top-[54px] sm:top-[60px] z-20 w-[min(21rem,calc(100vw-1rem))] max-h-[calc(100dvh-10.5rem)] min-[740px]:max-h-[calc(100dvh-8.25rem)] pixel-box p-3 flex flex-col gap-2.5 overflow-y-auto">
+        <div className="pointer-events-auto fixed right-2 top-[56px] sm:top-[64px] z-20 w-[min(21rem,calc(100vw-1rem))] max-h-[calc(100dvh-10.5rem)] min-[740px]:max-h-[calc(100dvh-8.25rem)] pixel-box p-3 flex flex-col gap-2.5 overflow-y-auto">
           <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
-            <h2 className="ui-pixel-heading text-xs text-[#89d6ff]">Friends &amp; Social</h2>
+            <h2 className="ui-pixel-heading text-xs text-[#091e3a]">Friends &amp; Social</h2>
             <button
               type="button"
               onClick={() => setActivePanel('none')}
-              className="text-[11px] font-pixel text-[#9cb5cc] hover:text-white cursor-pointer"
+              className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
             >
               [X]
             </button>
@@ -2177,7 +2238,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               value={friendInput}
               onChange={(e) => setFriendInput(e.target.value)}
               placeholder="Add friend by player name..."
-              className="flex-1 px-2.5 py-1.5 bg-[#05080e] border border-[#2d4863] text-xs text-white"
+              className="hud-input flex-1 px-2.5 py-1.5 text-xs"
             />
             <button
               type="submit"
@@ -2189,15 +2250,15 @@ export const GameHud: React.FC<GameHudProps> = ({
 
           {incomingRequests.length > 0 && (
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold text-[#ffe18c]">
+              <span className="text-[11px] font-bold text-[#92400e]">
                 Friend Requests ({incomingRequests.length})
               </span>
               {incomingRequests.map((req) => (
                 <div
                   key={req.fromId}
-                  className="flex items-center justify-between bg-[#142538] border border-[#3a597a] px-2.5 py-1.5 text-xs"
+                  className="hud-subpanel flex items-center justify-between px-2.5 py-1.5 text-xs"
                 >
-                  <span className="font-bold text-white">{req.fromName}</span>
+                  <span className="font-bold text-[#091e3a]">{req.fromName}</span>
                   <div className="flex gap-1.5">
                     <button
                       type="button"
@@ -2220,9 +2281,9 @@ export const GameHud: React.FC<GameHudProps> = ({
           )}
 
           <div className="flex flex-col gap-1 overflow-y-auto max-h-48">
-            <span className="text-[11px] font-bold text-[#9cb5cc]">Friends ({friends.length})</span>
+            <span className="text-[11px] font-bold text-[#23476d]">Friends ({friends.length})</span>
             {friends.length === 0 ? (
-              <p className="text-xs text-[#6d8ba8]">
+              <p className="text-xs text-[#23476d]">
                 No friends added yet. Meet players in worlds and send them a request!
               </p>
             ) : (
@@ -2232,8 +2293,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                   className="pixel-slot flex items-center justify-between px-2.5 py-1.5 text-xs"
                 >
                   <div>
-                    <div className="font-bold text-[#f7f4eb]">{f.name}</div>
-                    <div className="text-[10px] text-[#89d6ff]">
+                    <div className="font-bold text-[#091e3a]">{f.name}</div>
+                    <div className="text-[10px] text-[#0369a1]">
                       {f.online ? `Online · ${f.worldName ?? 'Lobby'}` : 'Offline'}
                     </div>
                   </div>
@@ -2253,7 +2314,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <button
                       type="button"
                       onClick={() => onFriendAction('remove', f.id)}
-                      className="px-1.5 py-1 bg-[#1b2c3d] text-[#9cb5cc] hover:text-[#ff9b9b] text-[11px] cursor-pointer"
+                      className="px-1.5 py-1 rounded-[7px] bg-[#d8ecfc]/80 border border-[#4172a3] text-[#23476d] hover:text-[#b91c1c] text-[11px] font-bold cursor-pointer"
                     >
                       ×
                     </button>
@@ -2265,155 +2326,317 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Profile, Wardrobe & Achievements Drawer (anchored below Top-Left Panel View) */}
-      {activePanel === 'profile' && (
-        <div className="pointer-events-auto fixed left-2 top-[54px] sm:top-[60px] z-20 w-[min(22rem,calc(100vw-1rem))] max-h-[calc(100dvh-10.5rem)] min-[740px]:max-h-[calc(100dvh-8.25rem)] pixel-box p-3 flex flex-col gap-2.5">
-          <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
-            <div>
-              <h2 className="ui-pixel-heading text-xs text-[#ffe18c]">
-                {playerName} · LVL {level}
-              </h2>
-              <p className="text-[11px] font-mono-num text-[#89d6ff]">
-                XP: {xp} / {nextXp} · Achievements: {claimedAchievements.length}/{ACHIEVEMENTS.length}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActivePanel('none')}
-              className="text-[11px] font-pixel text-[#9cb5cc] hover:text-white cursor-pointer"
-            >
-              [X]
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() => setProfileTab('achievements')}
-              className={`py-1 border-2 text-xs font-bold cursor-pointer ${
-                profileTab === 'achievements'
-                  ? 'bg-[#254463] border-[#facc15] text-[#fef08a]'
-                  : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc]'
-              }`}
-            >
-              Achievements
-            </button>
-            <button
-              type="button"
-              onClick={() => setProfileTab('wardrobe')}
-              className={`py-1 border-2 text-xs font-bold cursor-pointer ${
-                profileTab === 'wardrobe'
-                  ? 'bg-[#254463] border-[#facc15] text-[#fef08a]'
-                  : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc]'
-              }`}
-            >
-              Wardrobe ({wearablesInBag.length})
-            </button>
-          </div>
-
-          {profileTab === 'achievements' ? (
-            <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
-              {ACHIEVEMENTS.map((ach) => {
-                const progress = Math.min(ach.target, stats[ach.statKey] ?? 0);
-                const claimed = claimedAchievements.includes(ach.id);
-                const ready = progress >= ach.target && !claimed;
-                return (
-                  <div
-                    key={ach.id}
-                    className="pixel-slot flex items-center justify-between gap-2 p-2"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-[#f7f4eb]">{ach.name}</span>
-                        <span className="text-[10px] text-[#89d6ff]">({ach.category})</span>
-                      </div>
-                      <div className="text-[10px] text-[#9cb5cc]">{ach.description}</div>
-                      <div className="text-[10px] font-mono-num text-[#ffe18c] mt-0.5">
-                        Progress: {progress}/{ach.target} · Reward: +{ach.gemReward} Gems, +{ach.xpReward} XP
-                      </div>
-                    </div>
-                    {claimed ? (
-                      <span className="px-2 py-1 bg-[#182c42] text-[10px] font-bold text-[#82e068]">
-                        Claimed
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={!ready}
-                        onClick={() => onClaimAchievement(ach.id)}
-                        className="pixel-btn pixel-btn-emerald disabled:opacity-40 !py-1.5 !px-2.5 !text-[10px]"
-                      >
-                        Claim
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2 overflow-y-auto pr-1">
-              {wearablesInBag.length === 0 ? (
-                <p className="text-xs text-[#9cb5cc]">
-                  No cosmetic wearables owned yet. Visit the Gem Store to unlock Crowns, Hats, Visors, and Wings!
+      {/* Profile, My Wallet, Masteries, Achievements & Wardrobe Drawer */}
+      {activePanel === 'profile' && (() => {
+        const nextCropXp = masteryXpForNextLevel(cropMasteryLevel);
+        const cropPct = Math.min(100, Math.round((cropMasteryXp / Math.max(1, nextCropXp)) * 100));
+        const nextFarmXp = masteryXpForNextLevel(farmablockMasteryLevel);
+        const farmPct = Math.min(100, Math.round((farmablockMasteryXp / Math.max(1, nextFarmXp)) * 100));
+        return (
+          <div className="pointer-events-auto fixed left-2 top-[98px] sm:top-[106px] z-20 w-[min(22rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] pixel-box p-3 flex flex-col gap-2.5">
+            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
+              <div>
+                <h2 className="ui-pixel-heading text-xs text-[#091e3a] flex items-center gap-1.5">
+                  <RoleBadgeIcon
+                    kind={role === 'admin' ? 'admin' : worldOwner === playerId ? 'owner' : 'guest'}
+                  />
+                  <span>{playerName}</span>
+                  <span>· Lv.{formatHudNumber(level)}</span>
+                </h2>
+                <p className="text-[11px] font-mono-num text-[#23476d]">
+                  XP {formatHudNumber(xp)}/{formatHudNumber(nextXp)} · {claimedAchievements.length}/{ACHIEVEMENTS.length} Ach
                 </p>
-              ) : (
-                wearablesInBag.map((slot, idx) => {
-                  const def = getItemDef(slot.itemId);
-                  if (!def) return null;
-                  const isEq =
-                    equipped.head === slot.itemId ||
-                    equipped.face === slot.itemId ||
-                    equipped.back === slot.itemId;
+              </div>
+              <button
+                type="button"
+                onClick={() => setActivePanel('none')}
+                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
+              >
+                [X]
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                type="button"
+                data-testid="profile-tab-wallet"
+                onClick={() => setProfileTab('wallet')}
+                className={`py-1 rounded-[8px] border-2 text-[11px] font-bold cursor-pointer flex items-center justify-center gap-1 ${
+                  profileTab === 'wallet'
+                    ? 'bg-white/90 border-[#0284c7] text-[#091e3a]'
+                    : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d]'
+                }`}
+              >
+                <Wallet className="w-3 h-3" />
+                <span>My Wallet</span>
+              </button>
+              <button
+                type="button"
+                data-testid="profile-tab-achievements"
+                onClick={() => setProfileTab('achievements')}
+                className={`py-1 rounded-[8px] border-2 text-[11px] font-bold cursor-pointer ${
+                  profileTab === 'achievements'
+                    ? 'bg-white/90 border-[#0284c7] text-[#091e3a]'
+                    : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d]'
+                }`}
+              >
+                Achievements
+              </button>
+              <button
+                type="button"
+                data-testid="profile-tab-wardrobe"
+                onClick={() => setProfileTab('wardrobe')}
+                className={`py-1 rounded-[8px] border-2 text-[11px] font-bold cursor-pointer ${
+                  profileTab === 'wardrobe'
+                    ? 'bg-white/90 border-[#0284c7] text-[#091e3a]'
+                    : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d]'
+                }`}
+              >
+                Gear ({wearablesInBag.length})
+              </button>
+            </div>
+
+            {profileTab === 'wallet' && (
+              <div data-testid="profile-wallet-panel" className="flex flex-col gap-2 overflow-y-auto pr-0.5">
+                {/* Currency Balances */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="pixel-slot p-2 flex flex-col gap-0.5">
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold text-[#991b1b]">
+                      <RedGemIcon className="w-3 h-3 shrink-0" />
+                      <span>Gems</span>
+                    </span>
+                    <span className="text-sm font-mono-num font-bold text-[#091e3a]">
+                      {formatHudNumber(gems)}
+                    </span>
+                  </div>
+                  <div className="pixel-slot p-2 flex flex-col gap-0.5">
+                    <span className="text-[10px] uppercase font-bold text-[#047857]">Digibits (DB)</span>
+                    <span className="text-sm font-mono-num font-bold text-[#92400e]">
+                      {formatHudNumber(alterbits)} DB
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sub-Category Mastery Tracks */}
+                <div className="hud-subpanel p-2 flex flex-col gap-2">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-[#047857]">Crop Mastery</span>
+                      <span className="font-mono-num font-bold text-[#091e3a]">
+                        LVL {formatHudNumber(cropMasteryLevel)} · {formatHudNumber(cropMasteryXp)}/{formatHudNumber(nextCropXp)} XP
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-[6px] bg-white/80 border border-[#4172a3] overflow-hidden">
+                      <div className="h-full rounded-[4px] bg-[#16a34a]" style={{ width: `${cropPct}%` }} />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-[#0369a1]">Farmablock Mastery</span>
+                      <span className="font-mono-num font-bold text-[#091e3a]">
+                        LVL {formatHudNumber(farmablockMasteryLevel)} · {formatHudNumber(farmablockMasteryXp)}/{formatHudNumber(nextFarmXp)} XP
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-[6px] bg-white/80 border border-[#4172a3] overflow-hidden">
+                      <div className="h-full rounded-[4px] bg-[#0284c7]" style={{ width: `${farmPct}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {profileTab === 'achievements' && (
+              <div className="flex flex-col gap-1 overflow-y-auto pr-1">
+                {ACHIEVEMENTS.map((ach) => {
+                  const progress = Math.min(ach.target, stats[ach.statKey] ?? 0);
+                  const claimed = claimedAchievements.includes(ach.id);
+                  const ready = progress >= ach.target && !claimed;
                   return (
                     <div
-                      key={slot.rodInstanceId ?? `${slot.itemId}-${idx}`}
-                      className="pixel-slot flex items-center justify-between p-2"
+                      key={ach.id}
+                      className="pixel-slot flex items-center justify-between gap-2 px-2 py-1.5"
                     >
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={getItemIconUrl(slot.itemId)}
-                          alt={def.name}
-                          className="w-7 h-7 pixelated"
-                          referrerPolicy="no-referrer"
-                        />
-                        <div>
-                          <div className="text-xs font-bold text-[#f7f4eb]">{def.name}</div>
-                          <div className="text-[10px] text-[#89d6ff] uppercase">
-                            Slot: {def.wearableSlot ?? 'head'}
-                          </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] font-bold text-[#091e3a] truncate">{ach.name}</div>
+                        <div className="text-[10px] font-mono-num text-[#92400e]">
+                          {formatHudNumber(progress)}/{formatHudNumber(ach.target)} · +{formatHudNumber(ach.gemReward)}G · +{formatHudNumber(ach.xpReward)}XP
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onEquipWearable(slot.itemId)}
-                        className={`pixel-btn !py-1 !px-2.5 !text-[10px] ${
-                          isEq ? 'pixel-btn-gold' : 'pixel-btn-primary'
-                        }`}
-                      >
-                        {isEq ? 'Unequip' : 'Equip'}
-                      </button>
+                      {claimed ? (
+                        <span className="px-2 py-0.5 rounded-[6px] bg-[#dcfce7]/90 border border-[#16a34a] text-[10px] font-bold text-[#14532d] shrink-0">
+                          Claimed
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!ready}
+                          onClick={() => onClaimAchievement(ach.id)}
+                          className="pixel-btn pixel-btn-emerald disabled:opacity-40 !py-1 !px-2 !text-[10px] shrink-0"
+                        >
+                          Claim
+                        </button>
+                      )}
                     </div>
                   );
-                })
-              )}
+                })}
+              </div>
+            )}
+
+            {profileTab === 'wardrobe' && (
+              <div className="flex flex-col gap-2 overflow-y-auto pr-1">
+                {wearablesInBag.length === 0 ? (
+                  <p className="text-xs text-[#23476d]">
+                    No wearables owned yet.
+                  </p>
+                ) : (
+                  wearablesInBag.map((slot, idx) => {
+                    const def = getItemDef(slot.itemId);
+                    if (!def) return null;
+                    const isEq =
+                      equipped.head === slot.itemId ||
+                      equipped.face === slot.itemId ||
+                      equipped.back === slot.itemId;
+                    return (
+                      <div
+                        key={slot.rodInstanceId ?? `${slot.itemId}-${idx}`}
+                        className="pixel-slot flex items-center justify-between p-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <img
+                            src={getItemIconUrl(slot.itemId)}
+                            alt={def.name}
+                            className="w-7 h-7 pixelated"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div>
+                            <div className="text-xs font-bold text-[#091e3a]">{def.name}</div>
+                            <div className="text-[10px] text-[#0369a1] uppercase">
+                              {def.wearableSlot ?? 'head'}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onEquipWearable(slot.itemId)}
+                          className={`pixel-btn !py-1 !px-2.5 !text-[10px] ${
+                            isEq ? 'pixel-btn-gold' : 'pixel-btn-primary'
+                          }`}
+                        >
+                          {isEq ? 'Unequip' : 'Equip'}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Public Player Profile Modal (opened via Wrench click on nearby player) */}
+      {publicProfile && (
+        <div
+          data-testid="public-profile-modal"
+          className="pointer-events-auto fixed inset-0 z-30 bg-[#091e3a]/45 backdrop-blur-[2px] flex items-center justify-center p-3"
+        >
+          <div className="w-full max-w-xs pixel-box p-3 flex flex-col gap-2.5">
+            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <RoleBadgeIcon kind={publicProfile.role === 'admin' ? 'admin' : 'guest'} />
+                <h2 className="font-pixel text-xs text-[#091e3a] truncate">
+                  {publicProfile.playerName}
+                </h2>
+                <span className="px-1.5 py-0.5 rounded-[6px] bg-white/80 border border-[#4172a3] text-[9px] font-bold text-[#091e3a] shrink-0">
+                  {publicProfile.role === 'admin' ? 'ADMIN' : 'EXPLORER'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onDismissPublicProfile}
+                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
+              >
+                [X]
+              </button>
             </div>
-          )}
+
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+              <div className="pixel-slot p-2">
+                <div className="text-[9px] text-[#0369a1] uppercase font-bold">Player Level</div>
+                <div className="font-mono-num font-bold text-[#091e3a]">
+                  LVL {formatHudNumber(publicProfile.level)}
+                </div>
+              </div>
+              <div className="pixel-slot p-2">
+                <div className="text-[9px] text-[#0369a1] uppercase font-bold">Achievements</div>
+                <div className="font-mono-num font-bold text-[#92400e]">
+                  {publicProfile.claimedAchievementsCount}/{publicProfile.totalAchievementsCount}
+                </div>
+              </div>
+              <div className="pixel-slot p-2">
+                <div className="text-[9px] text-[#047857] uppercase font-bold">Crop Mastery</div>
+                <div className="font-mono-num font-bold text-[#047857]">
+                  LVL {formatHudNumber(publicProfile.cropMasteryLevel)}
+                </div>
+              </div>
+              <div className="pixel-slot p-2">
+                <div className="text-[9px] text-[#0369a1] uppercase font-bold">Farmablock Mastery</div>
+                <div className="font-mono-num font-bold text-[#0369a1]">
+                  LVL {formatHudNumber(publicProfile.farmablockMasteryLevel)}
+                </div>
+              </div>
+            </div>
+
+            {publicProfile.ownedWorldName && (
+              <div className="pixel-slot p-2 flex items-center justify-between gap-2 text-xs">
+                <div className="min-w-0">
+                  <div className="text-[9px] text-[#23476d] uppercase">Personal World</div>
+                  <div className="font-bold text-[#92400e] truncate">
+                    {publicProfile.ownedWorldName}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onJoinWorld(publicProfile.ownedWorldName!);
+                    onDismissPublicProfile?.();
+                  }}
+                  className="pixel-btn pixel-btn-primary !py-1 !px-2.5 !text-[10px] shrink-0"
+                >
+                  Visit
+                </button>
+              </div>
+            )}
+
+            {publicProfile.playerId !== playerId &&
+              !friends.some((f) => f.id === publicProfile.playerId) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFriendAction('send_request', publicProfile.playerName);
+                  }}
+                  className="pixel-btn pixel-btn-emerald w-full !py-1.5 !text-[10px]"
+                >
+                  Add Friend
+                </button>
+              )}
+          </div>
         </div>
       )}
 
       {/* World Navigator Drawer */}
       {activePanel === 'worlds' && (
-        <div className="pointer-events-auto fixed left-2 top-[54px] sm:top-[60px] z-20 w-[min(21rem,calc(100vw-1rem))] max-h-[calc(100dvh-10.5rem)] min-[740px]:max-h-[calc(100dvh-8.25rem)] overflow-y-auto pixel-box p-3 flex flex-col gap-2.5">
+        <div className="pointer-events-auto fixed left-2 top-[98px] sm:top-[106px] z-20 w-[min(21rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] overflow-y-auto pixel-box p-3 flex flex-col gap-2.5">
           <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h2 className="ui-pixel-heading text-xs text-[#ffe18c]">World Navigator</h2>
+              <h2 className="ui-pixel-heading text-xs text-[#091e3a]">World Navigator</h2>
               <button
                 type="button"
                 title={isCurrentWorldFav ? 'Unfavorite current world' : 'Favorite current world'}
                 onClick={() => onToggleFavoriteWorld(worldName)}
-                className={`p-1 border cursor-pointer ${
+                className={`p-1 rounded-[7px] border cursor-pointer ${
                   isCurrentWorldFav
-                    ? 'bg-[#362b12] border-[#f2b738] text-[#ffe18c]'
-                    : 'bg-[#090e17] border-[#263c52] text-[#8aa4bd]'
+                    ? 'bg-[#fef3c7]/90 border-[#b45309] text-[#b45309]'
+                    : 'bg-[#e3f1fd]/75 border-[#4172a3] text-[#23476d]'
                 }`}
               >
                 <Star className="w-3.5 h-3.5" />
@@ -2422,7 +2645,7 @@ export const GameHud: React.FC<GameHudProps> = ({
             <button
               type="button"
               onClick={() => setActivePanel('none')}
-              className="text-[11px] font-pixel text-[#9cb5cc] hover:text-white cursor-pointer"
+              className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
             >
               [X]
             </button>
@@ -2444,7 +2667,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               maxLength={20}
               onChange={(e) => setWorldInput(e.target.value.toUpperCase())}
               placeholder="Enter or create world..."
-              className="flex-1 px-2.5 py-1.5 bg-[#05080e] border border-[#2d4863] text-xs font-bold uppercase text-white focus:outline-none focus:border-[#f2b738]"
+              className="hud-input flex-1 px-2.5 py-1.5 text-xs font-bold uppercase"
             />
             <button
               type="submit"
@@ -2460,10 +2683,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                 key={t}
                 type="button"
                 onClick={() => setWorldTab(t)}
-                className={`py-1 border-2 text-[11px] font-bold uppercase cursor-pointer ${
+                className={`py-1 rounded-[8px] border-2 text-[11px] font-bold uppercase cursor-pointer ${
                   worldTab === t
-                    ? 'bg-[#214463] border-[#78c8f5] text-white'
-                    : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc]'
+                    ? 'bg-white/90 border-[#0284c7] text-[#091e3a]'
+                    : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d]'
                 }`}
               >
                 {t}
@@ -2483,10 +2706,10 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   className="pixel-slot flex items-center justify-between px-2.5 py-1.5 text-xs cursor-pointer"
                 >
-                  <span className="font-bold text-[#f7f4eb]">
+                  <span className="font-bold text-[#091e3a]">
                     {w.name} {w.publicAccess === false ? '🔒' : ''}
                   </span>
-                  <span className="font-mono-num text-[#89d6ff]">
+                  <span className="font-mono-num text-[#0369a1] font-bold">
                     {w.ownerName ? `${w.ownerName} · ` : ''}
                     {w.playerCount}/{w.ownerId ? 10 : 20}
                   </span>
@@ -2494,7 +2717,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               ))}
             {worldTab === 'favorites' &&
               (favoriteWorlds.length === 0 ? (
-                <span className="text-xs text-[#6d8ba8] py-2">No favorite worlds saved yet.</span>
+                <span className="text-xs text-[#23476d] py-2">No favorite worlds saved yet.</span>
               ) : (
                 favoriteWorlds.map((name) => (
                   <button
@@ -2506,8 +2729,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                     }}
                     className="pixel-slot flex items-center justify-between px-2.5 py-1.5 text-xs cursor-pointer"
                   >
-                    <span className="font-bold text-[#ffe18c]">★ {name}</span>
-                    <span className="text-[11px] text-[#89d6ff]">Visit</span>
+                    <span className="font-bold text-[#92400e]">★ {name}</span>
+                    <span className="text-[11px] text-[#0369a1] font-bold">Visit</span>
                   </button>
                 ))
               ))}
@@ -2522,8 +2745,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   className="pixel-slot flex items-center justify-between px-2.5 py-1.5 text-xs cursor-pointer"
                 >
-                  <span className="font-bold text-[#f7f4eb]">{name}</span>
-                  <span className="text-[11px] text-[#89d6ff]">Revisit</span>
+                  <span className="font-bold text-[#091e3a]">{name}</span>
+                  <span className="text-[11px] text-[#0369a1] font-bold">Revisit</span>
                 </button>
               ))}
           </div>
@@ -2532,20 +2755,20 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* World Chat Drawer (anchored below Top-Left World Chat button) */}
       {activePanel === 'chat' && (
-        <div className="pointer-events-auto fixed left-2 top-[90px] sm:top-[98px] z-20 w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] pixel-box p-2.5 flex flex-col gap-2">
+        <div className="pointer-events-auto fixed left-2 top-[98px] sm:top-[106px] z-20 w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] pixel-box p-2.5 flex flex-col gap-2">
           <div className="pixel-box-header -mx-2.5 -mt-2.5 px-2.5 py-1.5 flex items-center justify-between">
-            <span className="ui-pixel-heading text-[10px] text-[#89d6ff]">World Chat · {worldName}</span>
+            <span className="ui-pixel-heading text-[10px] text-[#091e3a]">World Chat · {worldName}</span>
             <button
               type="button"
               onClick={() => setActivePanel('none')}
-              className="text-[10px] font-pixel text-[#9cb5cc] hover:text-white cursor-pointer"
+              className="text-[10px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
             >
               [X]
             </button>
           </div>
           <div className="h-32 overflow-y-auto flex flex-col gap-1 text-xs pr-1">
             {chatMessages.map((m) => (
-              <div key={m.id} className={m.system ? 'text-[#ffe18c]' : 'text-[#eaf2fa]'}>
+              <div key={m.id} className={m.system ? 'text-[#92400e] font-semibold' : 'text-[#091e3a]'}>
                 <span className="font-bold">{m.senderName}: </span>
                 <span>{m.text}</span>
               </div>
@@ -2567,7 +2790,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               maxLength={140}
               onChange={(e) => setChatInput(e.target.value)}
               placeholder="Say something..."
-              className="flex-1 px-2 py-1 bg-[#05080e] border border-[#2d4863] text-xs text-white focus:outline-none focus:border-[#78c8f5]"
+              className="hud-input flex-1 px-2 py-1 text-xs"
             />
             <button
               type="submit"
@@ -2616,278 +2839,168 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Menu View (houses navigation, controls, and Seediary seed recipe tutorials) */}
+      {/* Game Menu Modal (houses Panel View, Admin/SysEdit, Friends, Realms, Settings) */}
       {mode === 'paused' && (
         <div
           data-testid="game-menu-view"
-          className="pointer-events-auto fixed inset-0 z-30 bg-[#070f18]/80 flex items-center justify-center p-2.5 sm:p-4"
+          className="pointer-events-auto fixed inset-0 z-30 bg-[#091e3a]/45 backdrop-blur-[2px] flex items-center justify-center p-2.5 sm:p-4"
         >
-          {menuTab === 'menu' ? (
-            <div className="w-full max-w-md max-h-[calc(100dvh-1.5rem)] overflow-y-auto pixel-wood-box p-3.5 sm:p-4 flex flex-col gap-3">
-              <div className="pixel-wood-header -mx-3.5 sm:-mx-4 -mt-3.5 sm:-mt-4 px-3.5 sm:px-4 py-2.5 flex items-center justify-between">
-                <h2 className="ui-pixel-heading text-sm text-[#fef3c7]">Game Menu</h2>
-                <span className="text-xs font-mono-num text-[#8cf7ee]">
-                  {worldName} · LVL {level} · {Math.round(gems)} G
-                </span>
-              </div>
+          <div className="w-full max-w-md max-h-[calc(100dvh-1.5rem)] overflow-y-auto pixel-wood-box p-3.5 sm:p-4 flex flex-col gap-3">
+            <div className="pixel-wood-header -mx-3.5 sm:-mx-4 -mt-3.5 sm:-mt-4 px-3.5 sm:px-4 py-2.5 flex items-center justify-between">
+              <h2 className="ui-pixel-heading text-sm text-[#091e3a]">Game Menu</h2>
+              <span className="inline-flex items-center gap-1 text-xs font-mono-num font-bold text-[#091e3a]">
+                <span>LVL {formatHudNumber(level)} ·</span>
+                <RedGemIcon className="w-3.5 h-3.5 shrink-0" />
+                <span>{formatHudNumber(gems)}</span>
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onResume}
+              className="pixel-btn pixel-btn-emerald w-full !py-2 !text-xs"
+            >
+              Resume World
+            </button>
+
+            {/* Quick Access Grid */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                data-testid="menu-profile-button"
+                onClick={() => {
+                  onResume();
+                  setActivePanel('profile');
+                }}
+                className="pixel-btn pixel-btn-wood flex items-center justify-center gap-1.5 !px-2.5 !py-2 !text-[11px]"
+              >
+                <Wallet className="w-4 h-4 text-[#091e3a] shrink-0" />
+                <span>Profile &amp; Wallet</span>
+              </button>
 
               <button
                 type="button"
-                onClick={onResume}
-                className="pixel-btn pixel-btn-emerald w-full !py-2 !text-xs"
+                onClick={() => {
+                  onResume();
+                  setActivePanel('friends');
+                }}
+                className="pixel-btn pixel-btn-wood relative flex items-center justify-center gap-1.5 !px-2.5 !py-2 !text-[11px]"
               >
-                Resume World
+                <Users className="w-4 h-4 text-[#0369a1] shrink-0" />
+                <span>Friends</span>
+                {incomingRequests.length > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-[5px] bg-[#dc2626] border border-white text-[10px] font-mono-num text-white">
+                    {incomingRequests.length}
+                  </span>
+                )}
               </button>
+            </div>
 
-              {/* Navigation Grid (Friends, Seediary & Admin) */}
-              <div className={`grid ${role === 'admin' ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
+            {/* Admin Controls (moved inside Menu) */}
+            {role === 'admin' && (
+              <div className="grid grid-cols-2 gap-2 border-t-2 border-[#4172a3]/35 pt-2.5">
                 <button
                   type="button"
+                  data-testid="menu-admin-panel-button"
+                  aria-label="Admin Dev Panel"
                   onClick={() => {
                     onResume();
-                    setActivePanel('friends');
+                    setActivePanel('admin');
                   }}
-                  className="pixel-btn relative flex items-center justify-center gap-1.5 !px-2.5 !py-2 !text-[11px]"
+                  className="pixel-btn pixel-btn-gold flex items-center justify-center gap-1.5 !px-2.5 !py-2 !text-[11px]"
                 >
-                  <Users className="w-4 h-4 text-[#89d6ff] shrink-0" />
-                  <span>Friends</span>
-                  {incomingRequests.length > 0 && (
-                    <span className="ml-0.5 px-1.5 py-0.2 bg-[#e6482e] border border-white text-[10px] font-mono-num text-white">
-                      {incomingRequests.length}
-                    </span>
-                  )}
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span>Admin Panel</span>
                 </button>
-
                 <button
                   type="button"
-                  data-testid="menu-seediary-button"
-                  onClick={() => setMenuTab('seediary')}
-                  className="pixel-btn pixel-btn-emerald flex items-center justify-center gap-1.5 !px-2.5 !py-2 !text-[11px]"
-                >
-                  <BookOpen className="w-4 h-4 shrink-0" />
-                  <span>Seediary</span>
-                </button>
-
-                {role === 'admin' && (
-                  <button
-                    type="button"
-                    aria-label="Admin Dev Panel"
-                    onClick={() => {
-                      onResume();
-                      setActivePanel('admin');
-                    }}
-                    className="pixel-btn pixel-btn-gold flex items-center justify-center gap-1.5 !px-2.5 !py-2 !text-[11px]"
-                  >
-                    <Shield className="w-4 h-4 shrink-0" />
-                    <span>Admin</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Settings Toggles */}
-              <div className="grid grid-cols-2 gap-2 border-t-2 border-[#3e2212] pt-2.5">
-                <button
-                  type="button"
-                  onClick={onToggleTouch}
-                  className={`flex items-center justify-center gap-2 py-2 px-2.5 border-2 text-xs font-bold cursor-pointer ${
-                    touchEnabled
-                      ? 'bg-[#153447] border-[#38e8d8] text-[#8cf7ee]'
-                      : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc]'
+                  data-testid="menu-sysedit-button"
+                  onClick={() => {
+                    onToggleAdminWorldEdit?.(!adminWorldEdit);
+                    onResume();
+                  }}
+                  className={`pixel-btn flex items-center justify-center gap-1.5 !px-2.5 !py-2 !text-[11px] ${
+                    adminWorldEdit ? 'pixel-btn-emerald' : 'pixel-btn-wood'
                   }`}
                 >
-                  <Smartphone className="w-4 h-4" />
-                  <span>Touch Pad: {touchEnabled ? 'ON' : 'OFF'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={onToggleMute}
-                  className={`flex items-center justify-center gap-2 py-2 px-2.5 border-2 text-xs font-bold cursor-pointer ${
-                    muted
-                      ? 'bg-[#3b151a] border-[#dc2626] text-[#fca5a5]'
-                      : 'bg-[#153447] border-[#38e8d8] text-[#8cf7ee]'
-                  }`}
-                >
-                  {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                  <span>Audio: {muted ? 'MUTED' : 'ON'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void toggleFullscreen()}
-                  className={`col-span-2 flex items-center justify-center gap-2 py-2 px-2.5 border-2 text-xs font-bold cursor-pointer ${
-                    isFullscreen
-                      ? 'bg-[#153447] border-[#38e8d8] text-[#8cf7ee]'
-                      : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc]'
-                  }`}
-                  aria-label="Toggle fullscreen"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                  <span>Fullscreen: {isFullscreen ? 'ON' : 'OFF'}</span>
+                  <Paintbrush className="w-4 h-4 shrink-0" />
+                  <span>SysEdit: {adminWorldEdit ? 'ON' : 'OFF'}</span>
                 </button>
               </div>
+            )}
 
-              {/* Hub & Sign Out */}
-              <div className="grid grid-cols-2 gap-2 border-t-2 border-[#3e2212] pt-2.5">
-                <button
-                  type="button"
-                  onClick={onReturnToHub}
-                  className="pixel-btn !py-2 !text-[10px]"
-                >
-                  Return to World Hub
-                </button>
-                <button
-                  type="button"
-                  onClick={onLeaveWorld}
-                  className="pixel-btn pixel-btn-danger !py-2 !text-[10px]"
-                >
-                  Sign Out
-                </button>
-              </div>
+            {/* Settings & Panel View Toggles */}
+            <div className="grid grid-cols-2 gap-2 border-t-2 border-[#4172a3]/35 pt-2.5">
+              <button
+                type="button"
+                data-testid="menu-panel-view-button"
+                onClick={() => setShowPanelView((v) => !v)}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-[8px] border-2 text-xs font-bold cursor-pointer ${
+                  showPanelView
+                    ? 'bg-white/85 border-[#0284c7] text-[#091e3a]'
+                    : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d]'
+                }`}
+              >
+                <Eye className="w-4 h-4" />
+                <span>Panel View: {showPanelView ? 'ON' : 'OFF'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onToggleTouch}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-[8px] border-2 text-xs font-bold cursor-pointer ${
+                  touchEnabled
+                    ? 'bg-white/85 border-[#0284c7] text-[#091e3a]'
+                    : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d]'
+                }`}
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>Touch Pad: {touchEnabled ? 'ON' : 'OFF'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={onToggleMute}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-[8px] border-2 text-xs font-bold cursor-pointer ${
+                  muted
+                    ? 'bg-[#fee2e2]/90 border-[#dc2626] text-[#991b1b]'
+                    : 'bg-white/85 border-[#0284c7] text-[#091e3a]'
+                }`}
+              >
+                {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                <span>Audio: {muted ? 'MUTED' : 'ON'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void toggleFullscreen()}
+                className={`flex items-center justify-center gap-2 py-2 px-2.5 rounded-[8px] border-2 text-xs font-bold cursor-pointer ${
+                  isFullscreen
+                    ? 'bg-white/85 border-[#0284c7] text-[#091e3a]'
+                    : 'bg-[#d8ecfc]/70 border-[#4172a3] text-[#23476d]'
+                }`}
+                aria-label="Toggle fullscreen"
+              >
+                <Maximize2 className="w-4 h-4" />
+                <span>Fullscreen: {isFullscreen ? 'ON' : 'OFF'}</span>
+              </button>
             </div>
-          ) : (
-            /* SEEDIARY: 40 FARMABLE CROPS ALMANAC VIEW */
-            <div
-              data-testid="menu-seediary-view"
-              className="w-full max-w-lg h-[min(88dvh,640px)] pixel-box p-3.5 sm:p-4 flex flex-col gap-2.5 overflow-hidden"
-            >
-              <div className="pixel-box-header -mx-3.5 sm:-mx-4 -mt-3.5 sm:-mt-4 px-3.5 sm:px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMenuTab('menu')}
-                    className="pixel-btn flex items-center gap-1 !px-2 !py-1 !text-[10px]"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                    <span>Menu</span>
-                  </button>
-                  <div className="flex items-center gap-1.5">
-                    <Sprout className="w-4 h-4 text-[#34d399]" />
-                    <h2 className="ui-pixel-heading text-xs sm:text-sm text-[#a8f794]">Seediary Almanac</h2>
-                  </div>
-                </div>
-                <span className="text-[11px] font-mono-num font-bold text-[#8cf7ee]">
-                  {filteredFarmables.length}/40 Crops
-                </span>
-              </div>
 
-              {/* Crop Planting & Matteragen Guide */}
-              <div className="pixel-slot p-2.5 shrink-0 flex flex-col gap-1.5">
-                <div className="text-[11px] font-bold text-[#fde047]">
-                  Crop Planting &amp; Matteragen Guide
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-[10px] text-[#cfe4d8]">
-                  <div className="bg-[#05080f] border border-[#1c2b3d] px-2 py-1.5">
-                    <span className="font-bold text-[#34d399]">1. Place Seed Pot:</span> Buy Seed Pots (500G) in the Gem Store and place them on solid ground.
-                  </div>
-                  <div className="bg-[#05080f] border border-[#1c2b3d] px-2 py-1.5">
-                    <span className="font-bold text-[#38bdf8]">2. Plant Seed:</span> Plant any Farmable Seed into an empty Seed Pot (1 seed per Pot at a time).
-                  </div>
-                  <div className="bg-[#05080f] border border-[#1c2b3d] px-2 py-1.5">
-                    <span className="font-bold text-[#fde047]">3. Harvest &amp; Engines:</span> Punch mature trees or ready Matteragen Engines (max 20/world) for Crops, Gems &amp; XP!
-                  </div>
-                </div>
-              </div>
-
-              {/* Search & Farmable Branch Filters */}
-              <div className="flex flex-col gap-1.5 shrink-0">
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-[#7897b5] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    aria-label="Search Seediary Crops"
-                    value={seediaryQuery}
-                    onChange={(e) => setSeediaryQuery(e.target.value)}
-                    placeholder="Search crop, seed, tier (T1-T8) or branch..."
-                    className="w-full pl-8 pr-3 py-1.5 bg-[#05080f] border-2 border-[#1c2b3d] text-xs text-white focus:outline-none focus:border-[#34d399]"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {(['all', 'botanical', 'geomineral', 'luminescent', 'arcane', 'cosmic'] as const).map((branch) => (
-                    <button
-                      key={branch}
-                      type="button"
-                      onClick={() => setSeediaryBranch(branch)}
-                      className={`px-2 py-0.5 text-[10px] font-bold uppercase cursor-pointer border-2 ${
-                        seediaryBranch === branch
-                          ? 'bg-[#064e3b] border-[#10b981] text-[#a7f3d0]'
-                          : 'bg-[#090e17] border-[#1c2b3d] text-[#9cb5cc] hover:text-white'
-                      }`}
-                    >
-                      {branch}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Scrollable Farmable Crop Cards */}
-              <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-1.5 min-h-0">
-                {filteredFarmables.length === 0 ? (
-                  <p className="text-xs text-[#6d8ba8] py-4 text-center">
-                    No farmable crops match your filter.
-                  </p>
-                ) : (
-                  filteredFarmables.map((spec) => {
-                    const seedDef = getItemDef(spec.seedId);
-                    const growText =
-                      spec.growthTimeSec >= 60
-                        ? `${Math.floor(spec.growthTimeSec / 60)}m${spec.growthTimeSec % 60 ? ` ${spec.growthTimeSec % 60}s` : ''}`
-                        : `${spec.growthTimeSec}s`;
-                    return (
-                      <div
-                        key={spec.id}
-                        className="pixel-slot p-2 flex flex-col gap-1.5"
-                      >
-                        <div className="flex items-center justify-between gap-2 text-[10px]">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="px-1 py-0.5 bg-[#05080f] border border-[#facc15] font-mono-num font-bold text-[#fde047] shrink-0">
-                              T{spec.tier}
-                            </span>
-                            <span className="font-bold text-[#a7f3d0] truncate">
-                              {spec.name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0 font-mono-num text-[#9cb5cc]">
-                            <span>{growText}</span>
-                            <span className="px-1.5 py-0.5 bg-[#05080f] border border-[#1c2b3d] text-[9px] uppercase text-[#38bdf8]">
-                              {spec.branch}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 text-[10px]">
-                          <div className="flex items-center gap-1.5 bg-[#05080f] border border-[#1c2b3d] px-1.5 py-1 shrink-0">
-                            <img
-                              src={getItemIconUrl(spec.seedId)}
-                              alt={seedDef?.name ?? spec.name}
-                              className="w-5 h-5 pixelated shrink-0"
-                              referrerPolicy="no-referrer"
-                            />
-                            <span className="text-[#82e068] font-bold">→</span>
-                            <img
-                              src={getItemIconUrl(spec.id)}
-                              alt={spec.name}
-                              className="w-5 h-5 pixelated shrink-0"
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                          <div className="flex-1 min-w-0 grid grid-cols-3 gap-1 font-mono-num text-[10px]">
-                            <div className="bg-[#05080f] border border-[#1c2b3d] px-1.5 py-0.5 text-[#e0f2fe]">
-                              Yield: <span className="text-[#34d399] font-bold">{spec.minBlocks}-{spec.maxBlocks}</span>
-                            </div>
-                            <div className="bg-[#05080f] border border-[#1c2b3d] px-1.5 py-0.5 text-[#fde047]">
-                              {spec.gemValue}G · {spec.xpValue}XP
-                            </div>
-                            <div className="bg-[#05080f] border border-[#1c2b3d] px-1.5 py-0.5 text-[#c7d9eb]">
-                              S:{Math.round(spec.seedDropRate * 100)}% B:{Math.round(spec.blockDropRate * 100)}%
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+            {/* Hub & Sign Out */}
+            <div className="grid grid-cols-2 gap-2 border-t-2 border-[#4172a3]/35 pt-2.5">
+              <button
+                type="button"
+                onClick={onReturnToHub}
+                className="pixel-btn pixel-btn-wood !py-2 !text-[10px]"
+              >
+                Return to World Hub
+              </button>
+              <button
+                type="button"
+                onClick={onLeaveWorld}
+                className="pixel-btn pixel-btn-danger !py-2 !text-[10px]"
+              >
+                Sign Out
+              </button>
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>

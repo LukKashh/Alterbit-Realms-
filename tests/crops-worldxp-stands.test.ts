@@ -83,19 +83,19 @@ test('NEXUS Sci-Fi Floating Platform Hub spawns Center Entry Deck, West Market D
 
   // Center Entry Portal at (50, 29), Single Multi-Way Background Door at (53, 29), and adjacent pass-through WOODEN_SIGN blocks
   assert.equal(nexus.fg[tileIndexIn(nexus, 50, 29)], ITEM_IDS.ENTRANCE_PORTAL);
-  assert.equal(nexus.bg[tileIndexIn(nexus, 53, 29)], ITEM_IDS.GP_DOOR);
+  assert.equal(nexus.bg[tileIndexIn(nexus, 53, 29)], ITEM_IDS.SCIFI_AIRLOCK_DOOR);
   assert.equal(nexus.fg[tileIndexIn(nexus, 53, 29)], ITEM_IDS.AIR);
   assert.equal(nexus.fg[tileIndexIn(nexus, 47, 29)], ITEM_IDS.WOODEN_SIGN);
   assert.equal(nexus.fg[tileIndexIn(nexus, 52, 29)], ITEM_IDS.WOODEN_SIGN);
   assert.equal(nexus.fg[tileIndexIn(nexus, 55, 29)], ITEM_IDS.WOODEN_SIGN);
   assert.equal(nexus.signs?.['47,29'], '← Fresh Greens');
-  assert.equal(nexus.signs?.['52,29'], '↑ Exchange & Furnace');
+  assert.equal(nexus.signs?.['52,29'], '↑ Global Exchange');
   assert.equal(nexus.signs?.['55,29'], 'Realm Steward →');
 
   // Return background doors on West (31, 27), East (69, 27), and Upper (51, 17) decks
-  assert.equal(nexus.bg[tileIndexIn(nexus, 31, 27)], ITEM_IDS.GP_DOOR);
-  assert.equal(nexus.bg[tileIndexIn(nexus, 69, 27)], ITEM_IDS.GP_DOOR);
-  assert.equal(nexus.bg[tileIndexIn(nexus, 51, 17)], ITEM_IDS.GP_DOOR);
+  assert.equal(nexus.bg[tileIndexIn(nexus, 31, 27)], ITEM_IDS.SCIFI_AIRLOCK_DOOR);
+  assert.equal(nexus.bg[tileIndexIn(nexus, 69, 27)], ITEM_IDS.SCIFI_AIRLOCK_DOOR);
+  assert.equal(nexus.bg[tileIndexIn(nexus, 51, 17)], ITEM_IDS.SCIFI_AIRLOCK_DOOR);
 
   // West Marketplace Deck: Fresh Greens Vendor at (25, 27)
   const greensAnchorX = 25;
@@ -115,9 +115,9 @@ test('NEXUS Sci-Fi Floating Platform Hub spawns Center Entry Deck, West Market D
     'Landlord NPC anchor should be at (75, 27) on the East Deck'
   );
 
-  // Upper Command Deck: Global Exchange Terminal at (43, 17) & Stone Furnace at (57, 17)
+  // Upper Command Deck: Global Exchange Terminal at (43, 17); Stone Furnace removed from NEXUS
   assert.equal(nexus.fg[tileIndexIn(nexus, 43, 17)], ITEM_IDS.EXCHANGE_TERMINAL);
-  assert.equal(nexus.fg[tileIndexIn(nexus, 57, 17)], ITEM_IDS.STONE_FURNACE);
+  assert.equal(nexus.fg[tileIndexIn(nexus, 57, 17)], ITEM_IDS.AIR);
 
   // Verify 3x2 market stand hitboxes on West and East decks
   for (let dy = -1; dy <= 0; dy++) {
@@ -509,3 +509,237 @@ test('Doors as Background Gateway Blocks, Gem Store Pot-Only Farming Listings, C
   );
 });
 
+test('Backpack 20-slot cap, 500-unit unique-stack ceiling, Trash item & Crop Mastery unlocks', async () => {
+  const { MAX_INVENTORY_SLOTS, MAX_INVENTORY_STACK } = await import('../src/game/constants.ts');
+  const { getCropMasteryRequiredLevel } = await import('../src/game/rules.ts');
+  assert.equal(MAX_INVENTORY_SLOTS, 20);
+  assert.equal(MAX_INVENTORY_STACK, 500);
+
+  const store = new AuthoritativeWorldStore();
+  const suffix = Date.now().toString(36);
+  const reg = store.registerAccount({
+    email: `cap_${suffix}@example.com`,
+    username: `Cap_${suffix.slice(-6)}`,
+    password: 'password123',
+  });
+  assert.equal(reg.ok, true);
+  if (!reg.ok) return;
+  const acct = reg.account;
+
+  const realmName = `CAP_${suffix.slice(-5).toUpperCase()}`;
+  assert.equal(store.createOwnedWorld(acct, realmName).ok, true);
+  const joined = store.joinWorld(acct, realmName);
+  assert.equal(joined.ok, true);
+  if (!joined.ok) return;
+  const live = joined.world;
+
+  // Fill 20 unique bag slots (using Farmable IDs 900..919)
+  for (let i = 0; i < 20; i++) {
+    const added = store.addInventoryPartial(acct, 900 + i, 500).added;
+    assert.equal(added, 500);
+  }
+  // 21st unique item is rejected when bag already holds 20 non-default slots
+  const overSlot = store.addInventoryPartial(acct, 920, 1).added;
+  assert.equal(overSlot, 0, '21st unique item must not fit into 20-slot Backpack');
+
+  // Adding more of item 900 (already at 500) must NOT create a duplicate second slot
+  const dupAdd = store.addInventoryPartial(acct, 900, 25).added;
+  assert.equal(dupAdd, 0, 'Duplicate item beyond 500 stack must be blocked');
+  assert.equal(acct.inventory.filter((s) => s.itemId === 900).length, 1);
+
+  // Trash item 900 to free space and verify pickup works again
+  const trashRes = store.trashInventoryItem(acct, { itemId: 900 });
+  assert.equal(trashRes.ok, true);
+  assert.equal(acct.inventory.some((s) => s.itemId === 900), false);
+  const afterTrashAdd = store.addInventoryPartial(acct, 920, 40).added;
+  assert.equal(afterTrashAdd, 40);
+
+  // Crop Mastery gates Cabbage Seed at Lv.2
+  assert.equal(getCropMasteryRequiredLevel(ITEM_IDS.CROP_SEED_CABBAGE), 2);
+  acct.alterbits = 500;
+  acct.cropMasteryLevel = 1;
+  const lockedBuy = store.handleVendorAction(acct, {
+    action: 'buy_seed',
+    itemId: ITEM_IDS.CROP_SEED_CABBAGE,
+    qty: 1,
+    currency: 'digibits',
+  });
+  assert.equal(lockedBuy.ok, false);
+
+  acct.cropMasteryLevel = 2;
+  assert.equal(store.trashInventoryItem(acct, { itemId: 901 }).ok, true);
+  const unlockedBuy = store.handleVendorAction(acct, {
+    action: 'buy_seed',
+    itemId: ITEM_IDS.CROP_SEED_CABBAGE,
+    qty: 1,
+    currency: 'digibits',
+  });
+  assert.equal(unlockedBuy.ok, true);
+  store.leaveWorld(realmName, acct.id, true);
+});
+
+test('Auto-sort inventory by category, Jump Height +1.25 blocks, NEXUS door panel-only, Entrance Portal reset & Sign/Door access restrictions', async () => {
+  const { JUMP_VELOCITY, GRAVITY, TILE_SIZE: TS } = await import('../src/game/constants.ts');
+  const { getInventorySortRank } = await import('../src/game/rules.ts');
+  assert.equal(JUMP_VELOCITY, -769);
+  const maxJumpPx = (JUMP_VELOCITY * JUMP_VELOCITY) / (2 * GRAVITY);
+  const jumpBlocks = maxJumpPx / TS;
+  assert.ok(
+    jumpBlocks >= 3.3 && jumpBlocks <= 3.36,
+    `Expected ~3.33 blocks jump height (+1.25 over 2.08), got ${jumpBlocks.toFixed(2)}`
+  );
+
+  const store = new AuthoritativeWorldStore();
+  const suffix = Date.now().toString(36);
+  const ownerReg = store.registerAccount({
+    email: `sort_${suffix}@example.com`,
+    username: `Owner_${suffix.slice(-5)}`,
+    password: 'password123',
+  });
+  const guestReg = store.registerAccount({
+    email: `guest_${suffix}@example.com`,
+    username: `Guest_${suffix.slice(-5)}`,
+    password: 'password123',
+  });
+  assert.equal(ownerReg.ok && guestReg.ok, true);
+  if (!ownerReg.ok || !guestReg.ok) return;
+  const owner = ownerReg.account;
+  const guest = guestReg.account;
+
+  // Add mixed categories in random order (wearable, background, seed, tool, crop, foreground)
+  store.addInventoryPartial(owner, ITEM_IDS.WEAR_GOLD_CROWN, 1);
+  store.addInventoryPartial(owner, ITEM_IDS.GP_WOODEN_BACKGROUND, 5);
+  store.addInventoryPartial(owner, ITEM_IDS.CROP_SEED_CARROT, 3);
+  store.addInventoryPartial(owner, ITEM_IDS.GP_DIRT, 10);
+  store.addInventoryPartial(owner, ITEM_IDS.IRON_PICKAXE, 1);
+  store.addInventoryPartial(owner, ITEM_IDS.CROP_RADISH, 4);
+
+  // Verify Fist stays slot 0, Wrench stays slot 1, and remaining items are ordered by getInventorySortRank
+  assert.equal(owner.inventory[0].itemId, ITEM_IDS.FIST);
+  assert.equal(owner.inventory[1].itemId, ITEM_IDS.WRENCH);
+  for (let i = 1; i < owner.inventory.length; i++) {
+    assert.ok(
+      getInventorySortRank(owner.inventory[i - 1].itemId) <= getInventorySortRank(owner.inventory[i].itemId),
+      `Inventory slot ${i - 1} (${owner.inventory[i - 1].itemId}) should sort before slot ${i} (${owner.inventory[i].itemId})`
+    );
+  }
+
+  // NEXUS Door never teleports via handleUseDoor & has zero doorLinks
+  const nexusJoin = store.joinWorld(owner, 'NEXUS');
+  assert.equal(nexusJoin.ok, true);
+  if (!nexusJoin.ok) return;
+  assert.deepEqual(nexusJoin.world.state.doorLinks, {});
+  const nexusUseDoor = store.handleUseDoor(nexusJoin.world, owner, 53, 29);
+  assert.equal(nexusUseDoor.ok, false);
+
+  // Save a custom pose inside NEXUS, join owned world, clearSavedPose -> joining NEXUS again spawns at NEXUS Entry (50, 29)
+  store.recordPlayerPose('NEXUS', owner.id, {
+    x: 20 * TS,
+    y: 26 * TS,
+    vx: 0,
+    vy: 0,
+    facing: 1,
+    grounded: true,
+  });
+  store.clearSavedPose('NEXUS', owner.id);
+  const freshNexusJoin = store.joinWorld(owner, 'NEXUS');
+  assert.equal(freshNexusJoin.ok, true);
+  if (freshNexusJoin.ok) {
+    assert.equal(freshNexusJoin.resumed, false);
+    assert.equal(Math.floor((freshNexusJoin.remote.x + 24) / TS), 50);
+  }
+
+  // Player World Door Data & Sign editing restricted to owner/authorized users
+  const worldName = `DRS_${suffix.slice(-5).toUpperCase()}`;
+  assert.equal(store.createOwnedWorld(owner, worldName).ok, true);
+  const ownedJoin = store.joinWorld(owner, worldName);
+  assert.equal(ownedJoin.ok, true);
+  if (!ownedJoin.ok) return;
+  const liveOwned = ownedJoin.world;
+  liveOwned.state.bg[tileIndexIn(liveOwned.state, 28, 19)] = ITEM_IDS.GP_DOOR;
+  liveOwned.state.fg[tileIndexIn(liveOwned.state, 29, 19)] = ITEM_IDS.WOODEN_SIGN;
+
+  liveOwned.state.worldLock!.publicAccess = true;
+  const guestJoined = store.joinWorld(guest, worldName);
+  assert.equal(guestJoined.ok, true);
+  assert.equal(store.handleConfigureDoor(liveOwned, guest, 28, 19, 25, 19, 'Denied').ok, false);
+  assert.equal(store.handleConfigureSign(liveOwned, guest, 29, 19, 'Denied').ok, false);
+  assert.equal(store.handleConfigureDoor(liveOwned, owner, 28, 19, 25, 19, 'Spawn').ok, true);
+  assert.equal(store.handleConfigureSign(liveOwned, owner, 29, 19, 'Welcome').ok, true);
+
+  const guestUseDoor = store.handleUseDoor(liveOwned, guest, 28, 19);
+  assert.equal(guestUseDoor.ok, true, 'Guests should be able to use a linked Door even without edit permission');
+});
+
+test('Sci-fi Infusion 15-item catalog pack & same-tile floating drop merging strictly within origin tile (tx, ty)', async () => {
+  const { isDoorBlock } = await import('../src/game/rules.ts');
+
+  // 1. Verify 15 Sci-fi Infusion items (1100..1114): 6 solid fg blocks, 6 bg walls, 1 door, 2 platforms
+  const scifiIds = Array.from({ length: 15 }, (_, idx) => 1100 + idx);
+  for (const id of scifiIds) {
+    const def = getItemDef(id);
+    assert.ok(def, `Missing Sci-fi Infusion item #${id}`);
+    assert.equal(def.gemValue ?? 0, 0, `${def.name} should follow baseline 0 gems`);
+    assert.equal(def.xpValue ?? 1, 1, `${def.name} should follow baseline 1 XP`);
+    assert.ok(def.drops && def.drops.length === 1 && def.drops[0].itemId === id && def.drops[0].chance === 0.125);
+  }
+
+  for (let id = 1100; id <= 1105; id++) {
+    const def = getItemDef(id)!;
+    assert.equal(def.category, 'foreground');
+    assert.equal(def.collision, 'solid');
+  }
+  for (let id = 1106; id <= 1111; id++) {
+    const def = getItemDef(id)!;
+    assert.equal(def.category, 'background');
+    assert.equal(def.collision, 'none');
+  }
+  assert.equal(isDoorBlock(ITEM_IDS.SCIFI_AIRLOCK_DOOR), true);
+  assert.equal(getItemDef(ITEM_IDS.SCIFI_AIRLOCK_DOOR)?.category, 'background');
+  assert.equal(getItemDef(1113)?.collision, 'platform');
+  assert.equal(getItemDef(1114)?.collision, 'platform');
+
+  // 2. Verify spawnDrop merges identical drops ONLY on the exact same origin tile (tx, ty)
+  const store = new AuthoritativeWorldStore();
+  const suffix = Date.now().toString(36);
+  const reg = store.registerAccount({
+    email: `drop_${suffix}@example.com`,
+    username: `Drop_${suffix.slice(-5)}`,
+    password: 'password123',
+  });
+  assert.equal(reg.ok, true);
+  if (!reg.ok) return;
+  const acct = reg.account;
+  const worldName = `DRP_${suffix.slice(-5).toUpperCase()}`;
+  assert.equal(store.createOwnedWorld(acct, worldName).ok, true);
+  const joined = store.joinWorld(acct, worldName);
+  assert.equal(joined.ok, true);
+  if (!joined.ok) return;
+  const live = joined.world;
+
+  const createDropFn = (store as unknown as {
+    createDrop: (
+      w: typeof live,
+      itemId: number,
+      qty: number,
+      tx: number,
+      ty: number,
+      slotIndex?: number
+    ) => { id: string; qty: number };
+  }).createDrop.bind(store);
+
+  const d1 = createDropFn(live, ITEM_IDS.GP_DIRT, 2, 10, 15);
+  const d2 = createDropFn(live, ITEM_IDS.GP_DIRT, 3, 10, 15);
+  assert.equal(d1.id, d2.id, 'Same-tile identical drop must merge into one drop stack');
+  assert.equal(d2.qty, 5);
+
+  const dAdj = createDropFn(live, ITEM_IDS.GP_DIRT, 4, 11, 15);
+  assert.notEqual(dAdj.id, d1.id, 'Adjacent tile drop (tx+1) must NOT merge across tiles');
+  assert.equal(dAdj.qty, 4);
+  assert.equal(
+    Array.from(live.drops.values()).filter((d) => d.itemId === ITEM_IDS.GP_DIRT).length,
+    2
+  );
+
+  store.leaveWorld(worldName, acct.id, true);
+});

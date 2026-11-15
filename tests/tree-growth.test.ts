@@ -40,13 +40,13 @@ test('growth state clamps times before planting and after maturity', () => {
 test('tree harvest overrides are clamped and kept internally consistent', () => {
   const config = sanitizeGameConfig({
     itemOverrides: {
-      600: {
+      950: {
         treeHarvestYield: { minBlocks: 9, maxBlocks: 2, seedChance: 1.5 },
-        bonusHarvestDrops: [{ itemId: 600, chance: 0.4, minQty: 2, maxQty: 5 }],
+        bonusHarvestDrops: [{ itemId: 950, chance: 0.4, minQty: 2, maxQty: 5 }],
       },
     },
   });
-  const override = config.itemOverrides[600];
+  const override = config.itemOverrides[950];
   assert.ok(override);
   assert.deepEqual(override.treeHarvestYield, {
     minBlocks: 9,
@@ -54,6 +54,6 @@ test('tree harvest overrides are clamped and kept internally consistent', () => 
     seedChance: 1,
   });
   assert.deepEqual(override.bonusHarvestDrops, [
-    { itemId: 600, chance: 0.4, minQty: 2, maxQty: 5 },
+    { itemId: 950, chance: 0.4, minQty: 2, maxQty: 5 },
   ]);
 });

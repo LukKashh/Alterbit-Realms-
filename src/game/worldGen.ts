@@ -156,8 +156,7 @@ export interface WorldState {
   worldXp?: number;
   worldLevel?: number;
   coreTokens?: number;
-  hasWorldCoreFurnace?: boolean;
-  coreFurnacePos?: { x: number; y: number };
+  hasFurnaceExpansion?: boolean;
   nexusLayoutVersion?: number;
   revision: number;
 }
@@ -209,7 +208,7 @@ export const NEXUS_DOOR_DESTINATIONS: NexusDoorDestination[] = [
   },
 ];
 
-export const NEXUS_LAYOUT_VERSION = 5;
+export const NEXUS_LAYOUT_VERSION = 6;
 
 export function hashWorldSeed(name: string): number {
   let h = 2166136261 >>> 0;
@@ -339,7 +338,7 @@ export function generateWorld(
     };
   }
 
-  // Main System World: NEXUS — Custom Sci-Fi Floating Platform Hub
+  // Main System World: NEXUS — Remodeled Sci-fi Infusion Orbital Command Station
   if (normalized === 'NEXUS') {
     const nWidth = WORLD_WIDTH; // 100
     const nHeight = WORLD_HEIGHT; // 60
@@ -358,97 +357,163 @@ export function generateWorld(
     const centerDeckY = 30;
     const spawnY = centerDeckY - 1; // 29
 
-    // 1. Center Entry Deck (x = 40..60, y = 30)
-    for (let x = 40; x <= 60; x++) {
-      nFg[centerDeckY * nWidth + x] = x === 45 || x === 55 ? ITEM_IDS.BOUNCE_PAD : ITEM_IDS.GP_GREY_BLOCK;
-      nBg[centerDeckY * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
-      nBg[(centerDeckY - 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
-      nBg[(centerDeckY - 2) * nWidth + x] = ITEM_IDS.GP_GLASS_PANE;
+    // 1. Central Orbital Docking Concourse (x = 39..61, y = 30)
+    for (let x = 39; x <= 61; x++) {
+      const isEdge = x === 39 || x === 61;
+      nFg[centerDeckY * nWidth + x] =
+        x === 45 || x === 55
+          ? ITEM_IDS.BOUNCE_PAD
+          : isEdge
+            ? ITEM_IDS.SCIFI_AIRLOCK_FRAME
+            : x % 4 === 0
+              ? ITEM_IDS.SCIFI_ION_CONDUIT
+              : ITEM_IDS.SCIFI_ORBITAL_HULL;
+      nBg[centerDeckY * nWidth + x] = ITEM_IDS.SCIFI_BULKHEAD_BG;
+      nBg[(centerDeckY - 1) * nWidth + x] =
+        x === 50 || x === 53
+          ? ITEM_IDS.SCIFI_POWER_SPINE_BG
+          : x % 3 === 0
+            ? ITEM_IDS.SCIFI_TELEMETRY_BG
+            : ITEM_IDS.SCIFI_BULKHEAD_BG;
+      nBg[(centerDeckY - 2) * nWidth + x] =
+        x % 2 === 0 ? ITEM_IDS.SCIFI_STARFIELD_BG : ITEM_IDS.SCIFI_BULKHEAD_BG;
     }
-    for (let x = 42; x <= 58; x++) {
+    for (let x = 41; x <= 59; x++) {
       nFg[(centerDeckY + 1) * nWidth + x] =
-        x === 44 || x === 50 || x === 56 ? ITEM_IDS.GP_GLASS_BLOCK : ITEM_IDS.GP_ROCK;
-      nBg[(centerDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+        x === 44 || x === 50 || x === 56
+          ? ITEM_IDS.SCIFI_VIEWGLASS
+          : x === 47 || x === 53
+            ? ITEM_IDS.SCIFI_CRYO_PANEL
+            : ITEM_IDS.SCIFI_SOLAR_LATTICE;
+      nBg[(centerDeckY + 1) * nWidth + x] = ITEM_IDS.SCIFI_HEX_REACTOR_BG;
     }
-    for (let x = 46; x <= 54; x++) {
-      nFg[(centerDeckY + 2) * nWidth + x] = x === 50 ? ITEM_IDS.GP_AQUA_BLOCK : ITEM_IDS.GP_GREY_BLOCK;
-      nBg[(centerDeckY + 2) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+    for (let x = 45; x <= 55; x++) {
+      nFg[(centerDeckY + 2) * nWidth + x] =
+        x === 50 ? ITEM_IDS.SCIFI_CRYO_PANEL : ITEM_IDS.SCIFI_ION_CONDUIT;
+      nBg[(centerDeckY + 2) * nWidth + x] = ITEM_IDS.SCIFI_POWER_SPINE_BG;
     }
 
-    // Center Spawn Entrance Portal + Single Multi-Way Background Door & Adjacent Pass-Through WOODEN_SIGN Blocks
+    // Center Spawn Entrance Portal + Airlock Bulkhead Gateway Door & Pass-Through Signs
     nFg[spawnY * nWidth + spawnX] = ITEM_IDS.ENTRANCE_PORTAL;
-    nBg[spawnY * nWidth + 53] = ITEM_IDS.GP_DOOR; // Multi-Way Navigational Door (Background Block)
+    nBg[spawnY * nWidth + 53] = ITEM_IDS.SCIFI_AIRLOCK_DOOR;
     nFg[spawnY * nWidth + 47] = ITEM_IDS.WOODEN_SIGN;
     nFg[spawnY * nWidth + 52] = ITEM_IDS.WOODEN_SIGN;
     nFg[spawnY * nWidth + 55] = ITEM_IDS.WOODEN_SIGN;
 
-    // Sci-Fi Floating Step Bridges connecting Center Deck to West & East Decks
-    for (const bx of [36, 37, 38, 62, 63, 64]) {
-      nFg[29 * nWidth + bx] = ITEM_IDS.GP_WOODEN_PLATFORM;
-      nBg[29 * nWidth + bx] = ITEM_IDS.GP_GLASS_PANE;
+    // Luminous Holo-Beam Catwalk Bridges connecting Concourse to West & East Bays
+    for (const bx of [35, 36, 37, 38, 62, 63, 64, 65]) {
+      nFg[29 * nWidth + bx] = ITEM_IDS.SCIFI_HOLO_CATWALK;
+      nBg[29 * nWidth + bx] = ITEM_IDS.SCIFI_STARFIELD_BG;
     }
 
-    // 2. West Marketplace Deck — Fresh Greens Market (x = 16..34, y = 28)
+    // 2. West Hydroponics Bay — Fresh Greens Market (x = 15..34, y = 28)
     const westDeckY = 28;
-    for (let x = 16; x <= 34; x++) {
+    for (let x = 15; x <= 34; x++) {
       nFg[westDeckY * nWidth + x] =
-        x >= 22 && x <= 28 ? ITEM_IDS.GP_WOOD_BLOCK : ITEM_IDS.GP_GREY_BLOCK;
-      nBg[westDeckY * nWidth + x] = ITEM_IDS.GP_WOODEN_BACKGROUND;
-      nBg[(westDeckY - 1) * nWidth + x] = ITEM_IDS.GP_WOODEN_BACKGROUND;
-      nBg[(westDeckY - 2) * nWidth + x] = ITEM_IDS.GP_GLASS_PANE;
+        x === 15 || x === 34
+          ? ITEM_IDS.SCIFI_AIRLOCK_FRAME
+          : x >= 22 && x <= 28
+            ? ITEM_IDS.SCIFI_CRYO_PANEL
+            : ITEM_IDS.SCIFI_ORBITAL_HULL;
+      nBg[westDeckY * nWidth + x] = ITEM_IDS.SCIFI_QUARANTINE_BG;
+      nBg[(westDeckY - 1) * nWidth + x] =
+        x % 3 === 0 ? ITEM_IDS.SCIFI_STARFIELD_BG : ITEM_IDS.SCIFI_QUARANTINE_BG;
+      nBg[(westDeckY - 2) * nWidth + x] =
+        x % 2 === 0 ? ITEM_IDS.SCIFI_STARFIELD_BG : ITEM_IDS.SCIFI_TELEMETRY_BG;
     }
-    for (let x = 18; x <= 32; x++) {
+    for (let x = 17; x <= 32; x++) {
       nFg[(westDeckY + 1) * nWidth + x] =
-        x === 21 || x === 25 || x === 29 ? ITEM_IDS.GP_GLASS_BLOCK : ITEM_IDS.GP_ROCK;
-      nBg[(westDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+        x === 21 || x === 25 || x === 29
+          ? ITEM_IDS.SCIFI_VIEWGLASS
+          : ITEM_IDS.SCIFI_ION_CONDUIT;
+      nBg[(westDeckY + 1) * nWidth + x] = ITEM_IDS.SCIFI_POWER_SPINE_BG;
     }
-    nBg[(westDeckY - 1) * nWidth + 31] = ITEM_IDS.GP_DOOR;
+    nBg[(westDeckY - 1) * nWidth + 31] = ITEM_IDS.SCIFI_AIRLOCK_DOOR;
     nFg[(westDeckY - 1) * nWidth + 30] = ITEM_IDS.WOODEN_SIGN;
     nFg[(westDeckY - 1) * nWidth + 25] = ITEM_IDS.GREENS_VENDOR_NPC;
     nFg[(westDeckY - 1) * nWidth + 19] = ITEM_IDS.WOODEN_SIGN;
 
-    // 3. East Realm Steward Deck — Personal World Conjuring (x = 66..84, y = 28)
+    // 3. East Warp Steward Bay — Personal World Conjuring (x = 66..85, y = 28)
     const eastDeckY = 28;
-    for (let x = 66; x <= 84; x++) {
-      nFg[eastDeckY * nWidth + x] = ITEM_IDS.GP_GREY_BLOCK;
-      nBg[eastDeckY * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
-      nBg[(eastDeckY - 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
-      nBg[(eastDeckY - 2) * nWidth + x] = ITEM_IDS.GP_GLASS_PANE;
+    for (let x = 66; x <= 85; x++) {
+      nFg[eastDeckY * nWidth + x] =
+        x === 66 || x === 85
+          ? ITEM_IDS.SCIFI_AIRLOCK_FRAME
+          : x >= 72 && x <= 78
+            ? ITEM_IDS.SCIFI_ION_CONDUIT
+            : ITEM_IDS.SCIFI_ORBITAL_HULL;
+      nBg[eastDeckY * nWidth + x] = ITEM_IDS.SCIFI_HEX_REACTOR_BG;
+      nBg[(eastDeckY - 1) * nWidth + x] =
+        x % 3 === 0 ? ITEM_IDS.SCIFI_POWER_SPINE_BG : ITEM_IDS.SCIFI_BULKHEAD_BG;
+      nBg[(eastDeckY - 2) * nWidth + x] =
+        x % 2 === 0 ? ITEM_IDS.SCIFI_STARFIELD_BG : ITEM_IDS.SCIFI_TELEMETRY_BG;
     }
-    for (let x = 68; x <= 82; x++) {
+    for (let x = 68; x <= 83; x++) {
       nFg[(eastDeckY + 1) * nWidth + x] =
-        x === 71 || x === 75 || x === 79 ? ITEM_IDS.GP_GLASS_BLOCK : ITEM_IDS.GP_ROCK;
-      nBg[(eastDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+        x === 71 || x === 75 || x === 79
+          ? ITEM_IDS.SCIFI_CRYO_PANEL
+          : ITEM_IDS.SCIFI_SOLAR_LATTICE;
+      nBg[(eastDeckY + 1) * nWidth + x] = ITEM_IDS.SCIFI_HEX_REACTOR_BG;
     }
-    nBg[(eastDeckY - 1) * nWidth + 69] = ITEM_IDS.GP_DOOR;
+    nBg[(eastDeckY - 1) * nWidth + 69] = ITEM_IDS.SCIFI_AIRLOCK_DOOR;
     nFg[(eastDeckY - 1) * nWidth + 70] = ITEM_IDS.WOODEN_SIGN;
     nFg[(eastDeckY - 1) * nWidth + 75] = ITEM_IDS.LANDLORD_NPC;
     nFg[(eastDeckY - 1) * nWidth + 81] = ITEM_IDS.WOODEN_SIGN;
 
-    // Intermediate Jump/Bounce Booster Platforms (y = 24, x = 44..46 & x = 54..56)
+    // Mid-Air Repulsor Hover Platforms & Jump Boosters (y = 24, x = 44..46 & x = 54..56)
     for (const lx of [44, 45, 46, 54, 55, 56]) {
-      nFg[24 * nWidth + lx] = lx === 45 || lx === 55 ? ITEM_IDS.BOUNCE_PAD : ITEM_IDS.GP_WOODEN_PLATFORM;
-      nBg[24 * nWidth + lx] = ITEM_IDS.GP_GLASS_PANE;
+      nFg[24 * nWidth + lx] =
+        lx === 45 || lx === 55 ? ITEM_IDS.BOUNCE_PAD : ITEM_IDS.SCIFI_HOVER_PLATFORM;
+      nBg[24 * nWidth + lx] = ITEM_IDS.SCIFI_POWER_SPINE_BG;
     }
 
-    // 4. Upper Command & Exchange Deck (x = 38..62, y = 18)
+    // 4. Upper Orbital Command Bridge & Global Exchange (x = 37..63, y = 18)
     const upperDeckY = 18;
-    for (let x = 38; x <= 62; x++) {
-      const isLandingHole = (x >= 44 && x <= 46) || (x >= 54 && x <= 56);
-      nFg[upperDeckY * nWidth + x] = isLandingHole ? ITEM_IDS.GP_WOODEN_PLATFORM : ITEM_IDS.GP_GREY_BLOCK;
-      nBg[upperDeckY * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
-      nBg[(upperDeckY - 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
-      nBg[(upperDeckY - 2) * nWidth + x] = ITEM_IDS.GP_GLASS_PANE;
+    for (let x = 37; x <= 63; x++) {
+      const isLandingHatch = (x >= 44 && x <= 46) || (x >= 54 && x <= 56);
+      const isOuterTip = x === 37 || x === 63;
+      nFg[upperDeckY * nWidth + x] = isLandingHatch
+        ? ITEM_IDS.SCIFI_HOVER_PLATFORM
+        : isOuterTip
+          ? ITEM_IDS.SCIFI_AIRLOCK_FRAME
+          : x % 5 === 0
+            ? ITEM_IDS.SCIFI_ION_CONDUIT
+            : ITEM_IDS.SCIFI_ORBITAL_HULL;
+      nBg[upperDeckY * nWidth + x] = ITEM_IDS.SCIFI_BULKHEAD_BG;
+      nBg[(upperDeckY - 1) * nWidth + x] =
+        x === 51
+          ? ITEM_IDS.SCIFI_POWER_SPINE_BG
+          : x % 2 === 0
+            ? ITEM_IDS.SCIFI_TELEMETRY_BG
+            : ITEM_IDS.SCIFI_BULKHEAD_BG;
+      nBg[(upperDeckY - 2) * nWidth + x] =
+        x % 2 === 0 ? ITEM_IDS.SCIFI_STARFIELD_BG : ITEM_IDS.SCIFI_TELEMETRY_BG;
     }
-    for (let x = 40; x <= 60; x++) {
+    for (let x = 39; x <= 61; x++) {
       if ((x >= 44 && x <= 46) || (x >= 54 && x <= 56)) continue;
       nFg[(upperDeckY + 1) * nWidth + x] =
-        x === 42 || x === 50 || x === 58 ? ITEM_IDS.GP_AQUA_BLOCK : ITEM_IDS.GP_ROCK;
-      nBg[(upperDeckY + 1) * nWidth + x] = ITEM_IDS.GP_ROCK_BACKGROUND;
+        x === 42 || x === 50 || x === 58
+          ? ITEM_IDS.SCIFI_CRYO_PANEL
+          : ITEM_IDS.SCIFI_SOLAR_LATTICE;
+      nBg[(upperDeckY + 1) * nWidth + x] = ITEM_IDS.SCIFI_HEX_REACTOR_BG;
     }
     nFg[(upperDeckY - 1) * nWidth + 43] = ITEM_IDS.EXCHANGE_TERMINAL;
-    nBg[(upperDeckY - 1) * nWidth + 51] = ITEM_IDS.GP_DOOR;
+    nBg[(upperDeckY - 1) * nWidth + 51] = ITEM_IDS.SCIFI_AIRLOCK_DOOR;
     nFg[(upperDeckY - 1) * nWidth + 50] = ITEM_IDS.WOODEN_SIGN;
+
+    // Upper Observation Gantry Wings (y = 13, x = 40..60) framed overhead
+    for (let x = 40; x <= 60; x++) {
+      if (x >= 47 && x <= 53) {
+        nFg[13 * nWidth + x] = ITEM_IDS.SCIFI_HOLO_CATWALK;
+        nBg[13 * nWidth + x] = ITEM_IDS.SCIFI_STARFIELD_BG;
+      } else if (x === 40 || x === 46 || x === 54 || x === 60) {
+        nFg[13 * nWidth + x] = ITEM_IDS.SCIFI_AIRLOCK_FRAME;
+        nBg[13 * nWidth + x] = ITEM_IDS.SCIFI_POWER_SPINE_BG;
+      } else {
+        nFg[13 * nWidth + x] = ITEM_IDS.SCIFI_SOLAR_LATTICE;
+        nBg[13 * nWidth + x] = ITEM_IDS.SCIFI_STARFIELD_BG;
+      }
+    }
 
     return {
       name: normalized,
@@ -481,9 +546,9 @@ export function generateWorld(
         '52,29': '↑ Global Exchange',
         '55,29': 'Realm Steward →',
         '30,27': '← Fresh Greens',
-        '19,27': 'Fresh Greens Market',
+        '19,27': 'Hydroponics Bay: Trade harvested Crops for Digibits & buy Crop Seeds!',
         '70,27': 'Realm Steward →',
-        '81,27': 'Realm Steward',
+        '81,27': 'Warp Steward Bay: Conjure your personal 50×40 World with a Starter Supply Lootbox!',
         '50,17': '↑ Global Exchange',
       },
       doorLinks: {},

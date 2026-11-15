@@ -351,16 +351,6 @@ export const ITEM_IDS = {
   VAULTBOX: 557,
   PLOWED_DIRT_SOIL: 558,
 
-  // Architectural Wallpapers & Interior Background Walls (560..567)
-  WALLPAPER_WAINSCOT: 560,
-  WALLPAPER_EMERALD_STRIPE: 561,
-  WALLPAPER_VENETIAN_PLASTER: 562,
-  WALLPAPER_STARLIGHT_VELVET: 563,
-  WALLPAPER_SUBWAY_TILE: 564,
-  WALLPAPER_CEDAR_SHIPLAP: 565,
-  WALLPAPER_HERRINGBONE_PARQUET: 566,
-  WALLPAPER_MOROCCAN_MOSAIC: 567,
-
   // 40 Dedicated Farmable Blocks (900..939)
   FARM_SUGAR_CANE: 900,
   FARM_PEPPER_BUSH: 901,
@@ -466,6 +456,23 @@ export const ITEM_IDS = {
   CROP_TOMATO: 1023,
   CROP_CORN: 1024,
   CROP_MELON: 1025,
+
+  // Sci-fi Infusion Space Station Pack (1100..1114: 6 Blocks, 6 Backgrounds, 1 Door, 2 Platforms)
+  SCIFI_ORBITAL_HULL: 1100,
+  SCIFI_AIRLOCK_FRAME: 1101,
+  SCIFI_CRYO_PANEL: 1102,
+  SCIFI_SOLAR_LATTICE: 1103,
+  SCIFI_VIEWGLASS: 1104,
+  SCIFI_ION_CONDUIT: 1105,
+  SCIFI_BULKHEAD_BG: 1106,
+  SCIFI_TELEMETRY_BG: 1107,
+  SCIFI_STARFIELD_BG: 1108,
+  SCIFI_POWER_SPINE_BG: 1109,
+  SCIFI_QUARANTINE_BG: 1110,
+  SCIFI_HEX_REACTOR_BG: 1111,
+  SCIFI_AIRLOCK_DOOR: 1112,
+  SCIFI_HOVER_PLATFORM: 1113,
+  SCIFI_HOLO_CATWALK: 1114,
 } as const;
 
 export const CATALOG: Record<number, ItemDefinition> = {
@@ -751,12 +758,12 @@ export const CATALOG: Record<number, ItemDefinition> = {
     colorPrimary: '#e67e32', colorSecondary: '#6b3e24', colorAccent: '#ffe38c',
   },
   [ITEM_IDS.STONE_FURNACE]: {
-    id: ITEM_IDS.STONE_FURNACE, key: 'stone_furnace', name: 'Stone Furnace',
-    description: 'Place and wrench to smelt ore fragments into ingots, craft gear, cook fish buffs, and repair tools.',
-    category: 'interactive', rarity: 'uncommon', stackLimit: 50,
-    collision: 'solid', breakable: true, hardness: 5,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 8,
-    drops: [{ itemId: ITEM_IDS.STONE_FURNACE, chance: 1, minQty: 1, maxQty: 1 }],
+    id: ITEM_IDS.STONE_FURNACE, key: 'stone_furnace', name: 'Furnace',
+    description: 'Interactive WorldCore background smeltery. Smelt mined Coal and Ores into ingots.',
+    category: 'interactive', rarity: 'epic', stackLimit: 1,
+    collision: 'none', transparent: true, breakable: false, hardness: 10,
+    placeable: false, tradeable: false, gemValue: 0, xpValue: 0,
+    drops: [],
     colorPrimary: '#727b88', colorSecondary: '#3b424d', colorAccent: '#ff963b',
   },
   [ITEM_IDS.BFG_COLLECTOR]: {
@@ -2608,8 +2615,8 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.MATTERAGEN_BOTANICAL]: {
     id: ITEM_IDS.MATTERAGEN_BOTANICAL, key: 'matteragen_botanical', name: 'Botanical Matteragen Engine',
-    description: 'Gen 1 Synthesizer (Farmables 1–6, 10m cycle). Upgrades reduce cycle time by 5% per level. Interact to claim yield.',
-    category: 'interactive', rarity: 'rare', stackLimit: 500,
+    description: 'Tier 1 Organic Synthesizer. Automatically generates Botanical farmables every 10 minutes. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'rare', stackLimit: 20,
     collision: 'solid', breakable: true, hardness: 6,
     placeable: true, tradeable: true, gemValue: 250, xpValue: 15,
     drops: [{ itemId: ITEM_IDS.MATTERAGEN_BOTANICAL, chance: 1.0, minQty: 1, maxQty: 1 }],
@@ -2617,8 +2624,8 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.MATTERAGEN_GEOMINERAL]: {
     id: ITEM_IDS.MATTERAGEN_GEOMINERAL, key: 'matteragen_geomineral', name: 'Geomineral Matteragen Engine',
-    description: 'Gen 2 Synthesizer (Farmables 3–14, 30m cycle). Upgrades reduce cycle time by 5% per level. Interact to claim yield.',
-    category: 'interactive', rarity: 'rare', stackLimit: 500,
+    description: 'Tier 2 Subterranean Synthesizer. Automatically generates Geomineral farmables every 30 minutes. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'rare', stackLimit: 20,
     collision: 'solid', breakable: true, hardness: 6,
     placeable: true, tradeable: true, gemValue: 350, xpValue: 20,
     drops: [{ itemId: ITEM_IDS.MATTERAGEN_GEOMINERAL, chance: 1.0, minQty: 1, maxQty: 1 }],
@@ -2626,8 +2633,8 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.MATTERAGEN_LUMINESCENT]: {
     id: ITEM_IDS.MATTERAGEN_LUMINESCENT, key: 'matteragen_luminescent', name: 'Luminescent Matteragen Engine',
-    description: 'Gen 3 Synthesizer (Farmables 6–16, 1h cycle). Upgrades reduce cycle time by 5% per level. Interact to claim yield.',
-    category: 'interactive', rarity: 'rare', stackLimit: 500,
+    description: 'Tier 3 Radiant Synthesizer. Automatically generates Luminescent farmables every 1 hour. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'rare', stackLimit: 20,
     collision: 'solid', breakable: true, hardness: 7,
     placeable: true, tradeable: true, gemValue: 500, xpValue: 25,
     drops: [{ itemId: ITEM_IDS.MATTERAGEN_LUMINESCENT, chance: 1.0, minQty: 1, maxQty: 1 }],
@@ -2635,8 +2642,8 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.MATTERAGEN_ARCANE]: {
     id: ITEM_IDS.MATTERAGEN_ARCANE, key: 'matteragen_arcane', name: 'Arcane Matteragen Engine',
-    description: 'Gen 4 Synthesizer (Farmables 8–20, 2h cycle). Upgrades reduce cycle time by 5% per level. Interact to claim yield.',
-    category: 'interactive', rarity: 'epic', stackLimit: 500,
+    description: 'Tier 4 Etheric Synthesizer. Automatically generates Arcane farmables every 2 hours. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'epic', stackLimit: 20,
     collision: 'solid', breakable: true, hardness: 7,
     placeable: true, tradeable: true, gemValue: 750, xpValue: 35,
     drops: [{ itemId: ITEM_IDS.MATTERAGEN_ARCANE, chance: 1.0, minQty: 1, maxQty: 1 }],
@@ -2644,8 +2651,8 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.MATTERAGEN_COSMIC]: {
     id: ITEM_IDS.MATTERAGEN_COSMIC, key: 'matteragen_cosmic', name: 'Cosmic Matteragen Engine',
-    description: 'Gen 5 Synthesizer (Farmables 10–30, 5h cycle). Upgrades reduce cycle time by 5% per level. Interact to claim yield.',
-    category: 'interactive', rarity: 'epic', stackLimit: 500,
+    description: 'Tier 5 Stellar Synthesizer. Automatically generates Apex Cosmic farmables every 5 hours. Can be upgraded up to Level 5. Punch to collect yield.',
+    category: 'interactive', rarity: 'epic', stackLimit: 20,
     collision: 'solid', breakable: true, hardness: 8,
     placeable: true, tradeable: true, gemValue: 1200, xpValue: 50,
     drops: [{ itemId: ITEM_IDS.MATTERAGEN_COSMIC, chance: 1.0, minQty: 1, maxQty: 1 }],
@@ -2653,8 +2660,8 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.ATM_MACHINE]: {
     id: ITEM_IDS.ATM_MACHINE, key: 'atm_machine', name: 'ATM Machine',
-    description: 'Automated Gem Synthesizer. Generates 5–125 Gems every 30m–1.5h. Punch when ready to collect Gems.',
-    category: 'interactive', rarity: 'epic', stackLimit: 500,
+    description: 'Automated Gem Synthesizer. Generates 5–125 Gems directly every 30m–1.5h. Punch when ready to collect Gems.',
+    category: 'interactive', rarity: 'epic', stackLimit: 20,
     collision: 'solid', breakable: true, hardness: 6,
     placeable: true, tradeable: true, gemValue: 2000, xpValue: 35,
     storePrice: 10000,
@@ -2663,85 +2670,13 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.VAULTBOX]: {
     id: ITEM_IDS.VAULTBOX, key: 'vaultbox', name: 'Vaultbox',
-    description: 'Player-owned secure storage block with 10 item storage slots.',
-    category: 'interactive', rarity: 'rare', stackLimit: 500,
+    description: 'Player-owned secure storage block with 10 empty item storage tiles. Only the owner can access or withdraw stored items.',
+    category: 'interactive', rarity: 'rare', stackLimit: 50,
     collision: 'solid', breakable: true, hardness: 6,
     placeable: true, tradeable: true, gemValue: 400, xpValue: 15,
     storePrice: 1750,
     drops: [{ itemId: ITEM_IDS.VAULTBOX, chance: 1.0, minQty: 1, maxQty: 1 }],
     colorPrimary: '#64748b', colorSecondary: '#1e293b', colorAccent: '#fbbf24',
-  },
-  [ITEM_IDS.WALLPAPER_WAINSCOT]: {
-    id: ITEM_IDS.WALLPAPER_WAINSCOT, key: 'wallpaper_wainscot', name: 'Heritage Wainscot Wallpaper',
-    description: 'Warm sage-cream damask plaster framed above dark walnut beadboard wainscoting and a molded chair rail.',
-    category: 'background', rarity: 'uncommon', stackLimit: 500,
-    collision: 'none', breakable: true, hardness: 3,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 1, storePrice: 25,
-    drops: [{ itemId: ITEM_IDS.WALLPAPER_WAINSCOT, chance: 0.125, minQty: 1, maxQty: 1 }],
-    colorPrimary: '#e8dec8', colorSecondary: '#5c3b24', colorAccent: '#8ea382',
-  },
-  [ITEM_IDS.WALLPAPER_EMERALD_STRIPE]: {
-    id: ITEM_IDS.WALLPAPER_EMERALD_STRIPE, key: 'wallpaper_emerald_stripe', name: 'Emerald Regency Wallpaper',
-    description: 'Tailored forest-emerald satin stripes accented with antique gold pinstripes and dark mahogany trim.',
-    category: 'background', rarity: 'uncommon', stackLimit: 500,
-    collision: 'none', breakable: true, hardness: 3,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 1, storePrice: 25,
-    drops: [{ itemId: ITEM_IDS.WALLPAPER_EMERALD_STRIPE, chance: 0.125, minQty: 1, maxQty: 1 }],
-    colorPrimary: '#1e523a', colorSecondary: '#2d6e4f', colorAccent: '#d4af37',
-  },
-  [ITEM_IDS.WALLPAPER_VENETIAN_PLASTER]: {
-    id: ITEM_IDS.WALLPAPER_VENETIAN_PLASTER, key: 'wallpaper_venetian_plaster', name: 'Venetian Plaster Wall',
-    description: 'Hand-troweled Mediterranean terracotta lime plaster with organic mineral mottling and warm sheen.',
-    category: 'background', rarity: 'uncommon', stackLimit: 500,
-    collision: 'none', breakable: true, hardness: 3,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 1, storePrice: 25,
-    drops: [{ itemId: ITEM_IDS.WALLPAPER_VENETIAN_PLASTER, chance: 0.125, minQty: 1, maxQty: 1 }],
-    colorPrimary: '#c86d51', colorSecondary: '#8c4330', colorAccent: '#eab096',
-  },
-  [ITEM_IDS.WALLPAPER_STARLIGHT_VELVET]: {
-    id: ITEM_IDS.WALLPAPER_STARLIGHT_VELVET, key: 'wallpaper_starlight_velvet', name: 'Midnight Starlight Wallpaper',
-    description: 'Deep indigo-velvet celestial wall inlaid with gilded stars, crescent motifs, and warm brass edging.',
-    category: 'background', rarity: 'rare', stackLimit: 500,
-    collision: 'none', breakable: true, hardness: 3,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 1, storePrice: 35,
-    drops: [{ itemId: ITEM_IDS.WALLPAPER_STARLIGHT_VELVET, chance: 0.125, minQty: 1, maxQty: 1 }],
-    colorPrimary: '#162044', colorSecondary: '#0c1229', colorAccent: '#f6d365',
-  },
-  [ITEM_IDS.WALLPAPER_SUBWAY_TILE]: {
-    id: ITEM_IDS.WALLPAPER_SUBWAY_TILE, key: 'wallpaper_subway_tile', name: 'Subway Ceramic Tile Wall',
-    description: 'Glossy ivory ceramic subway tiles laid in crisp running bond with recessed slate mortar grout.',
-    category: 'background', rarity: 'uncommon', stackLimit: 500,
-    collision: 'none', breakable: true, hardness: 3,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 1, storePrice: 25,
-    drops: [{ itemId: ITEM_IDS.WALLPAPER_SUBWAY_TILE, chance: 0.125, minQty: 1, maxQty: 1 }],
-    colorPrimary: '#eef2f6', colorSecondary: '#475569', colorAccent: '#ffffff',
-  },
-  [ITEM_IDS.WALLPAPER_CEDAR_SHIPLAP]: {
-    id: ITEM_IDS.WALLPAPER_CEDAR_SHIPLAP, key: 'wallpaper_cedar_shiplap', name: 'Honey Cedar Shiplap Wall',
-    description: 'Horizontal tongue-and-groove honey cedar boards featuring natural knots and warm shadow lap seams.',
-    category: 'background', rarity: 'uncommon', stackLimit: 500,
-    collision: 'none', breakable: true, hardness: 3,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 1, storePrice: 25,
-    drops: [{ itemId: ITEM_IDS.WALLPAPER_CEDAR_SHIPLAP, chance: 0.125, minQty: 1, maxQty: 1 }],
-    colorPrimary: '#c98a4b', colorSecondary: '#7a4c23', colorAccent: '#e6b87d',
-  },
-  [ITEM_IDS.WALLPAPER_HERRINGBONE_PARQUET]: {
-    id: ITEM_IDS.WALLPAPER_HERRINGBONE_PARQUET, key: 'wallpaper_herringbone_parquet', name: 'Oak Herringbone Parquet',
-    description: 'Architectural chevron-inlaid oak and chestnut hardwood wall slats with crisp mitered joinery.',
-    category: 'background', rarity: 'rare', stackLimit: 500,
-    collision: 'none', breakable: true, hardness: 3,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 1, storePrice: 35,
-    drops: [{ itemId: ITEM_IDS.WALLPAPER_HERRINGBONE_PARQUET, chance: 0.125, minQty: 1, maxQty: 1 }],
-    colorPrimary: '#b37d4e', colorSecondary: '#6b4222', colorAccent: '#dfb486',
-  },
-  [ITEM_IDS.WALLPAPER_MOROCCAN_MOSAIC]: {
-    id: ITEM_IDS.WALLPAPER_MOROCCAN_MOSAIC, key: 'wallpaper_moroccan_mosaic', name: 'Cobalt Moroccan Mosaic',
-    description: 'Glazed cobalt and turquoise geometric eight-point zellige tilework set in crisp ivory mortar.',
-    category: 'background', rarity: 'rare', stackLimit: 500,
-    collision: 'none', breakable: true, hardness: 3,
-    placeable: true, tradeable: true, gemValue: 0, xpValue: 1, storePrice: 35,
-    drops: [{ itemId: ITEM_IDS.WALLPAPER_MOROCCAN_MOSAIC, chance: 0.125, minQty: 1, maxQty: 1 }],
-    colorPrimary: '#1d4ed8', colorSecondary: '#0f766e', colorAccent: '#f8fafc',
   },
 
   // ============================================================================
@@ -3980,6 +3915,246 @@ for (const c of CROP_SPECS) {
   };
 }
 
+// Sci-fi Infusion Space Station Catalogue Pack (15 decorative building items: 6 FG, 6 BG, 1 Door, 2 Platforms)
+const SCIFI_INFUSION_SPECS: Array<{
+  id: number;
+  key: string;
+  name: string;
+  description: string;
+  category: 'foreground' | 'background';
+  rarity: 'common' | 'uncommon' | 'rare';
+  collision: 'solid' | 'platform' | 'none';
+  hardness: number;
+  transparent?: boolean;
+  colorPrimary: string;
+  colorSecondary: string;
+  colorAccent: string;
+}> = [
+  {
+    id: ITEM_IDS.SCIFI_ORBITAL_HULL,
+    key: 'scifi_orbital_hull',
+    name: 'Orbital Hull Plating',
+    description: 'Reinforced titanium spacecraft hull block with chamfered seam plating.',
+    category: 'foreground',
+    rarity: 'common',
+    collision: 'solid',
+    hardness: 4,
+    colorPrimary: '#64748b',
+    colorSecondary: '#334155',
+    colorAccent: '#cbd5e1',
+  },
+  {
+    id: ITEM_IDS.SCIFI_AIRLOCK_FRAME,
+    key: 'scifi_airlock_frame',
+    name: 'Titanium Airlock Frame',
+    description: 'Structural space-station pillar frame marked with cyan docking chevrons.',
+    category: 'foreground',
+    rarity: 'uncommon',
+    collision: 'solid',
+    hardness: 4,
+    colorPrimary: '#475569',
+    colorSecondary: '#1e293b',
+    colorAccent: '#38e8d8',
+  },
+  {
+    id: ITEM_IDS.SCIFI_CRYO_PANEL,
+    key: 'scifi_cryo_panel',
+    name: 'Cryo-Core Panel',
+    description: 'Pressurized stasis coolant block emitting a cool orbital cyan glow.',
+    category: 'foreground',
+    rarity: 'uncommon',
+    collision: 'solid',
+    hardness: 4,
+    colorPrimary: '#38bdf8',
+    colorSecondary: '#0369a1',
+    colorAccent: '#e0f2fe',
+  },
+  {
+    id: ITEM_IDS.SCIFI_SOLAR_LATTICE,
+    key: 'scifi_solar_lattice',
+    name: 'Solar Relay Lattice',
+    description: 'High-density cobalt photovoltaic station array block.',
+    category: 'foreground',
+    rarity: 'uncommon',
+    collision: 'solid',
+    hardness: 3,
+    colorPrimary: '#1d4ed8',
+    colorSecondary: '#0f172a',
+    colorAccent: '#60a5fa',
+  },
+  {
+    id: ITEM_IDS.SCIFI_VIEWGLASS,
+    key: 'scifi_viewglass',
+    name: 'Reinforced Viewglass',
+    description: 'Clear pressurized aerospace viewport block with alloy corner struts.',
+    category: 'foreground',
+    rarity: 'common',
+    collision: 'solid',
+    hardness: 3,
+    transparent: true,
+    colorPrimary: '#7dd3fc',
+    colorSecondary: '#1e3a5f',
+    colorAccent: '#ffffff',
+  },
+  {
+    id: ITEM_IDS.SCIFI_ION_CONDUIT,
+    key: 'scifi_ion_conduit',
+    name: 'Ion Conduit Trim',
+    description: 'Obsidian station deck block housing a luminous ion plasma rail.',
+    category: 'foreground',
+    rarity: 'rare',
+    collision: 'solid',
+    hardness: 4,
+    colorPrimary: '#334155',
+    colorSecondary: '#0f172a',
+    colorAccent: '#22d3ee',
+  },
+  {
+    id: ITEM_IDS.SCIFI_BULKHEAD_BG,
+    key: 'scifi_bulkhead_bg',
+    name: 'Starship Bulkhead Wall',
+    description: 'Ribbed matte-steel corridor bulkhead wall panel.',
+    category: 'background',
+    rarity: 'common',
+    collision: 'none',
+    hardness: 3,
+    colorPrimary: '#3b4b5e',
+    colorSecondary: '#1e293b',
+    colorAccent: '#64748b',
+  },
+  {
+    id: ITEM_IDS.SCIFI_TELEMETRY_BG,
+    key: 'scifi_telemetry_bg',
+    name: 'Telemetry Array Backdrop',
+    description: 'Orbital command wall lined with quiet diagnostic display bars.',
+    category: 'background',
+    rarity: 'uncommon',
+    collision: 'none',
+    hardness: 3,
+    colorPrimary: '#1e3a5f',
+    colorSecondary: '#0f172a',
+    colorAccent: '#38e8d8',
+  },
+  {
+    id: ITEM_IDS.SCIFI_STARFIELD_BG,
+    key: 'scifi_starfield_bg',
+    name: 'Starfield Viewport Wall',
+    description: 'Observatory bulkhead opening onto a crisp deep-space starfield.',
+    category: 'background',
+    rarity: 'rare',
+    collision: 'none',
+    hardness: 3,
+    colorPrimary: '#172554',
+    colorSecondary: '#090d16',
+    colorAccent: '#bae6fd',
+  },
+  {
+    id: ITEM_IDS.SCIFI_POWER_SPINE_BG,
+    key: 'scifi_power_spine_bg',
+    name: 'Power Spine Wall',
+    description: 'Vertical illuminated coolant and energy transfer conduit wall.',
+    category: 'background',
+    rarity: 'uncommon',
+    collision: 'none',
+    hardness: 3,
+    colorPrimary: '#0e7490',
+    colorSecondary: '#0f172a',
+    colorAccent: '#67e8f9',
+  },
+  {
+    id: ITEM_IDS.SCIFI_QUARANTINE_BG,
+    key: 'scifi_quarantine_bg',
+    name: 'Quarantine Bay Lining',
+    description: 'Clean ceramic-slate hydroponics and laboratory interior wall.',
+    category: 'background',
+    rarity: 'common',
+    collision: 'none',
+    hardness: 3,
+    colorPrimary: '#cbd5e1',
+    colorSecondary: '#64748b',
+    colorAccent: '#f8fafc',
+  },
+  {
+    id: ITEM_IDS.SCIFI_HEX_REACTOR_BG,
+    key: 'scifi_hex_reactor_bg',
+    name: 'Hex-Vent Reactor Wall',
+    description: 'Slotted thermal louver backdrop with subtle cyan exhaust glow.',
+    category: 'background',
+    rarity: 'uncommon',
+    collision: 'none',
+    hardness: 3,
+    colorPrimary: '#334155',
+    colorSecondary: '#090e17',
+    colorAccent: '#38bdf8',
+  },
+  {
+    id: ITEM_IDS.SCIFI_AIRLOCK_DOOR,
+    key: 'scifi_airlock_door',
+    name: 'Airlock Bulkhead Door',
+    description: 'Futuristic blast-door gateway linking destinations within a world.',
+    category: 'background',
+    rarity: 'uncommon',
+    collision: 'none',
+    hardness: 4,
+    transparent: true,
+    colorPrimary: '#475569',
+    colorSecondary: '#0f172a',
+    colorAccent: '#38e8d8',
+  },
+  {
+    id: ITEM_IDS.SCIFI_HOVER_PLATFORM,
+    key: 'scifi_hover_platform',
+    name: 'Hover-Grate Platform',
+    description: 'Jump-through alloy deck grate buoyed by underside repulsor vents.',
+    category: 'foreground',
+    rarity: 'common',
+    collision: 'platform',
+    hardness: 3,
+    transparent: true,
+    colorPrimary: '#64748b',
+    colorSecondary: '#1e293b',
+    colorAccent: '#38bdf8',
+  },
+  {
+    id: ITEM_IDS.SCIFI_HOLO_CATWALK,
+    key: 'scifi_holo_catwalk',
+    name: 'Holo-Beam Catwalk',
+    description: 'Jump-through hard-light cyan bridge suspended between projector nodes.',
+    category: 'foreground',
+    rarity: 'uncommon',
+    collision: 'platform',
+    hardness: 3,
+    transparent: true,
+    colorPrimary: '#22d3ee',
+    colorSecondary: '#0e7490',
+    colorAccent: '#ecfeff',
+  },
+];
+
+for (const sf of SCIFI_INFUSION_SPECS) {
+  CATALOG[sf.id] = {
+    id: sf.id,
+    key: sf.key,
+    name: sf.name,
+    description: sf.description,
+    category: sf.category,
+    rarity: sf.rarity,
+    stackLimit: 500,
+    collision: sf.collision,
+    transparent: sf.transparent,
+    breakable: true,
+    hardness: sf.hardness,
+    placeable: true,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: 1,
+    drops: [{ itemId: sf.id, chance: 0.125, minQty: 1, maxQty: 1 }],
+    colorPrimary: sf.colorPrimary,
+    colorSecondary: sf.colorSecondary,
+    colorAccent: sf.colorAccent,
+  };
+}
+
 export function isStandardBaselineBlock(def: ItemDefinition): boolean {
   if (!def || !def.breakable) return false;
   if (def.category === 'farmable' || (def.id >= 900 && def.id <= 939)) return false;
@@ -4003,10 +4178,13 @@ export function isStandardBaselineBlock(def: ItemDefinition): boolean {
   );
 }
 
-// Prune all non-Farmable, non-Crop seeds from CATALOG and enforce the uniform
-// 12.5% single-block return, 0 Gem, 1 XP baseline on all standard placeable blocks.
+// Prune all non-Farmable, non-Crop seeds from CATALOG, enforce 500 max stack cap
+// on all stackable items, and apply uniform 12.5% single-block return on standard blocks.
 for (const def of Object.values(CATALOG)) {
   delete def.spliceIngredients;
+  if (def.stackLimit > 1) {
+    def.stackLimit = 500;
+  }
   if (def.category === 'seed' && !isFarmableSeed(def.id) && !isCropSeed(def.id)) {
     delete CATALOG[def.id];
     continue;
@@ -4022,15 +4200,11 @@ for (const def of Object.values(CATALOG)) {
     def.xpValue = 1;
     def.drops = [{ itemId: def.id, chance: 0.125, minQty: 1, maxQty: 1 }];
   }
-  if (def.stackLimit > 1) {
-    def.stackLimit = 500;
-  }
 }
 
 for (const spec of FARMABLE_SPECS) {
   const blockDef = CATALOG[spec.id];
   if (blockDef) {
-    blockDef.stackLimit = 500;
     blockDef.hardness = spec.hardness;
     blockDef.gemValue = spec.gemValue;
     blockDef.xpValue = spec.xpValue;
@@ -4049,7 +4223,6 @@ for (const spec of FARMABLE_SPECS) {
   const seedDef = CATALOG[spec.seedId];
   if (seedDef) {
     delete seedDef.spliceIngredients;
-    seedDef.stackLimit = 500;
     seedDef.description = `Tier ${spec.tier} Farmable Seed (${spec.branch}). Plant inside a Seed Pot to grow ${spec.name}.`;
     seedDef.farmableTier = spec.tier;
     seedDef.growthTimeMs = spec.growthTimeSec * 1000;
@@ -4065,89 +4238,47 @@ for (const spec of FARMABLE_SPECS) {
   }
 }
 
-export interface MatteragenGeneratorSpec {
-  generation: 1 | 2 | 3 | 4 | 5;
-  itemId: number;
-  name: string;
-  baseIntervalMs: number;
-  rangeLabel: string;
-  farmablePoolIds: readonly number[];
-}
-
-export const MATTERAGEN_LEVEL_TIME_REDUCTION_PCT = 5; // 5% faster per upgrade level above Lv.1
-export const MATTERAGEN_YIELD_TOTAL_BLOCKS_RANGE: readonly [number, number] = [1, 10];
-export const MATTERAGEN_YIELD_DISTINCT_TYPES_RANGE: readonly [number, number] = [1, 3];
-
-export const MATTERAGEN_GENERATORS: readonly MatteragenGeneratorSpec[] = [
-  {
-    generation: 1,
-    itemId: ITEM_IDS.MATTERAGEN_BOTANICAL,
-    name: 'Botanical Matteragen Engine',
-    baseIntervalMs: 10 * 60 * 1000,
-    rangeLabel: 'Farmables 1–6',
-    farmablePoolIds: [900, 901, 902, 903, 904, 905],
-  },
-  {
-    generation: 2,
-    itemId: ITEM_IDS.MATTERAGEN_GEOMINERAL,
-    name: 'Geomineral Matteragen Engine',
-    baseIntervalMs: 30 * 60 * 1000,
-    rangeLabel: 'Farmables 3–14',
-    farmablePoolIds: [902, 903, 904, 905, 906, 907, 908, 909, 910, 911, 912, 913],
-  },
-  {
-    generation: 3,
-    itemId: ITEM_IDS.MATTERAGEN_LUMINESCENT,
-    name: 'Luminescent Matteragen Engine',
-    baseIntervalMs: 60 * 60 * 1000,
-    rangeLabel: 'Farmables 6–16',
-    farmablePoolIds: [905, 906, 907, 908, 909, 910, 911, 912, 913, 914, 915],
-  },
-  {
-    generation: 4,
-    itemId: ITEM_IDS.MATTERAGEN_ARCANE,
-    name: 'Arcane Matteragen Engine',
-    baseIntervalMs: 120 * 60 * 1000,
-    rangeLabel: 'Farmables 8–20',
-    farmablePoolIds: [907, 908, 909, 910, 911, 912, 913, 914, 915, 916, 917, 918, 919],
-  },
-  {
-    generation: 5,
-    itemId: ITEM_IDS.MATTERAGEN_COSMIC,
-    name: 'Cosmic Matteragen Engine',
-    baseIntervalMs: 300 * 60 * 1000,
-    rangeLabel: 'Farmables 10–30',
-    farmablePoolIds: [
-      909, 910, 911, 912, 913, 914, 915, 916, 917, 918, 919,
-      920, 921, 922, 923, 924, 925, 926, 927, 928, 929,
-    ],
-  },
-] as const;
-
-export function getMatteragenGeneratorSpec(typeId: number): MatteragenGeneratorSpec {
-  return (
-    MATTERAGEN_GENERATORS.find((g) => g.itemId === typeId) ??
-    MATTERAGEN_GENERATORS[0]
-  );
-}
-
-export function getMatteragenPoolIds(typeId: number): readonly number[] {
-  return getMatteragenGeneratorSpec(typeId).farmablePoolIds;
-}
-
 export function getMatteragenIntervalMs(typeId: number): number {
-  return getMatteragenGeneratorSpec(typeId).baseIntervalMs;
+  switch (typeId) {
+    case ITEM_IDS.MATTERAGEN_BOTANICAL:
+      return 10 * 60 * 1000; // 10 min
+    case ITEM_IDS.MATTERAGEN_GEOMINERAL:
+      return 30 * 60 * 1000; // 30 min
+    case ITEM_IDS.MATTERAGEN_LUMINESCENT:
+      return 60 * 60 * 1000; // 1 hr
+    case ITEM_IDS.MATTERAGEN_ARCANE:
+      return 120 * 60 * 1000; // 2 hr
+    case ITEM_IDS.MATTERAGEN_COSMIC:
+      return 300 * 60 * 1000; // 5 hr
+    default:
+      return 10 * 60 * 1000;
+  }
 }
 
 /**
- * Each upgrade level above Level 1 reduces total production cycle time by 5%:
- * Lv.1 = 100%, Lv.2 = 95% (-5%), Lv.3 = 90% (-10%), Lv.4 = 85% (-15%), Lv.5 = 80% (-20%).
+ * Matteragen upgrades reduce production cycle duration by 5% per upgrade level (Lv.2: -5% -> Lv.5: -20%).
  */
-export function getMatteragenEffectiveIntervalMs(typeId: number, level = 1): number {
+export function getEffectiveMatteragenIntervalMs(typeId: number, level = 1): number {
   const baseMs = getMatteragenIntervalMs(typeId);
-  const clampedLevel = Math.max(1, Math.min(5, Math.floor(level || 1)));
-  const multiplier = 1 - (MATTERAGEN_LEVEL_TIME_REDUCTION_PCT / 100) * (clampedLevel - 1);
-  return Math.max(1000, Math.round(baseMs * multiplier));
+  const upgradesApplied = Math.max(0, Math.min(4, Math.floor(level) - 1));
+  return Math.max(60_000, Math.round(baseMs * (1 - upgradesApplied * 0.05)));
+}
+
+export function getMatteragenGenerationPool(typeId: number): FarmableSpec[] {
+  switch (typeId) {
+    case ITEM_IDS.MATTERAGEN_BOTANICAL:
+      return FARMABLE_SPECS.slice(0, 6); // Gen 1: Farmables 1–6
+    case ITEM_IDS.MATTERAGEN_GEOMINERAL:
+      return FARMABLE_SPECS.slice(2, 14); // Gen 2: Farmables 3–14
+    case ITEM_IDS.MATTERAGEN_LUMINESCENT:
+      return FARMABLE_SPECS.slice(5, 16); // Gen 3: Farmables 6–16
+    case ITEM_IDS.MATTERAGEN_ARCANE:
+      return FARMABLE_SPECS.slice(7, 20); // Gen 4: Farmables 8–20
+    case ITEM_IDS.MATTERAGEN_COSMIC:
+      return FARMABLE_SPECS.slice(9, 30); // Gen 5: Farmables 10–30
+    default:
+      return FARMABLE_SPECS.slice(0, 6);
+  }
 }
 
 export function getMatteragenBranch(typeId: number): FarmableBranch {
@@ -4168,48 +4299,36 @@ export function getMatteragenBranch(typeId: number): FarmableBranch {
 }
 
 /**
- * Rolls 1–10 total Farmable Blocks partitioned across 1–3 distinct Farmable Block types
- * drawn strictly from the generator's generation range pool.
- * Yield distribution is identical across all upgrade levels (upgrades only reduce production time).
+ * Rolls 1–10 total farmable blocks distributed across 1–3 distinct farmable types
+ * within the engine generation's universal Farmable index range.
  */
-export function rollMatteragenYield(
-  typeId: number,
-  _level = 1,
-  rng: () => number = Math.random
-): { itemId: number; count: number }[] {
-  const pool = [...getMatteragenPoolIds(typeId)].filter((id) => Boolean(CATALOG[id]));
-  if (pool.length === 0) return [];
+export function rollMatteragenYield(typeId: number, _level = 1): { itemId: number; count: number }[] {
+  const pool = getMatteragenGenerationPool(typeId);
+  if (!pool || pool.length === 0) return [];
+  const totalBlocks = 1 + Math.floor(Math.random() * 10); // 1..10 total blocks
+  const maxTypes = Math.min(3, totalBlocks, pool.length);
+  const typeCount = 1 + Math.floor(Math.random() * maxTypes); // 1..3 types
 
-  const [minBlocks, maxBlocks] = MATTERAGEN_YIELD_TOTAL_BLOCKS_RANGE;
-  const totalBlocks =
-    minBlocks + Math.floor(rng() * (maxBlocks - minBlocks + 1));
-
-  const [, maxDistinct] = MATTERAGEN_YIELD_DISTINCT_TYPES_RANGE;
-  const maxTypesPossible = Math.min(maxDistinct, totalBlocks, pool.length);
-  const distinctTypesCount =
-    1 + Math.floor(rng() * maxTypesPossible);
-
-  // Sample distinctTypesCount unique block IDs from pool
+  // Pick distinct random specs from pool
   const available = [...pool];
-  const chosenIds: number[] = [];
-  for (let i = 0; i < distinctTypesCount; i++) {
-    const idx = Math.floor(rng() * available.length);
-    chosenIds.push(available[idx]);
-    available.splice(idx, 1);
+  const chosen: FarmableSpec[] = [];
+  for (let i = 0; i < typeCount; i++) {
+    const pickIdx = Math.floor(Math.random() * available.length);
+    chosen.push(available[pickIdx]);
+    available.splice(pickIdx, 1);
   }
 
-  // Partition totalBlocks across chosenIds so each chosen type gets >= 1 block and sum === totalBlocks
-  const counts = new Array<number>(distinctTypesCount).fill(1);
-  let remaining = totalBlocks - distinctTypesCount;
+  const counts = new Array<number>(chosen.length).fill(1);
+  let remaining = totalBlocks - chosen.length;
   while (remaining > 0) {
-    const slot = Math.floor(rng() * distinctTypesCount);
-    counts[slot] += 1;
+    const targetIdx = Math.floor(Math.random() * chosen.length);
+    counts[targetIdx] += 1;
     remaining -= 1;
   }
 
-  return chosenIds.map((itemId, index) => ({
-    itemId,
-    count: counts[index],
+  return chosen.map((spec, idx) => ({
+    itemId: spec.id,
+    count: counts[idx],
   }));
 }
 
@@ -4220,79 +4339,6 @@ export const MATTERAGEN_UPGRADE_COSTS: Record<number, number> = {
   3: 10, // Lv.3 -> Lv.4 (10 Core Tokens)
   4: 15, // Lv.4 -> Lv.5 (15 Core Tokens)
 };
-
-// ============================================================================
-// SUB-CATEGORY MASTERY SYSTEM (CROP MASTERY & FARMABLOCK MASTERY)
-// ============================================================================
-
-export function xpForNextMasteryLevel(level: number): number {
-  const clamped = Math.max(1, Math.floor(level || 1));
-  return Math.round(100 * Math.pow(clamped, 1.5));
-}
-
-export const CROP_MASTERY_UNLOCK_LEVEL_BY_SEED: Record<number, number> = {
-  [ITEM_IDS.CROP_SEED_RADISH]: 1,
-  [ITEM_IDS.CROP_SEED_CARROT]: 2,
-  [ITEM_IDS.CROP_SEED_CABBAGE]: 4,
-  [ITEM_IDS.CROP_SEED_TOMATO]: 6,
-  [ITEM_IDS.CROP_SEED_CORN]: 8,
-  [ITEM_IDS.CROP_SEED_MELON]: 10,
-};
-
-export const CROP_MASTERY_XP_BY_SEED: Record<number, number> = {
-  [ITEM_IDS.CROP_SEED_RADISH]: 10,
-  [ITEM_IDS.CROP_SEED_CARROT]: 18,
-  [ITEM_IDS.CROP_SEED_CABBAGE]: 28,
-  [ITEM_IDS.CROP_SEED_TOMATO]: 42,
-  [ITEM_IDS.CROP_SEED_CORN]: 60,
-  [ITEM_IDS.CROP_SEED_MELON]: 85,
-};
-
-export const FARMABLOCK_MASTERY_UNLOCK_LEVEL_BY_TIER: Record<number, number> = {
-  1: 1,
-  2: 2,
-  3: 4,
-  4: 6,
-  5: 8,
-  6: 11,
-  7: 14,
-  8: 18,
-};
-
-export const FARMABLOCK_MASTERY_XP_BY_TIER: Record<number, number> = {
-  1: 8,
-  2: 14,
-  3: 22,
-  4: 32,
-  5: 45,
-  6: 62,
-  7: 82,
-  8: 110,
-};
-
-export function getCropMasteryRequiredLevel(itemId: number): number {
-  const spec = getCropSpec(itemId);
-  if (!spec) return 1;
-  return CROP_MASTERY_UNLOCK_LEVEL_BY_SEED[spec.seedId] ?? 1;
-}
-
-export function getCropMasteryXpGrant(itemId: number): number {
-  const spec = getCropSpec(itemId);
-  if (!spec) return 0;
-  return CROP_MASTERY_XP_BY_SEED[spec.seedId] ?? 10;
-}
-
-export function getFarmablockMasteryRequiredLevel(itemId: number): number {
-  const spec = getFarmableSpec(itemId);
-  const tier = spec?.tier ?? CATALOG[itemId]?.farmableTier ?? 1;
-  return FARMABLOCK_MASTERY_UNLOCK_LEVEL_BY_TIER[tier] ?? 1;
-}
-
-export function getFarmablockMasteryXpGrant(itemId: number): number {
-  const spec = getFarmableSpec(itemId);
-  const tier = spec?.tier ?? CATALOG[itemId]?.farmableTier ?? 1;
-  return FARMABLOCK_MASTERY_XP_BY_TIER[tier] ?? 8;
-}
 
 export type CoreTokenSource =
   | { kind: 'block_break' }
@@ -4394,7 +4440,7 @@ export const FURNACE_RECIPES: FurnaceRecipe[] = [
     id: 'smelt_copper',
     category: 'smelting',
     name: 'Smelt Copper Ingot',
-    description: '3× Copper Fragment + 1× Coal → 1× Copper Ingot.',
+    description: 'Refine Copper Fragments into a Copper Ingot.',
     inputs: [{ itemId: ITEM_IDS.COPPER_FRAGMENT, qty: 3 }],
     fuelQty: 1,
     outputItemId: ITEM_IDS.COPPER_INGOT,
@@ -4405,7 +4451,7 @@ export const FURNACE_RECIPES: FurnaceRecipe[] = [
     id: 'smelt_iron',
     category: 'smelting',
     name: 'Smelt Refined Iron Ingot',
-    description: '3× Iron Fragment + 1× Coal → 1× Iron Ingot.',
+    description: 'Refine Iron Fragments into a structural Iron Ingot.',
     inputs: [{ itemId: ITEM_IDS.IRON_FRAGMENT, qty: 3 }],
     fuelQty: 1,
     outputItemId: ITEM_IDS.IRON_INGOT,
@@ -4416,7 +4462,7 @@ export const FURNACE_RECIPES: FurnaceRecipe[] = [
     id: 'smelt_crystal',
     category: 'smelting',
     name: 'Smelt Crystal Ingot',
-    description: '3× Crystal Fragment + 2× Coal → 1× Crystal Ingot.',
+    description: 'Fuse luminous Crystal Fragments into a Crystal Ingot.',
     inputs: [{ itemId: ITEM_IDS.CRYSTAL_FRAGMENT, qty: 3 }],
     fuelQty: 2,
     outputItemId: ITEM_IDS.CRYSTAL_INGOT,
@@ -4427,7 +4473,7 @@ export const FURNACE_RECIPES: FurnaceRecipe[] = [
     id: 'smelt_obsidian',
     category: 'smelting',
     name: 'Forge Obsidian Ingot',
-    description: '3× Obsidian Fragment + 2× Coal → 1× Obsidian Ingot.',
+    description: 'Temper volcanic Obsidian Fragments into an Obsidian Ingot.',
     inputs: [{ itemId: ITEM_IDS.OBSIDIAN_FRAGMENT, qty: 3 }],
     fuelQty: 2,
     outputItemId: ITEM_IDS.OBSIDIAN_INGOT,
@@ -4435,59 +4481,231 @@ export const FURNACE_RECIPES: FurnaceRecipe[] = [
     durationMs: 9000,
   },
   {
-    id: 'smelt_raw_coal',
-    category: 'smelting',
-    name: 'Refine Raw Coal Ore',
-    description: '2× Raw Coal Ore → 2× Coal Fuel.',
-    inputs: [{ itemId: ITEM_IDS.RAW_COAL_ORE, qty: 2 }],
-    fuelQty: 0,
-    outputItemId: ITEM_IDS.COAL_FUEL,
-    outputQty: 2,
-    durationMs: 3000,
+    id: 'craft_mining_scroll',
+    category: 'gear',
+    name: 'Inscribe Mining Scroll',
+    description: 'Open a fresh 50×150 underground Mining Shaft expedition.',
+    inputs: [
+      { itemId: ITEM_IDS.COPPER_FRAGMENT, qty: 2 },
+      { itemId: ITEM_IDS.GP_CAVE_BACKGROUND, qty: 2 },
+    ],
+    fuelQty: 1,
+    outputItemId: ITEM_IDS.MINING_SCROLL,
+    outputQty: 1,
+    durationMs: 3500,
   },
   {
-    id: 'smelt_raw_copper',
-    category: 'smelting',
-    name: 'Smelt Raw Copper Ore',
-    description: '3× Raw Copper Ore + 1× Coal → 1× Copper Ingot.',
-    inputs: [{ itemId: ITEM_IDS.RAW_COPPER_ORE, qty: 3 }],
+    id: 'craft_stone_pickaxe',
+    category: 'gear',
+    name: 'Forge Stone Pickaxe',
+    description: 'Craft a starter 2× power mining pickaxe without spending Gems.',
+    inputs: [
+      { itemId: ITEM_IDS.GP_ROCK, qty: 4 },
+      { itemId: ITEM_IDS.GP_WOOD_BLOCK, qty: 2 },
+    ],
     fuelQty: 1,
-    outputItemId: ITEM_IDS.COPPER_INGOT,
+    outputItemId: ITEM_IDS.STONE_PICKAXE,
     outputQty: 1,
     durationMs: 4000,
   },
   {
-    id: 'smelt_raw_iron',
-    category: 'smelting',
-    name: 'Smelt Raw Iron Ore',
-    description: '3× Raw Iron Ore + 1× Coal → 1× Iron Ingot.',
-    inputs: [{ itemId: ITEM_IDS.RAW_IRON_ORE, qty: 3 }],
+    id: 'craft_iron_pickaxe',
+    category: 'gear',
+    name: 'Forge Iron Pickaxe',
+    description: '3× break speed and +15% ore fragment drops.',
+    inputs: [
+      { itemId: ITEM_IDS.IRON_INGOT, qty: 4 },
+      { itemId: ITEM_IDS.GP_WOOD_BLOCK, qty: 2 },
+    ],
     fuelQty: 1,
-    outputItemId: ITEM_IDS.IRON_INGOT,
+    outputItemId: ITEM_IDS.IRON_PICKAXE,
     outputQty: 1,
-    durationMs: 5000,
+    durationMs: 6000,
   },
   {
-    id: 'smelt_raw_diamond',
-    category: 'smelting',
-    name: 'Smelt Raw Diamond Ore',
-    description: '3× Raw Diamond Ore + 2× Coal → 1× Crystal Ingot.',
-    inputs: [{ itemId: ITEM_IDS.RAW_DIAMOND_ORE, qty: 3 }],
+    id: 'craft_crystal_pickaxe',
+    category: 'gear',
+    name: 'Forge Crystal Pickaxe',
+    description: '4× break speed and +30% ore fragment drops.',
+    inputs: [
+      { itemId: ITEM_IDS.CRYSTAL_INGOT, qty: 4 },
+      { itemId: ITEM_IDS.OBSIDIAN_INGOT, qty: 2 },
+    ],
     fuelQty: 2,
-    outputItemId: ITEM_IDS.CRYSTAL_INGOT,
+    outputItemId: ITEM_IDS.CRYSTAL_PICKAXE,
     outputQty: 1,
-    durationMs: 7000,
+    durationMs: 8000,
   },
   {
-    id: 'smelt_raw_obsidium',
-    category: 'smelting',
-    name: 'Smelt Raw Obsidium Ore',
-    description: '3× Raw Obsidium Ore + 2× Coal → 1× Obsidian Ingot.',
-    inputs: [{ itemId: ITEM_IDS.RAW_OBSIDIUM_ORE, qty: 3 }],
+    id: 'craft_bamboo_rod',
+    category: 'gear',
+    name: 'Craft Bamboo Fishing Rod',
+    description: 'Cast into Water or Acid pools to hook fish.',
+    inputs: [
+      { itemId: ITEM_IDS.GP_WOOD_BLOCK, qty: 3 },
+      { itemId: ITEM_IDS.COPPER_INGOT, qty: 2 },
+    ],
+    fuelQty: 0,
+    outputItemId: ITEM_IDS.BAMBOO_ROD,
+    outputQty: 1,
+    durationMs: 3500,
+  },
+  {
+    id: 'craft_angler_rod',
+    category: 'gear',
+    name: 'Craft Deep Angler Rod',
+    description: 'Faster bites and improved abyssal fishing odds.',
+    inputs: [
+      { itemId: ITEM_IDS.IRON_INGOT, qty: 4 },
+      { itemId: ITEM_IDS.CRYSTAL_INGOT, qty: 2 },
+    ],
+    fuelQty: 1,
+    outputItemId: ITEM_IDS.ANGLER_ROD,
+    outputQty: 1,
+    durationMs: 6500,
+  },
+  {
+    id: 'craft_fishing_rod_iii',
+    category: 'gear',
+    name: 'Forge Fishing Rod III',
+    description: 'Upgrade the Deep Angler Rod for fishing depths 1–3.',
+    inputs: [
+      { itemId: ITEM_IDS.ANGLER_ROD, qty: 1 },
+      { itemId: ITEM_IDS.CRYSTAL_INGOT, qty: 3 },
+      { itemId: ITEM_IDS.COPPER_INGOT, qty: 2 },
+    ],
+    fuelQty: 1,
+    outputItemId: ITEM_IDS.FISHING_ROD_III,
+    outputQty: 1,
+    durationMs: 8000,
+  },
+  {
+    id: 'craft_fishing_rod_iv',
+    category: 'gear',
+    name: 'Forge Fishing Rod IV',
+    description: 'Upgrade Fishing Rod III for fishing depths 1–4.',
+    inputs: [
+      { itemId: ITEM_IDS.FISHING_ROD_III, qty: 1 },
+      { itemId: ITEM_IDS.CRYSTAL_INGOT, qty: 4 },
+      { itemId: ITEM_IDS.OBSIDIAN_INGOT, qty: 2 },
+    ],
     fuelQty: 2,
-    outputItemId: ITEM_IDS.OBSIDIAN_INGOT,
+    outputItemId: ITEM_IDS.FISHING_ROD_IV,
+    outputQty: 1,
+    durationMs: 10000,
+  },
+  {
+    id: 'craft_fishing_rod_v',
+    category: 'gear',
+    name: 'Forge Fishing Rod V',
+    description: 'Upgrade Fishing Rod IV for fishing depths 1–5.',
+    inputs: [
+      { itemId: ITEM_IDS.FISHING_ROD_IV, qty: 1 },
+      { itemId: ITEM_IDS.OBSIDIAN_INGOT, qty: 4 },
+      { itemId: ITEM_IDS.CRYSTAL_INGOT, qty: 3 },
+    ],
+    fuelQty: 2,
+    outputItemId: ITEM_IDS.FISHING_ROD_V,
+    outputQty: 1,
+    durationMs: 12000,
+  },
+  {
+    id: 'craft_fishing_rod_vi',
+    category: 'gear',
+    name: 'Forge Fishing Rod VI',
+    description: 'Upgrade Fishing Rod V for fishing depths 1–6.',
+    inputs: [
+      { itemId: ITEM_IDS.FISHING_ROD_V, qty: 1 },
+      { itemId: ITEM_IDS.OBSIDIAN_INGOT, qty: 6 },
+      { itemId: ITEM_IDS.CRYSTAL_INGOT, qty: 4 },
+    ],
+    fuelQty: 3,
+    outputItemId: ITEM_IDS.FISHING_ROD_VI,
+    outputQty: 1,
+    durationMs: 15000,
+  },
+  {
+    id: 'craft_bounce_pad',
+    category: 'gear',
+    name: 'Assemble Bounce Pad (×2)',
+    description: 'High-impulse spring pad for parkour worlds.',
+    inputs: [
+      { itemId: ITEM_IDS.COPPER_INGOT, qty: 2 },
+      { itemId: ITEM_IDS.GP_WOOD_BLOCK, qty: 2 },
+    ],
+    fuelQty: 1,
+    outputItemId: ITEM_IDS.BOUNCE_PAD,
+    outputQty: 2,
+    durationMs: 4000,
+  },
+  {
+    id: 'craft_exchange_terminal',
+    category: 'gear',
+    name: 'Build Exchange Terminal',
+    description: 'Placeable Global World Lock Exchange station.',
+    inputs: [
+      { itemId: ITEM_IDS.COPPER_INGOT, qty: 3 },
+      { itemId: ITEM_IDS.IRON_INGOT, qty: 2 },
+      { itemId: ITEM_IDS.GP_GLASS_PANE, qty: 1 },
+    ],
+    fuelQty: 1,
+    outputItemId: ITEM_IDS.EXCHANGE_TERMINAL,
+    outputQty: 1,
+    durationMs: 5500,
+  },
+  {
+    id: 'craft_bfg_collector',
+    category: 'gear',
+    name: 'Assemble BFG Auto-Collector',
+    description: 'Automated tree harvester and drop magnet for locked worlds.',
+    inputs: [
+      { itemId: ITEM_IDS.IRON_INGOT, qty: 4 },
+      { itemId: ITEM_IDS.CRYSTAL_INGOT, qty: 2 },
+      { itemId: ITEM_IDS.OBSIDIAN_INGOT, qty: 2 },
+    ],
+    fuelQty: 2,
+    outputItemId: ITEM_IDS.BFG_COLLECTOR,
     outputQty: 1,
     durationMs: 9000,
+  },
+  {
+    id: 'cook_glacier_fillet',
+    category: 'culinary',
+    name: 'Cook Glacier Fillet',
+    description: 'Grants +25% Movement Speed for 5 minutes.',
+    inputs: [{ itemId: ITEM_IDS.FISH_GLACIER_TROUT, qty: 2 }],
+    fuelQty: 1,
+    outputItemId: ITEM_IDS.BUFF_GLACIER_FILLET,
+    outputQty: 1,
+    durationMs: 3500,
+  },
+  {
+    id: 'cook_miner_chowder',
+    category: 'culinary',
+    name: "Simmer Miner's Chowder",
+    description: 'Grants +30% Break Speed for 5 minutes.',
+    inputs: [
+      { itemId: ITEM_IDS.FISH_CARP, qty: 2 },
+      { itemId: ITEM_IDS.FISH_MINNOW, qty: 1 },
+    ],
+    fuelQty: 1,
+    outputItemId: ITEM_IDS.BUFF_MINER_CHOWDER,
+    outputQty: 1,
+    durationMs: 3500,
+  },
+  {
+    id: 'cook_luck_broth',
+    category: 'culinary',
+    name: 'Brew Abyssal Luck Broth',
+    description: 'Grants +15% Seed & Fragment Drop Luck for 8 minutes.',
+    inputs: [
+      { itemId: ITEM_IDS.FISH_SLIMEFIN, qty: 1 },
+      { itemId: ITEM_IDS.FISH_MINNOW, qty: 2 },
+    ],
+    fuelQty: 1,
+    outputItemId: ITEM_IDS.BUFF_LUCK_BROTH,
+    outputQty: 1,
+    durationMs: 4000,
   },
 ];
 
@@ -4508,7 +4726,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_seed_pot',
     section: 'seeds',
     name: 'Seed Pot / Growbox',
-    description: 'Terracotta planter for Farmable Seeds (1 seed per pot).',
+    description: 'Specialized terracotta planter required to plant any farmable seed. Holds 1 seed at a time.',
     iconItemId: ITEM_IDS.SEED_POT,
     gemPrice: 500,
     grants: [
@@ -4519,7 +4737,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_seed_pot_bundle',
     section: 'seeds',
     name: 'Seed Pot 5-Pack Bundle',
-    description: '5× Seed Pots.',
+    description: 'Bulk bundle of 5 Seed Pots for expanding your personal farm groves.',
     iconItemId: ITEM_IDS.SEED_POT,
     gemPrice: 2500,
     grants: [
@@ -4530,7 +4748,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_matteragen_botanical',
     section: 'blocks',
     name: 'Botanical Matteragen Engine',
-    description: 'Gen 1 (Farmables 1–6) • 10m cycle • Lv.1–5 (-5% time/lv).',
+    description: 'Tier 1 generator yielding Botanical farmables every 10 min. Upgradeable Lv.1-5. (World cap: 20 engines total)',
     iconItemId: ITEM_IDS.MATTERAGEN_BOTANICAL,
     gemPrice: 1000,
     grants: [
@@ -4541,7 +4759,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_matteragen_geomineral',
     section: 'blocks',
     name: 'Geomineral Matteragen Engine',
-    description: 'Gen 2 (Farmables 3–14) • 30m cycle • Lv.1–5 (-5% time/lv).',
+    description: 'Tier 2 generator yielding Geomineral farmables every 30 min. Upgradeable Lv.1-5. (World cap: 20 engines total)',
     iconItemId: ITEM_IDS.MATTERAGEN_GEOMINERAL,
     gemPrice: 2500,
     grants: [
@@ -4552,7 +4770,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_matteragen_luminescent',
     section: 'blocks',
     name: 'Luminescent Matteragen Engine',
-    description: 'Gen 3 (Farmables 6–16) • 1h cycle • Lv.1–5 (-5% time/lv).',
+    description: 'Tier 3 generator yielding Luminescent farmables every 1h. Upgradeable Lv.1-5. (World cap: 20 engines total)',
     iconItemId: ITEM_IDS.MATTERAGEN_LUMINESCENT,
     gemPrice: 5000,
     grants: [
@@ -4563,7 +4781,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_matteragen_arcane',
     section: 'blocks',
     name: 'Arcane Matteragen Engine',
-    description: 'Gen 4 (Farmables 8–20) • 2h cycle • Lv.1–5 (-5% time/lv).',
+    description: 'Tier 4 generator yielding Arcane farmables every 2h. Upgradeable Lv.1-5. (World cap: 20 engines total)',
     iconItemId: ITEM_IDS.MATTERAGEN_ARCANE,
     gemPrice: 10000,
     grants: [
@@ -4574,7 +4792,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_matteragen_cosmic',
     section: 'blocks',
     name: 'Cosmic Matteragen Engine',
-    description: 'Gen 5 (Farmables 10–30) • 5h cycle • Lv.1–5 (-5% time/lv).',
+    description: 'Tier 5 generator yielding Cosmic farmables every 5h. Upgradeable Lv.1-5. (World cap: 20 engines total)',
     iconItemId: ITEM_IDS.MATTERAGEN_COSMIC,
     gemPrice: 20000,
     grants: [
@@ -4585,7 +4803,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_atm_machine',
     section: 'blocks',
     name: 'ATM Machine',
-    description: 'Generates 5–125 Gems every 30m–1.5h.',
+    description: 'Generates 5–125 Gems directly at random 30m–1.5h intervals. Punch when ready to collect.',
     iconItemId: ITEM_IDS.ATM_MACHINE,
     gemPrice: 10000,
     grants: [
@@ -4596,7 +4814,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_vaultbox',
     section: 'blocks',
     name: 'Vaultbox (10-Slot Storage)',
-    description: 'Owner-locked 10-slot storage chest block.',
+    description: 'Player-owned secure storage chest block with 10 empty item storage tiles.',
     iconItemId: ITEM_IDS.VAULTBOX,
     gemPrice: 1750,
     grants: [
@@ -4607,7 +4825,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_builders_mix',
     section: 'blocks',
     name: 'Builders Mix Pack',
-    description: '10× Platforms, 10× Bricks, 10× Wood, 10× Glass Panes.',
+    description: '10 Wooden Platforms (pass-through from underneath), 10 Bricks, 10 Wood Blocks, and 10 Glass Panes.',
     iconItemId: ITEM_IDS.GP_WOODEN_PLATFORM,
     gemPrice: 120,
     grants: [
@@ -4621,7 +4839,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_colour_splatter',
     section: 'blocks',
     name: 'Colour Splatter Paint Pack',
-    description: '5× Black, 5× Brown, 5× Grey, 5× Red, 5× Aqua blocks.',
+    description: '5 Black, 5 Brown, 5 Grey, 5 Red, and 5 Aqua blocks (total 25 colored blocks).',
     iconItemId: ITEM_IDS.GP_RED_BLOCK,
     gemPrice: 60,
     grants: [
@@ -4636,7 +4854,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_architect_support',
     section: 'blocks',
     name: 'Architect Support Bundle',
-    description: '10× Bricks, 10× Glass Panes, 5× Windows, 5× Wood.',
+    description: '30 design blocks: 10 Bricks, 10 Glass Panes, 5 Windows, and 5 Wood Blocks.',
     iconItemId: ITEM_IDS.GP_BRICKS,
     gemPrice: 45,
     grants: [
@@ -4650,7 +4868,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_natural_resources',
     section: 'blocks',
     name: 'World Default Natural Resources',
-    description: '15× Desert Sand, 15× Sandstone, 15× Snow, 15× Limestone.',
+    description: '15 of each world default block: Desert Sand, Red Sandstone, Frost Snow, and Cave Limestone.',
     iconItemId: ITEM_IDS.DESERT_SAND,
     gemPrice: 55,
     grants: [
@@ -4661,98 +4879,40 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     ],
   },
   {
-    id: 'store_wallpaper_wainscot',
+    id: 'store_scifi_infusion_hull',
     section: 'blocks',
-    name: 'Heritage Wainscot Wallpaper (×10)',
-    description: '10× sage-cream damask plaster & walnut wainscoting walls.',
-    iconItemId: ITEM_IDS.WALLPAPER_WAINSCOT,
-    gemPrice: 25,
+    name: 'Sci-fi Infusion Station Hull Pack',
+    description: '10 Orbital Hull Plating, 10 Starship Bulkhead Wall, 5 Hover-Grate Platforms, 5 Reinforced Viewglass & 2 Airlock Doors.',
+    iconItemId: ITEM_IDS.SCIFI_ORBITAL_HULL,
+    gemPrice: 85,
     grants: [
-      { itemId: ITEM_IDS.WALLPAPER_WAINSCOT, qty: 10 },
+      { itemId: ITEM_IDS.SCIFI_ORBITAL_HULL, qty: 10 },
+      { itemId: ITEM_IDS.SCIFI_BULKHEAD_BG, qty: 10 },
+      { itemId: ITEM_IDS.SCIFI_HOVER_PLATFORM, qty: 5 },
+      { itemId: ITEM_IDS.SCIFI_VIEWGLASS, qty: 5 },
+      { itemId: ITEM_IDS.SCIFI_AIRLOCK_DOOR, qty: 2 },
     ],
   },
   {
-    id: 'store_wallpaper_emerald_stripe',
+    id: 'store_scifi_infusion_command',
     section: 'blocks',
-    name: 'Emerald Regency Wallpaper (×10)',
-    description: '10× satin emerald striped & gold-pinstriped walls.',
-    iconItemId: ITEM_IDS.WALLPAPER_EMERALD_STRIPE,
-    gemPrice: 25,
+    name: 'Sci-fi Infusion Command Pack',
+    description: '10 Cryo-Core Panels, 10 Starfield Viewport Walls, 5 Holo-Beam Catwalks, 5 Telemetry Arrays & 5 Ion Conduit Trims.',
+    iconItemId: ITEM_IDS.SCIFI_CRYO_PANEL,
+    gemPrice: 110,
     grants: [
-      { itemId: ITEM_IDS.WALLPAPER_EMERALD_STRIPE, qty: 10 },
-    ],
-  },
-  {
-    id: 'store_wallpaper_venetian_plaster',
-    section: 'blocks',
-    name: 'Venetian Plaster Wall (×10)',
-    description: '10× warm hand-troweled Mediterranean terracotta walls.',
-    iconItemId: ITEM_IDS.WALLPAPER_VENETIAN_PLASTER,
-    gemPrice: 25,
-    grants: [
-      { itemId: ITEM_IDS.WALLPAPER_VENETIAN_PLASTER, qty: 10 },
-    ],
-  },
-  {
-    id: 'store_wallpaper_starlight_velvet',
-    section: 'blocks',
-    name: 'Midnight Starlight Wallpaper (×10)',
-    description: '10× indigo celestial velvet & gold-star walls.',
-    iconItemId: ITEM_IDS.WALLPAPER_STARLIGHT_VELVET,
-    gemPrice: 35,
-    grants: [
-      { itemId: ITEM_IDS.WALLPAPER_STARLIGHT_VELVET, qty: 10 },
-    ],
-  },
-  {
-    id: 'store_wallpaper_subway_tile',
-    section: 'blocks',
-    name: 'Subway Ceramic Tile Wall (×10)',
-    description: '10× glossy ivory subway tile & slate grout walls.',
-    iconItemId: ITEM_IDS.WALLPAPER_SUBWAY_TILE,
-    gemPrice: 25,
-    grants: [
-      { itemId: ITEM_IDS.WALLPAPER_SUBWAY_TILE, qty: 10 },
-    ],
-  },
-  {
-    id: 'store_wallpaper_cedar_shiplap',
-    section: 'blocks',
-    name: 'Honey Cedar Shiplap Wall (×10)',
-    description: '10× horizontal tongue-and-groove honey cedar walls.',
-    iconItemId: ITEM_IDS.WALLPAPER_CEDAR_SHIPLAP,
-    gemPrice: 25,
-    grants: [
-      { itemId: ITEM_IDS.WALLPAPER_CEDAR_SHIPLAP, qty: 10 },
-    ],
-  },
-  {
-    id: 'store_wallpaper_herringbone_parquet',
-    section: 'blocks',
-    name: 'Oak Herringbone Parquet (×10)',
-    description: '10× diagonal chevron oak & chestnut parquet walls.',
-    iconItemId: ITEM_IDS.WALLPAPER_HERRINGBONE_PARQUET,
-    gemPrice: 35,
-    grants: [
-      { itemId: ITEM_IDS.WALLPAPER_HERRINGBONE_PARQUET, qty: 10 },
-    ],
-  },
-  {
-    id: 'store_wallpaper_moroccan_mosaic',
-    section: 'blocks',
-    name: 'Cobalt Moroccan Mosaic (×10)',
-    description: '10× glazed cobalt & turquoise star mosaic walls.',
-    iconItemId: ITEM_IDS.WALLPAPER_MOROCCAN_MOSAIC,
-    gemPrice: 35,
-    grants: [
-      { itemId: ITEM_IDS.WALLPAPER_MOROCCAN_MOSAIC, qty: 10 },
+      { itemId: ITEM_IDS.SCIFI_CRYO_PANEL, qty: 10 },
+      { itemId: ITEM_IDS.SCIFI_STARFIELD_BG, qty: 10 },
+      { itemId: ITEM_IDS.SCIFI_HOLO_CATWALK, qty: 5 },
+      { itemId: ITEM_IDS.SCIFI_TELEMETRY_BG, qty: 5 },
+      { itemId: ITEM_IDS.SCIFI_ION_CONDUIT, qty: 5 },
     ],
   },
   {
     id: 'store_explorer_set',
     section: 'wearables',
     name: 'Explorer Ranger Hat & Visor',
-    description: 'Expedition hat and crystal sight visor.',
+    description: 'Equip this expedition hat and crystal sight visor in your profile wardrobe.',
     iconItemId: ITEM_IDS.WEAR_EXPLORER_HAT,
     gemPrice: 90,
     grants: [
@@ -4764,7 +4924,7 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     id: 'store_monarch_set',
     section: 'wearables',
     name: 'Sunforged Monarch Crown & Wings',
-    description: 'Royal crown and aether feather wings.',
+    description: 'Prestigious royal crown and aether feather wings.',
     iconItemId: ITEM_IDS.WEAR_SKY_WINGS,
     gemPrice: 220,
     grants: [
@@ -5019,161 +5179,61 @@ export function validateCatalogReferences(): { valid: boolean; warnings: string[
   return { valid: warnings.length === 0, warnings };
 }
 
-export interface CollectionDevDefaultEntry {
-  hardness: number;
-  rarity: ItemRarity;
-  gemValue: number;
-  xpValue: number;
-  growthTimeMs?: number;
-  drops?: DropEntry[];
-  treeHarvestYield?: { minBlocks: number; maxBlocks: number; seedChance: number };
-  bonusHarvestDrops?: DropEntry[];
-  cropAlterbitPrice?: number;
-  cropGemPrice?: number;
-  cropSellAlterbits?: number;
-}
+/**
+ * Immutable hardcoded baseline snapshot of every item in CATALOG so server restarts
+ * or missing database overrides always fall back cleanly to verified default values.
+ */
+export const BASELINE_CATALOG_SNAPSHOT: Record<number, ItemDefinition> = JSON.parse(
+  JSON.stringify(CATALOG)
+) as Record<number, ItemDefinition>;
 
 /**
- * Hardcoded Development Default snapshot of all Collection Item Values.
- * Acts as the immutable baseline fallback when server config is absent or reset.
+ * Merges an external JSON Item Catalogue dataset into CATALOG while preserving
+ * hardcoded default baselines for any unspecified attributes and normalizing stackLimit <= 500.
  */
-export const COLLECTION_DEV_DEFAULTS: Record<number, CollectionDevDefaultEntry> = Object.fromEntries(
-  Object.values(CATALOG).map((def) => [
-    def.id,
-    {
-      hardness: def.hardness,
-      rarity: def.rarity,
-      gemValue: def.gemValue,
-      xpValue: def.xpValue,
-      ...(def.growthTimeMs !== undefined ? { growthTimeMs: def.growthTimeMs } : {}),
-      ...(def.drops ? { drops: def.drops.map((d) => ({ ...d })) } : {}),
-      ...(def.treeHarvestYield ? { treeHarvestYield: { ...def.treeHarvestYield } } : {}),
-      ...(def.bonusHarvestDrops ? { bonusHarvestDrops: def.bonusHarvestDrops.map((d) => ({ ...d })) } : {}),
-      ...(def.cropAlterbitPrice !== undefined ? { cropAlterbitPrice: def.cropAlterbitPrice } : {}),
-      ...(def.cropGemPrice !== undefined ? { cropGemPrice: def.cropGemPrice } : {}),
-      ...(def.cropSellAlterbits !== undefined ? { cropSellAlterbits: def.cropSellAlterbits } : {}),
-    },
-  ])
-);
-
-export const SYSTEM_CRITICAL_ITEM_IDS: readonly number[] = [
-  ITEM_IDS.FIST,
-  ITEM_IDS.WRENCH,
-  ITEM_IDS.ENTRANCE_PORTAL,
-  ITEM_IDS.STONE_FURNACE,
-  ITEM_IDS.FARMING_HOE,
-  ITEM_IDS.WORLD_CORE,
-  ITEM_IDS.STARTER_LOOTBOX,
-  ITEM_IDS.COAL_FUEL,
-] as const;
-
-export interface ExternalCatalogDataset {
-  items?: Partial<ItemDefinition>[];
-  collectionDevDefaults?: Record<string | number, Partial<CollectionDevDefaultEntry>>;
-  gemStoreListings?: GemStoreListing[];
-}
-
-/**
- * Safely merges an external Item Catalogue Dataset JSON into the runtime CATALOG and COLLECTION_DEV_DEFAULTS.
- * Guards against stripping system-critical item IDs or mutating an existing item's structural category.
- */
-export function mergeBaselineCatalogDataset(dataset: ExternalCatalogDataset | null | undefined): {
-  addedItemIds: number[];
-  updatedItemIds: number[];
-  warnings: string[];
-} {
-  const addedItemIds: number[] = [];
-  const updatedItemIds: number[] = [];
-  const warnings: string[] = [];
-
-  if (!dataset || typeof dataset !== 'object') {
-    return { addedItemIds, updatedItemIds, warnings };
-  }
-
-  if (Array.isArray(dataset.items)) {
-    const incomingIds = new Set<number>();
-    for (const rawItem of dataset.items) {
-      const id = Number(rawItem?.id);
-      if (!Number.isInteger(id) || id < 0) continue;
-      incomingIds.add(id);
-      const existing = CATALOG[id];
-      if (existing) {
-        if (rawItem.category && rawItem.category !== existing.category) {
-          warnings.push(
-            `Blocked category mutation on item #${id} (${existing.key}): "${existing.category}" -> "${rawItem.category}".`
-          );
-        }
-        const merged: ItemDefinition = {
-          ...existing,
-          ...rawItem,
-          id: existing.id,
-          key: existing.key,
-          category: existing.category,
-          stackLimit:
-            typeof rawItem.stackLimit === 'number' && rawItem.stackLimit > 1
-              ? 500
-              : existing.stackLimit,
-        };
-        CATALOG[id] = merged;
-        updatedItemIds.push(id);
-      } else if (rawItem.key && rawItem.name && rawItem.category) {
-        const newDef: ItemDefinition = {
-          id,
-          key: String(rawItem.key),
-          name: String(rawItem.name),
-          description: String(rawItem.description ?? ''),
-          category: rawItem.category,
-          rarity: rawItem.rarity ?? 'common',
-          stackLimit:
-            typeof rawItem.stackLimit === 'number'
-              ? rawItem.stackLimit > 1
-                ? 500
-                : rawItem.stackLimit
-              : 500,
-          collision: rawItem.collision ?? 'none',
-          breakable: Boolean(rawItem.breakable ?? true),
-          hardness: Number(rawItem.hardness ?? 3),
-          placeable: Boolean(rawItem.placeable ?? true),
-          tradeable: Boolean(rawItem.tradeable ?? true),
-          gemValue: Number(rawItem.gemValue ?? 0),
-          xpValue: Number(rawItem.xpValue ?? 1),
-          colorPrimary: String(rawItem.colorPrimary ?? '#94a3b8'),
-          colorSecondary: String(rawItem.colorSecondary ?? '#475569'),
-          colorAccent: String(rawItem.colorAccent ?? '#f8fafc'),
-          ...(rawItem.storePrice !== undefined ? { storePrice: Number(rawItem.storePrice) } : {}),
-          ...(rawItem.drops ? { drops: rawItem.drops } : {}),
-        };
-        CATALOG[id] = newDef;
-        addedItemIds.push(id);
-      }
-    }
-
-    for (const critId of SYSTEM_CRITICAL_ITEM_IDS) {
-      if (dataset.items.length > 0 && !incomingIds.has(critId)) {
-        warnings.push(
-          `Dataset omitted system-critical item #${critId} (${CATALOG[critId]?.key ?? 'unknown'}); retained built-in definition.`
-        );
-      }
-    }
-  }
-
-  if (dataset.collectionDevDefaults && typeof dataset.collectionDevDefaults === 'object') {
-    for (const [k, v] of Object.entries(dataset.collectionDevDefaults)) {
-      const id = Number(k);
-      if (!CATALOG[id] || !v || typeof v !== 'object') continue;
-      COLLECTION_DEV_DEFAULTS[id] = {
-        ...(COLLECTION_DEV_DEFAULTS[id] ?? {
-          hardness: CATALOG[id].hardness,
-          rarity: CATALOG[id].rarity,
-          gemValue: CATALOG[id].gemValue,
-          xpValue: CATALOG[id].xpValue,
-        }),
-        ...v,
+export function mergeBaselineCatalogDataset(
+  dataset: Array<Partial<ItemDefinition> & { id: number }> | Record<string, Partial<ItemDefinition>>
+): { added: number; updated: number } {
+  const entries = Array.isArray(dataset)
+    ? dataset
+    : Object.entries(dataset).map(([k, v]) => ({ ...v, id: Number(v.id ?? k) }));
+  let added = 0;
+  let updated = 0;
+  for (const raw of entries) {
+    const id = Number(raw?.id);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    const existing = CATALOG[id];
+    if (existing) {
+      Object.assign(existing, raw);
+      if (existing.stackLimit > 1) existing.stackLimit = 500;
+      updated += 1;
+    } else {
+      const created: ItemDefinition = {
+        ...raw,
+        id,
+        key: String(raw.key || `item_${id}`),
+        name: String(raw.name || `Item #${id}`),
+        description: String(raw.description || ''),
+        category: raw.category || 'foreground',
+        rarity: raw.rarity || 'common',
+        stackLimit: raw.stackLimit === 1 ? 1 : 500,
+        collision: raw.collision || 'solid',
+        breakable: raw.breakable ?? true,
+        hardness: raw.hardness ?? 3,
+        placeable: raw.placeable ?? true,
+        tradeable: raw.tradeable ?? true,
+        gemValue: raw.gemValue ?? 0,
+        xpValue: raw.xpValue ?? 1,
+        colorPrimary: raw.colorPrimary || '#94a3b8',
+        colorSecondary: raw.colorSecondary || '#475569',
+        colorAccent: raw.colorAccent || '#e2e8f0',
       };
+      if (created.stackLimit > 1) created.stackLimit = 500;
+      CATALOG[id] = created;
+      added += 1;
     }
   }
-
-  return { addedItemIds, updatedItemIds, warnings };
+  return { added, updated };
 }
 
 
