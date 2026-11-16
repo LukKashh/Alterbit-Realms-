@@ -1061,20 +1061,20 @@ export function drawCatalogItemRaw30(
     }
 
     case 154: {
-      // Landlord NPC — Aristocratic magistrate in royal top hat, gold monocle & velvet coat
-      bevel30(ctx, 1, 1, 28, 28, '#1e3a8a', '#60a5fa', '#172554', out);
+      // Landlord NPC — Aristocratic magistrate in royal top hat, gold monocle & velvet coat filling full 30x30 frame
+      bevel30(ctx, 0, 0, 30, 30, '#1e3a8a', '#60a5fa', '#172554', out);
       // Royal top hat with gold band
-      bevel30(ctx, 8, 3, 14, 7, '#0f172a', '#475569', '#020617', out);
-      rect(ctx, 9, 8, 12, 1, '#facc15');
-      bevel30(ctx, 5, 9, 20, 3, '#0f172a', '#475569', '#020617', out);
+      bevel30(ctx, 7, 1, 16, 8, '#0f172a', '#475569', '#020617', out);
+      rect(ctx, 8, 7, 14, 1, '#facc15');
+      bevel30(ctx, 4, 8, 22, 3, '#0f172a', '#475569', '#020617', out);
       // Face & golden monocle
-      bevel30(ctx, 8, 11, 14, 9, '#f1b98a', '#ffd7b3', '#b87a50', out);
-      rect(ctx, 10, 14, 2, 2, '#0f172a');
-      drawDisc30(ctx, 18, 15, 2.2, '#38bdf8', '#ffffff', '#0284c7', '#facc15');
+      bevel30(ctx, 7, 10, 16, 10, '#f1b98a', '#ffd7b3', '#b87a50', out);
+      rect(ctx, 10, 13, 2, 2, '#0f172a');
+      drawDisc30(ctx, 18, 14, 2.4, '#38bdf8', '#ffffff', '#0284c7', '#facc15');
       rect(ctx, 12, 17, 6, 1, '#78350f');
-      // Royal coat & golden cravat
-      bevel30(ctx, 5, 20, 20, 8, '#1d4ed8', '#60a5fa', '#1e3a8a', out);
-      rect(ctx, 13, 21, 4, 6, '#fef08a');
+      // Royal coat & golden cravat grounded flush to bottom frame
+      bevel30(ctx, 3, 19, 24, 11, '#1d4ed8', '#60a5fa', '#1e3a8a', out);
+      rect(ctx, 13, 20, 4, 9, '#fef08a');
       return true;
     }
 
@@ -1093,20 +1093,20 @@ export function drawCatalogItemRaw30(
     }
 
     case 156: {
-      // Fresh Greens Vendor NPC — Botanist with woven sunhat, emerald ribbon & garden tunic
-      bevel30(ctx, 1, 1, 28, 28, '#14532d', '#4ade80', '#052e16', out);
+      // Fresh Greens Vendor NPC — Botanist with woven sunhat, emerald ribbon & garden tunic filling full 30x30 frame
+      bevel30(ctx, 0, 0, 30, 30, '#14532d', '#4ade80', '#052e16', out);
       // Woven straw sunhat with green band
-      bevel30(ctx, 8, 3, 14, 5, '#eab308', '#fef08a', '#a16207', out);
-      bevel30(ctx, 4, 7, 22, 4, '#facc15', '#fef9c3', '#ca8a04', out);
-      rect(ctx, 8, 7, 14, 2, '#16a34a');
+      bevel30(ctx, 7, 1, 16, 6, '#eab308', '#fef08a', '#a16207', out);
+      bevel30(ctx, 3, 6, 24, 4, '#facc15', '#fef9c3', '#ca8a04', out);
+      rect(ctx, 7, 6, 16, 2, '#16a34a');
       // Friendly face
-      bevel30(ctx, 8, 10, 14, 9, '#f1b98a', '#ffd7b3', '#b87a50', out);
-      rect(ctx, 10, 13, 2, 2, '#0f172a');
-      rect(ctx, 18, 13, 2, 2, '#0f172a');
+      bevel30(ctx, 7, 9, 16, 10, '#f1b98a', '#ffd7b3', '#b87a50', out);
+      rect(ctx, 10, 12, 2, 2, '#0f172a');
+      rect(ctx, 18, 12, 2, 2, '#0f172a');
       rect(ctx, 13, 16, 4, 1, '#9a3412');
-      // Emerald garden apron
-      bevel30(ctx, 5, 19, 20, 9, '#16a34a', '#86efac', '#14532d', out);
-      rect(ctx, 10, 20, 10, 7, '#dcfce7');
+      // Emerald garden apron grounded flush to bottom frame
+      bevel30(ctx, 3, 18, 24, 12, '#16a34a', '#86efac', '#14532d', out);
+      rect(ctx, 9, 19, 12, 10, '#dcfce7');
       return true;
     }
 
@@ -1124,6 +1124,24 @@ export function drawCatalogItemRaw30(
       // Center golden shield clasp
       bevel30(ctx, 11, 10, 8, 8, '#facc15', '#ffffff', '#b45309', out);
       rect(ctx, 14, 13, 2, 3, '#0f172a');
+      return true;
+    }
+
+    case 158: {
+      // Pixobyte Digichange — Cryptographic digital Bytomerge terminal with cyan/violet stock waveform
+      bevel30(ctx, 0, 0, 30, 30, '#0f172a', '#06b6d4', '#020617', out);
+      bevel30(ctx, 2, 2, 26, 17, '#042f2e', '#22d3ee', '#020617', out);
+      // Cryptic stock ticker waveform & Pixobyte node
+      drawLine30(ctx, 5, 14, 10, 10, '#10b981', 1);
+      drawLine30(ctx, 10, 10, 15, 13, '#06b6d4', 1);
+      drawLine30(ctx, 15, 13, 23, 6, '#a855f7', 2);
+      drawDisc30(ctx, 23, 6, 2.2, '#67e8f9', '#ffffff', '#0891b2', out);
+      // Lower cryptic keypad & wallet reader deck
+      bevel30(ctx, 3, 20, 24, 8, '#1e1b4b', '#818cf8', '#090d16', out);
+      for (const kx of [6, 11, 16, 21]) {
+        rect(ctx, kx, 22, 3, 2, '#22d3ee');
+        rect(ctx, kx, 25, 3, 1, '#a855f7');
+      }
       return true;
     }
 

@@ -68,6 +68,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.74),
     inset 0 -1px 0 rgba(65, 114, 163, 0.24),
     0 8px 24px rgba(15, 42, 74, 0.28);
+  animation: hudWindowQuickIn 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .pixel-wood-box {
@@ -81,6 +82,7 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.74),
     inset 0 -1px 0 rgba(65, 114, 163, 0.24),
     0 8px 24px rgba(15, 42, 74, 0.28);
+  animation: hudWindowQuickIn 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .pixel-box-header {
@@ -311,4 +313,118 @@
   animation: hudSlideDownPop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Snappy Appearance & Disappearance Animations for HUD Buttons -> UI Screens & Window Switches */
+@keyframes hudWindowQuickIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.965);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 
+@keyframes hudWindowQuickOut {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(5px) scale(0.968);
+  }
+}
+
+@keyframes hudBackdropQuickIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes hudSubviewSwitch {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hudRowExpand {
+  0% {
+    opacity: 0;
+    transform: translateY(-3px) scaleY(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+.hud-window-enter {
+  animation: hudWindowQuickIn 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hud-window-exit {
+  animation: hudWindowQuickOut 0.11s ease-in forwards;
+}
+
+.hud-backdrop-enter {
+  animation: hudBackdropQuickIn 0.13s ease-out both;
+}
+
+.hud-subview-enter {
+  animation: hudSubviewSwitch 0.13s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hud-row-expand {
+  transform-origin: top center;
+  animation: hudRowExpand 0.12s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Centralised Bytomerge Terminal — Digital Cryptic Textural Theme */
+.bytomerge-terminal-box {
+  background:
+    radial-gradient(circle at 85% 12%, rgba(168, 85, 247, 0.18), transparent 45%),
+    radial-gradient(circle at 12% 88%, rgba(20, 184, 166, 0.18), transparent 45%),
+    linear-gradient(180deg, rgba(10, 18, 34, 0.96) 0%, rgba(7, 13, 25, 0.97) 100%);
+  border: 2.5px solid #14b8a6;
+  border-radius: 12px;
+  color: #e2f8f5;
+  box-shadow:
+    inset 0 1px 0 rgba(94, 234, 212, 0.35),
+    inset 0 -1px 0 rgba(139, 92, 246, 0.35),
+    0 12px 32px rgba(4, 9, 20, 0.72),
+    0 0 18px rgba(20, 184, 166, 0.22);
+  animation: hudWindowQuickIn 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bytomerge-terminal-header {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(20, 184, 166, 0.08) 0px,
+      rgba(20, 184, 166, 0.08) 2px,
+      transparent 2px,
+      transparent 8px
+    ),
+    linear-gradient(90deg, rgba(13, 31, 52, 0.96) 0%, rgba(28, 20, 56, 0.94) 100%);
+  border-bottom: 2px solid #14b8a6;
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+}
+
+.bytomerge-brick-pill {
+  background: linear-gradient(180deg, rgba(17, 34, 56, 0.92) 0%, rgba(11, 23, 40, 0.94) 100%);
+  border: 1.5px solid rgba(45, 212, 191, 0.55);
+  border-radius: 9px;
+  box-shadow:
+    inset 0 1px 0 rgba(153, 246, 228, 0.18),
+    0 2px 0 rgba(6, 14, 26, 0.7);
+}

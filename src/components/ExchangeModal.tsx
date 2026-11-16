@@ -130,7 +130,10 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                 <span>{formatHudNumber(gems)}</span>
               </strong>{' '}
               · Burned: <strong className="text-[#b91c1c]">{formatHudNumber(exchange.totalWlBurned)} WL</strong> /{' '}
-              {formatHudNumber(exchange.totalGemsCleared)} G
+              <span className="inline-flex items-center gap-0.5">
+                <span>{formatHudNumber(exchange.totalGemsCleared)}</span>
+                <RedGemIcon className="w-2.5 h-2.5 shrink-0" />
+              </span>
             </p>
           </div>
         </div>
@@ -361,8 +364,18 @@ export const ExchangeModal: React.FC<ExchangeModalProps> = ({
                   Escrow Total: {formatHudNumber(bundleSize * bundles)}× {getItemDef(activeSellItemId)?.name ?? 'Item'}
                 </p>
                 {priceWl === 1 ? (
-                  <p className="text-[11px] font-mono-num text-[#b91c1c] font-semibold">
-                    1-WL Clearing Fee (upfront): {formatHudNumber(previewClearingGems)} Gems ({bundles} bundle × 10 G) · 0 WL tax on sale
+                  <p className="text-[11px] font-mono-num text-[#b91c1c] font-semibold flex items-center gap-1 flex-wrap">
+                    <span>1-WL Clearing Fee (upfront):</span>
+                    <span className="inline-flex items-center gap-0.5">
+                      <span>{formatHudNumber(previewClearingGems)}</span>
+                      <RedGemIcon className="w-3 h-3 shrink-0" />
+                    </span>
+                    <span className="inline-flex items-center gap-0.5">
+                      <span>({bundles} bundle × 10</span>
+                      <RedGemIcon className="w-2.5 h-2.5 shrink-0" />
+                      <span>)</span>
+                    </span>
+                    <span>· 0 WL tax on sale</span>
                   </p>
                 ) : (
                   <p className="text-[11px] font-mono-num text-[#92400e] font-semibold">

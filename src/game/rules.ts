@@ -12,6 +12,11 @@ import { getCropSpec, getFarmableSpec, getItemDef, isCropSeed, isFarmableSeed, I
 import type { AreaLockRecord, PlantedTree, WorldState, ShareLockRecord } from './worldGen.ts';
 import { getShareLockSpec, rectanglesOverlap, type ShareLockPermissionKey } from './shareLocks.ts';
 import { isSystemWorld } from './expansion.ts';
+import {
+  getActiveDatasetConfig,
+  resolveDatasetLevelRequirement,
+  type DatasetProgressionCurve,
+} from './config.ts';
 
 export interface PlayerContext {
   id: string;
@@ -173,6 +178,43 @@ export function getMarketStandAt(
     }
   }
   return null;
+}
+
+export function getPixobyteDigichangeAt(
+  world: WorldState,
+  tx: number,
+  ty: number
+): { anchorX: number; topY: number; bottomY: number } | null {
+  if (!inBoundsWorld(world, tx, ty)) return null;
+  const idx = tileIndexIn(world, tx, ty);
+  const isHere =
+    world.bg[idx] === ITEM_IDS.PIXOBYTE_DIGICHANGE ||
+    world.fg[idx] === ITEM_IDS.PIXOBYTE_DIGICHANGE;
+  if (!isHere) return null;
+
+  // Check if tile above is also part of the 1x2 vertical terminal
+  if (inBoundsWorld(world, tx, ty - 1)) {
+    const aboveIdx = tileIndexIn(world, tx, ty - 1);
+    if (
+      world.bg[aboveIdx] === ITEM_IDS.PIXOBYTE_DIGICHANGE ||
+      world.fg[aboveIdx] === ITEM_IDS.PIXOBYTE_DIGICHANGE
+    ) {
+      return { anchorX: tx, topY: ty - 1, bottomY: ty };
+    }
+  }
+  // Check if tile below is part of the 1x2 vertical terminal
+  if (inBoundsWorld(world, tx, ty + 1)) {
+    const belowIdx = tileIndexIn(world, tx, ty + 1);
+    if (
+      world.bg[belowIdx] === ITEM_IDS.PIXOBYTE_DIGICHANGE ||
+      world.fg[belowIdx] === ITEM_IDS.PIXOBYTE_DIGICHANGE
+    ) {
+      return { anchorX: tx, topY: ty, bottomY: ty + 1 };
+    }
+  }
+  // Fallback if single tile placed: span (ty - 1 .. ty)
+  const topY = Math.max(0, ty - 1);
+  return { anchorX: tx, topY, bottomY: ty };
 }
 
 export function isIndestructiblePregenTile(world: WorldState, tx: number, ty: number): boolean {
@@ -590,60 +632,87 @@ export function validateWorldName(raw: string): { ok: boolean; normalized: strin
   return { ok: true, normalized };
 }
 
-export function xpForNextLevel(level: number): number {
-  return 50 + (level - 1) * 35;
+export function xpForNextLevel(level: number, curve?: DatasetProgressionCurve): number {
+  const active = curve ?? getActiveDatasetConfig().playerMainXp;
+  return resolveDatasetLevelRequirement(active, level);
 }
 
 export function addXp(
   level: number,
   xp: number,
-  gained: number
+  gained: number,
+  curve?: DatasetProgressionCurve
 ): { level: number; xp: number; leveledUp: boolean } {
+  const active = curve ?? getActiveDatasetConfig().playerMainXp;
+  const maxLvl = Math.max(5, active?.maxLevel ?? 100);
   let curLevel = Math.max(1, level);
   let curXp = Math.max(0, xp) + Math.max(0, gained);
   let leveledUp = false;
-  while (curXp >= xpForNextLevel(curLevel)) {
-    curXp -= xpForNextLevel(curLevel);
+  while (curLevel < maxLvl && curXp >= xpForNextLevel(curLevel, active)) {
+    curXp -= xpForNextLevel(curLevel, active);
     curLevel += 1;
     leveledUp = true;
   }
   return { level: curLevel, xp: curXp, leveledUp };
 }
 
-export function worldXpForNextLevel(level: number): number {
-  return 100 + (Math.max(1, level) - 1) * 75;
+export function worldXpForNextLevel(level: number, curve?: DatasetProgressionCurve): number {
+  const active = curve ?? getActiveDatasetConfig().worldCoreXp;
+  return resolveDatasetLevelRequirement(active, level);
 }
 
 export function addWorldXp(
   level: number,
   xp: number,
-  gained: number
+  gained: number,
+  curve?: DatasetProgressionCurve
 ): { level: number; xp: number; leveledUp: boolean } {
+  const active = curve ?? getActiveDatasetConfig().worldCoreXp;
+  const maxLvl = Math.max(5, active?.maxLevel ?? 50);
   let curLevel = Math.max(1, level);
   let curXp = Math.max(0, xp) + Math.max(0, gained);
   let leveledUp = false;
-  while (curXp >= worldXpForNextLevel(curLevel)) {
-    curXp -= worldXpForNextLevel(curLevel);
+  while (curLevel < maxLvl && curXp >= worldXpForNextLevel(curLevel, active)) {
+    curXp -= worldXpForNextLevel(curLevel, active);
     curLevel += 1;
     leveledUp = true;
   }
   return { level: curLevel, xp: curXp, leveledUp };
 }
 
-export function masteryXpForNextLevel(level: number): number {
-  return 40 + (Math.max(1, level) - 1) * 30;
+export function masteryXpForNextLevel(
+  level: number,
+  kindOrCurve?: 'crop' | 'farmablock' | DatasetProgressionCurve
+): number {
+  const ds = getActiveDatasetConfig();
+  const active =
+    typeof kindOrCurve === 'object' && kindOrCurve !== null
+      ? kindOrCurve
+      : kindOrCurve === 'farmablock'
+        ? ds.farmablockMastery
+        : ds.cropMastery;
+  return resolveDatasetLevelRequirement(active, level);
 }
 
 export function addMasteryXp(
   level: number,
   xp: number,
-  gained: number
+  gained: number,
+  kindOrCurve?: 'crop' | 'farmablock' | DatasetProgressionCurve
 ): { level: number; xp: number; leveledUp: boolean } {
+  const ds = getActiveDatasetConfig();
+  const active =
+    typeof kindOrCurve === 'object' && kindOrCurve !== null
+      ? kindOrCurve
+      : kindOrCurve === 'farmablock'
+        ? ds.farmablockMastery
+        : ds.cropMastery;
+  const maxLvl = Math.max(5, active?.maxLevel ?? 50);
   let curLevel = Math.max(1, level);
   let curXp = Math.max(0, xp) + Math.max(0, gained);
   let leveledUp = false;
-  while (curXp >= masteryXpForNextLevel(curLevel)) {
-    curXp -= masteryXpForNextLevel(curLevel);
+  while (curLevel < maxLvl && curXp >= masteryXpForNextLevel(curLevel, active)) {
+    curXp -= masteryXpForNextLevel(curLevel, active);
     curLevel += 1;
     leveledUp = true;
   }
@@ -662,6 +731,10 @@ const CROP_MASTERY_UNLOCKS: Record<number, number> = {
 export function getCropMasteryRequiredLevel(itemId: number): number {
   const spec = getCropSpec(itemId);
   const seedId = spec?.seedId ?? itemId;
+  const custom = getActiveDatasetConfig().cropMastery?.unlockLevelOverrides?.[seedId];
+  if (typeof custom === 'number' && Number.isFinite(custom) && custom >= 1) {
+    return Math.round(custom);
+  }
   return CROP_MASTERY_UNLOCKS[seedId] ?? 1;
 }
 
@@ -679,6 +752,10 @@ const FARMABLE_TIER_MASTERY_UNLOCKS: Record<number, number> = {
 export function getFarmableMasteryRequiredLevel(itemId: number): number {
   const spec = getFarmableSpec(itemId);
   if (!spec) return 1;
+  const custom = getActiveDatasetConfig().farmablockMastery?.unlockLevelOverrides?.[spec.tier];
+  if (typeof custom === 'number' && Number.isFinite(custom) && custom >= 1) {
+    return Math.round(custom);
+  }
   return FARMABLE_TIER_MASTERY_UNLOCKS[spec.tier] ?? 1;
 }
 

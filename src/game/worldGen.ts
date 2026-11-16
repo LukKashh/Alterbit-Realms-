@@ -195,7 +195,7 @@ export const NEXUS_DOOR_DESTINATIONS: NexusDoorDestination[] = [
   {
     id: 'upper_exchange',
     label: '↑ Global Exchange',
-    subtitle: 'Upper Deck — Global Exchange Terminal',
+    subtitle: 'Upper Deck — Global Exchange & Pixobyte Digichange Terminal',
     tx: 50,
     ty: 17,
   },
@@ -208,7 +208,7 @@ export const NEXUS_DOOR_DESTINATIONS: NexusDoorDestination[] = [
   },
 ];
 
-export const NEXUS_LAYOUT_VERSION = 6;
+export const NEXUS_LAYOUT_VERSION = 7;
 
 export function hashWorldSeed(name: string): number {
   let h = 2166136261 >>> 0;
@@ -396,6 +396,9 @@ export function generateWorld(
     // Center Spawn Entrance Portal + Airlock Bulkhead Gateway Door & Pass-Through Signs
     nFg[spawnY * nWidth + spawnX] = ITEM_IDS.ENTRANCE_PORTAL;
     nBg[spawnY * nWidth + 53] = ITEM_IDS.SCIFI_AIRLOCK_DOOR;
+    // 1x2 Pixobyte Digichange Background Terminal on Central Concourse (x = 48, y = 28..29)
+    nBg[(spawnY - 1) * nWidth + 48] = ITEM_IDS.PIXOBYTE_DIGICHANGE;
+    nBg[spawnY * nWidth + 48] = ITEM_IDS.PIXOBYTE_DIGICHANGE;
     nFg[spawnY * nWidth + 47] = ITEM_IDS.WOODEN_SIGN;
     nFg[spawnY * nWidth + 52] = ITEM_IDS.WOODEN_SIGN;
     nFg[spawnY * nWidth + 55] = ITEM_IDS.WOODEN_SIGN;
@@ -499,6 +502,9 @@ export function generateWorld(
     }
     nFg[(upperDeckY - 1) * nWidth + 43] = ITEM_IDS.EXCHANGE_TERMINAL;
     nBg[(upperDeckY - 1) * nWidth + 51] = ITEM_IDS.SCIFI_AIRLOCK_DOOR;
+    // 1x2 Pixobyte Digichange Background Terminal on Upper Exchange Deck (x = 57, y = 16..17)
+    nBg[(upperDeckY - 2) * nWidth + 57] = ITEM_IDS.PIXOBYTE_DIGICHANGE;
+    nBg[(upperDeckY - 1) * nWidth + 57] = ITEM_IDS.PIXOBYTE_DIGICHANGE;
     nFg[(upperDeckY - 1) * nWidth + 50] = ITEM_IDS.WOODEN_SIGN;
 
     // Upper Observation Gantry Wings (y = 13, x = 40..60) framed overhead

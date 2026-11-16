@@ -17,6 +17,9 @@ import {
 } from '../game/config.ts';
 import { getItemIconUrl } from '../game/pixelArt.ts';
 import { AdminWorldsBrowser } from './AdminWorldsBrowser.tsx';
+import { AdminDatasetPanel } from './AdminDatasetPanel.tsx';
+import { RedGemIcon } from './RedGemIcon.tsx';
+import { isOpeningFrameTickLocked, openingFrameTick } from '../game/openingFrameTick.ts';
 import type { WorldSummary } from '../game/network.ts';
 import {
   Shield,
@@ -75,7 +78,7 @@ export interface AdminPanelProps {
   worlds?: WorldSummary[];
   onRefreshWorlds?: () => void;
   onWarpWorld?: (worldName: string) => void;
-  initialView?: 'selection' | 'catalog' | 'worlds';
+  initialView?: 'selection' | 'catalog' | 'worlds' | 'datasets';
   onClose: () => void;
 }
 
@@ -112,7 +115,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   initialView = 'selection',
   onClose,
 }) => {
-  const [adminView, setAdminView] = useState<'selection' | 'catalog' | 'worlds'>(initialView);
+  const [adminView, setAdminView] = useState<'selection' | 'catalog' | 'worlds' | 'datasets'>(
+    initialView
+  );
+  const switchAdminView = (nextView: 'selection' | 'catalog' | 'worlds' | 'datasets') => {
+    if (isOpeningFrameTickLocked()) return;
+    openingFrameTick();
+    setAdminView(nextView);
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<FilterCategory>('all');
 
@@ -416,8 +426,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         worlds={worlds}
         onRefreshWorlds={onRefreshWorlds}
         onWarpWorld={onWarpWorld}
-        onBackToMenu={() => setAdminView('selection')}
-        onSwitchToCatalog={() => setAdminView('catalog')}
+        onBackToMenu={() => switchAdminView('selection')}
+        onSwitchToCatalog={() => switchAdminView('catalog')}
+        onClose={onClose}
+      />
+    );
+  }
+
+  // View 1B: DataSet Value Panel Window
+  if (adminView === 'datasets') {
+    return (
+      <AdminDatasetPanel
+        config={gameConfig}
+        onUpdateDraftDatasets={(nextDatasets) => {
+          const next = cloneGameConfig(gameConfig);
+          next.datasets = nextDatasets;
+          onSaveConfig(next);
+        }}
+        onSaveConfig={onSaveConfig}
+        onBackToHub={() => switchAdminView('selection')}
         onClose={onClose}
       />
     );
@@ -459,16 +486,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               {adminWorldEdit ? 'SysEdit ON' : 'SysEdit'}
             </button>
 
-            {/* Quick +500G */}
+            {/* Quick +500 Gems */}
             <button
               type="button"
               onClick={() => {
                 onAdminAction?.({ action: 'grant_gems', gems: 500 });
                 showToast('Granted +500 Gems');
               }}
-              className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase bg-white/80 text-[#92400e] border border-[#b45309] hover:bg-[#fef3c7] cursor-pointer"
+              className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase bg-white/80 text-[#92400e] border border-[#b45309] hover:bg-[#fef3c7] inline-flex items-center gap-1 cursor-pointer"
             >
-              +500G
+              <span>+500</span>
+              <RedGemIcon className="w-3 h-3 shrink-0" />
             </button>
 
             {/* Quick Insta-Grow */}
@@ -546,7 +574,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <button
               type="button"
               data-testid="admin-select-catalogue-btn"
-              onClick={() => setAdminView('catalog')}
+              onClick={() => switchAdminView('catalog')}
               className="w-full text-left p-3.5 bg-white hover:bg-[#f0fdf4] border-2 border-[#16a34a] hover:border-[#15803d] rounded-[10px] shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 group"
             >
               <div className="flex items-start gap-3">
@@ -576,11 +604,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <ChevronRight size={20} className="text-[#16a34a] shrink-0 group-hover:translate-x-1 transition-transform" />
             </button>
 
-            {/* TOOL 2: Server Worlds Browser */}
+            {/* TOOL 2: DataSet Value Panel */}
+            <button
+              type="button"
+              data-testid="admin-select-datasets-btn"
+              onClick={() => switchAdminView('datasets')}
+              className="w-full text-left p-3.5 bg-white hover:bg-[#faf5ff] border-2 border-[#7c3aed] hover:border-[#6d28d9] rounded-[10px] shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 group"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-[9px] bg-gradient-to-br from-[#8b5cf6] to-[#6d28d9] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                  <Sliders size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-sm text-[#0f172a] group-hover:text-[#6d28d9] transition-colors">
+                      DataSet Value Panel
+                    </h3>
+                    <span className="px-1.5 py-0.5 rounded-[5px] text-[9px] font-bold uppercase bg-[#ede9fe] text-[#5b21b6] border border-[#c4b5fd]">
+                      Progression Ranges · Level-to-Level Editor
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#475569] mt-1 leading-relaxed">
+                    Modify user-stored progression accumulation ranges and level advancement requirements.
+                    Navigate dedicated variation menus for Player Main XP, Crop Mastery, Farmablock Mastery, WorldCore XP, and custom progression datasets.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 text-[10px] text-[#7c3aed] font-semibold flex-wrap">
+                    <span>• Player Main XP</span>
+                    <span>• Crop & Farmablock Mastery</span>
+                    <span>• WorldCore XP</span>
+                    <span>• Custom Datasets</span>
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={20} className="text-[#7c3aed] shrink-0 group-hover:translate-x-1 transition-transform" />
+            </button>
+
+            {/* TOOL 3: Server Worlds Browser */}
             <button
               type="button"
               data-testid="admin-select-worlds-btn"
-              onClick={() => setAdminView('worlds')}
+              onClick={() => switchAdminView('worlds')}
               className="w-full text-left p-3.5 bg-white hover:bg-[#eff6ff] border-2 border-[#2563eb] hover:border-[#1d4ed8] rounded-[10px] shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 group"
             >
               <div className="flex items-start gap-3">
@@ -627,7 +690,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <button
             type="button"
             data-testid="admin-catalog-back-to-menu"
-            onClick={() => setAdminView('selection')}
+            onClick={() => switchAdminView('selection')}
             className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider bg-white/90 text-[#1e40af] border border-[#3b82f6] hover:bg-white flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
             title="Return to Admin Tools Selection Menu"
           >
@@ -644,11 +707,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Switch to DataSet Value Panel */}
+          <button
+            type="button"
+            data-testid="admin-switch-to-datasets-btn"
+            onClick={() => switchAdminView('datasets')}
+            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase tracking-wider bg-white/90 text-[#6d28d9] border border-[#8b5cf6] hover:bg-[#ede9fe] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+            title="Switch to DataSet Value Panel"
+          >
+            <Sliders size={11} />
+            DataSets
+          </button>
           {/* Switch to Worlds Browser */}
           <button
             type="button"
             data-testid="admin-switch-to-worlds-btn"
-            onClick={() => setAdminView('worlds')}
+            onClick={() => switchAdminView('worlds')}
             className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase tracking-wider bg-white/90 text-[#1d4ed8] border border-[#3b82f6] hover:bg-[#dbeafe] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
             title="Switch to Server Worlds Browser"
           >
@@ -685,16 +759,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </button>
           )}
 
-          {/* Quick +500G */}
+          {/* Quick +500 Gems */}
           <button
             type="button"
             onClick={() => {
               onAdminAction?.({ action: 'grant_gems', gems: 500 });
               showToast('Granted +500 Gems');
             }}
-            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase bg-white/80 text-[#92400e] border border-[#b45309] hover:bg-[#fef3c7] cursor-pointer"
+            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase bg-white/80 text-[#92400e] border border-[#b45309] hover:bg-[#fef3c7] inline-flex items-center gap-1 cursor-pointer"
           >
-            +500G
+            <span>+500</span>
+            <RedGemIcon className="w-3 h-3 shrink-0" />
           </button>
 
           {/* Quick Insta-Grow */}

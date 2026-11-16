@@ -47,6 +47,7 @@ import {
   worldXpForNextLevel,
   xpForNextLevel,
 } from '../game/rules.ts';
+import { isOpeningFrameTickLocked, openingFrameTick } from '../game/openingFrameTick.ts';
 import type {
   ActiveBuff,
   ChatMessage,
@@ -63,9 +64,11 @@ import type { TileInspectInfo } from '../game/engine.ts';
 import { NEXUS_DOOR_DESTINATIONS } from '../game/worldGen.ts';
 import { formatHudNumber } from '../game/format.ts';
 import { AdminPanel, type AdminActionPayload } from './AdminPanel.tsx';
+import { BytomergeTerminalModal } from './BytomergeTerminalModal.tsx';
 import { DigiBitsIcon } from './DigiBitsIcon.tsx';
 import { ExchangeModal } from './ExchangeModal.tsx';
 import { AtmPanel, BfgPanel, FurnacePanel, VaultboxPanel } from './MachinePanels.tsx';
+import { PixobyteIcon } from './PixobyteIcon.tsx';
 import { RedGemIcon } from './RedGemIcon.tsx';
 
 interface GameHudProps {
@@ -89,6 +92,7 @@ interface GameHudProps {
   coords: { tx: number; ty: number };
   gems: number;
   alterbits?: number;
+  pixobytes?: number;
   xp: number;
   level: number;
   cropMasteryXp?: number;
@@ -216,7 +220,8 @@ interface GameHudProps {
       | 'buy_seed'
       | 'sell_crop'
       | 'sell_all_crops'
-      | 'sell_cart';
+      | 'sell_cart'
+      | 'buy_pixobyte';
     itemId?: number;
     qty?: number;
     currency?: 'gems' | 'alterbits' | 'digibits';
@@ -435,6 +440,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   coords,
   gems,
   alterbits = 0,
+  pixobytes = 0,
   xp,
   level,
   cropMasteryXp = 0,
@@ -1017,15 +1023,44 @@ export const GameHud: React.FC<GameHudProps> = ({
             {toastMessage}
           </div>
         )}
-        {inspectInfo && (
-          <div className="pointer-events-auto pixel-box p-3 w-80 max-w-[92vw] max-h-[calc(100dvh-12rem)] overflow-y-auto text-xs flex flex-col gap-2">
-            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2">
+        {inspectInfo?.isPixobyteDigichange && (
+          <BytomergeTerminalModal
+            gems={gems}
+            alterbits={alterbits}
+            pixobytes={pixobytes}
+            inventory={inventory}
+            unclaimedWl={unclaimedWl}
+            coreTokens={worldCoreTokens}
+            onBuyPixobyte={(qty) =>
+              onVendorAction?.({
+                action: 'buy_pixobyte',
+                qty,
+                currency: 'digibits',
+              })
+            }
+            onClose={onDismissInspect}
+          />
+        )}
+        {inspectInfo && !inspectInfo.isPixobyteDigichange && (
+          <div
+            key={`${inspectInfo.tx},${inspectInfo.ty},${inspectInfo.fgId}`}
+            className={`pointer-events-auto pixel-box hud-window-enter p-2.5 ${
+              inspectInfo.isGreensVendor && traderView === 'buy'
+                ? 'w-64'
+                : inspectInfo.isGreensVendor
+                  ? 'w-72'
+                  : 'w-80'
+            } max-w-[92vw] max-h-[calc(100dvh-12rem)] overflow-y-auto text-xs flex flex-col gap-2`}
+          >
+            <div className="pixel-box-header -mx-2.5 -mt-2.5 px-2.5 py-1.5 flex items-center justify-between gap-1.5">
               <div className="flex items-center gap-1.5 min-w-0">
                 {inspectInfo.isGreensVendor && traderView !== 'dialogue' && (
                   <button
                     type="button"
                     data-testid="trader-back-button"
                     onClick={() => {
+                      if (isOpeningFrameTickLocked()) return;
+                      openingFrameTick();
                       setTraderView('dialogue');
                       setExpandedSeedId(null);
                       setSelectedSellItemId(null);
@@ -1045,20 +1080,37 @@ export const GameHud: React.FC<GameHudProps> = ({
                     : `${inspectInfo.fgName} (${inspectInfo.tx}, ${inspectInfo.ty})`}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={onDismissInspect}
-                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer shrink-0"
-              >
-                [X]
-              </button>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {inspectInfo.isGreensVendor && (
+                  <span
+                    data-testid="trader-header-balance-pill"
+                    className="px-2.5 py-0.5 rounded-full bg-white/65 border border-[#4172a3]/85 inline-flex items-center gap-1 font-mono-num font-bold text-[11px] text-[#091e3a] shadow-2xs shrink-0"
+                    title="Current Balance"
+                  >
+                    <span>{formatHudNumber(alterbits)}</span>
+                    <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isOpeningFrameTickLocked()) return;
+                    openingFrameTick();
+                    onDismissInspect();
+                  }}
+                  className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer shrink-0"
+                >
+                  [X]
+                </button>
+              </div>
             </div>
 
             {/* NEXUS Single Multi-Way Navigational Door Window */}
             {inspectInfo.isNexusDoor && (
               <div
                 data-testid="nexus-multiway-door-window"
-                className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2"
+                className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2 hud-subview-enter"
               >
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="font-pixel text-[11px] text-[#0369a1]">
@@ -1075,6 +1127,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                       type="button"
                       data-testid={`nexus-door-dest-${dest.id}`}
                       onClick={() => {
+                        if (isOpeningFrameTickLocked()) return;
+                        openingFrameTick(6);
                         onNexusTeleport?.(dest.tx, dest.ty, dest.label);
                         onDismissInspect();
                       }}
@@ -1328,11 +1382,12 @@ export const GameHud: React.FC<GameHudProps> = ({
               if (traderView === 'dialogue') {
                 return (
                   <div
+                    key="trader-dialogue"
                     data-testid="greens-vendor-panel"
-                    className="pt-1 flex flex-col gap-2.5"
+                    className="pt-1 flex flex-col gap-2 hud-subview-enter"
                   >
                     {/* Trader Dialogue Box */}
-                    <div className="hud-subpanel p-2.5 flex items-start gap-2.5">
+                    <div className="hud-subpanel p-2 flex items-start gap-2">
                       <img
                         src={getItemIconUrl(ITEM_IDS.GREENS_VENDOR_NPC)}
                         alt="Crop Trader"
@@ -1358,11 +1413,13 @@ export const GameHud: React.FC<GameHudProps> = ({
                         type="button"
                         data-testid="trader-dialogue-buy"
                         onClick={() => {
+                          if (isOpeningFrameTickLocked()) return;
+                          openingFrameTick();
                           setExpandedSeedId(null);
                           setBuyQtyInput('1');
                           setTraderView('buy');
                         }}
-                        className="pixel-slot px-3 py-2 text-left font-bold text-[11px] text-[#091e3a] hover:border-[#0284c7] hover:bg-white/95 transition-colors cursor-pointer"
+                        className="pixel-slot px-3 py-1.5 text-left font-bold text-[11px] text-[#091e3a] hover:border-[#0284c7] hover:bg-white/95 transition-colors cursor-pointer"
                       >
                         1. I&apos;m here to Buy
                       </button>
@@ -1370,12 +1427,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                         type="button"
                         data-testid="trader-dialogue-sell"
                         onClick={() => {
+                          if (isOpeningFrameTickLocked()) return;
+                          openingFrameTick();
                           setSelectedSellItemId(null);
                           setSellPromptMode('choice');
                           setSellCustomInput('1');
                           setTraderView('sell');
                         }}
-                        className="pixel-slot px-3 py-2 text-left font-bold text-[11px] text-[#091e3a] hover:border-[#0284c7] hover:bg-white/95 transition-colors cursor-pointer"
+                        className="pixel-slot px-3 py-1.5 text-left font-bold text-[11px] text-[#091e3a] hover:border-[#0284c7] hover:bg-white/95 transition-colors cursor-pointer"
                       >
                         2. I&apos;m here to sell
                       </button>
@@ -1391,8 +1450,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                 );
                 return (
                   <div
+                    key="trader-buy"
                     data-testid="greens-vendor-panel"
-                    className="pt-1 flex flex-col gap-1 max-h-72 overflow-y-auto pr-0.5"
+                    className="pt-0.5 flex flex-col gap-1 max-w-[14.75rem] w-full mx-auto max-h-72 overflow-y-auto pr-0.5 hud-subview-enter"
                   >
                     {CROP_SPECS.map((crop) => {
                       const seedDef = getItemDef(crop.seedId);
@@ -1404,6 +1464,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                           key={crop.seedId}
                           data-testid={`vendor-seed-${crop.keyBase}`}
                           onClick={() => {
+                            if (isOpeningFrameTickLocked()) return;
+                            openingFrameTick();
                             if (isExpanded) {
                               setExpandedSeedId(null);
                             } else {
@@ -1411,63 +1473,79 @@ export const GameHud: React.FC<GameHudProps> = ({
                               setBuyQtyInput('1');
                             }
                           }}
-                          className={`pixel-slot px-2 py-1.5 flex flex-col gap-1.5 cursor-pointer transition-colors ${
+                          className={`pixel-slot px-1.5 py-1 flex flex-col gap-1 cursor-pointer transition-colors ${
                             isExpanded
                               ? 'border-[#0284c7] bg-white/95'
                               : 'hover:border-[#0284c7]'
                           }`}
                         >
-                          {/* Minimal Offer Row: Icon, Name, Price per Unit */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0">
+                          {/* Minimized Offer Row: Compact Icon, Name, Price per Unit */}
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center gap-1 min-w-0">
                               <img
                                 src={getItemIconUrl(crop.seedId)}
                                 alt={seedDef?.name ?? crop.name}
-                                className="w-5 h-5 pixelated shrink-0"
+                                className="w-4 h-4 pixelated shrink-0"
                                 referrerPolicy="no-referrer"
                               />
-                              <span className="font-bold text-[#091e3a] text-[11px] truncate">
+                              <span className="font-bold text-[#091e3a] text-[10px] leading-tight truncate">
                                 {seedDef?.name ?? `${crop.name} Seed`}
                               </span>
                             </div>
-                            <span className="inline-flex items-center gap-1 font-mono-num font-bold text-[11px] text-[#091e3a] shrink-0">
+                            <span className="px-1.5 py-0.2 rounded-full bg-white/60 border border-[#4172a3]/65 inline-flex items-center gap-0.5 font-mono-num font-bold text-[10px] text-[#091e3a] shrink-0">
                               <span>{formatHudNumber(unitPrice)}</span>
-                              <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                              <DigiBitsIcon className="w-3 h-3 shrink-0" />
                             </span>
                           </div>
 
-                          {/* Vertically Expanded Custom Amount Purchase Controls */}
+                          {/* Single-Bar Height Expansion: Custom Amount Pillbox first, followed by "Buy For" button with framed Total Cost pill */}
                           {isExpanded && (
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              className="pt-1.5 border-t border-[#4172a3]/30 flex flex-col gap-1.5 cursor-default"
+                              className="pt-1 border-t border-[#4172a3]/30 flex items-center gap-1 cursor-default hud-row-expand"
                             >
+                              {/* 1. Custom Amount Pillbox */}
+                              <div className="rounded-full bg-white/65 border border-[#4172a3]/85 px-2 py-0.5 flex items-center justify-center shrink-0 shadow-2xs">
+                                <input
+                                  type="number"
+                                  data-testid={`vendor-buy-qty-${crop.keyBase}`}
+                                  min={1}
+                                  max={200}
+                                  value={buyQtyInput}
+                                  onChange={(e) => setBuyQtyInput(e.target.value)}
+                                  placeholder="Qty"
+                                  aria-label="Custom Amount"
+                                  className="w-10 bg-transparent text-[10px] font-mono-num font-bold text-[#091e3a] text-center focus:outline-none"
+                                />
+                              </div>
+
+                              {/* 2. "Buy For" Button with Low-Opacity Framed Total Cost Pill */}
                               <button
                                 type="button"
                                 data-testid={`vendor-buy-confirm-${crop.keyBase}`}
-                                onClick={() =>
+                                onClick={() => {
+                                  if (isOpeningFrameTickLocked()) return;
+                                  openingFrameTick();
                                   onVendorAction?.({
                                     action: 'buy_seed',
                                     itemId: crop.seedId,
                                     qty: parsedQty,
                                     currency: 'digibits',
-                                  })
-                                }
-                                className="pixel-btn pixel-btn-emerald w-full !py-1.5 !text-[11px] font-mono-num gap-1"
+                                  });
+                                }}
+                                className="pixel-btn pixel-btn-emerald flex-1 min-w-0 !py-0.5 !px-1.5 !text-[9px] font-mono-num flex items-center justify-between gap-1"
                               >
-                                <span>{formatHudNumber(totalCost)}</span>
-                                <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                                <span className="font-bold text-[9px] whitespace-nowrap">
+                                  Buy For
+                                </span>
+                                <span
+                                  data-testid={`vendor-buy-total-pill-${crop.keyBase}`}
+                                  className="px-2 py-0.5 rounded-full bg-white/70 border border-[#2c5885]/80 text-[#091e3a] font-mono-num font-bold text-[10px] inline-flex items-center gap-0.5 shadow-2xs shrink-0"
+                                >
+                                  <span>{formatHudNumber(totalCost)}</span>
+                                  <DigiBitsIcon className="w-3 h-3 shrink-0" />
+                                </span>
                               </button>
-                              <input
-                                type="number"
-                                data-testid={`vendor-buy-qty-${crop.keyBase}`}
-                                min={1}
-                                max={200}
-                                value={buyQtyInput}
-                                onChange={(e) => setBuyQtyInput(e.target.value)}
-                                placeholder="Amount..."
-                                className="hud-input w-full px-2 py-1 text-xs font-mono-num text-center"
-                              />
                             </div>
                           )}
                         </div>
@@ -1531,6 +1609,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                               type="button"
                               data-testid={`trader-sell-slot-${slot.itemId}`}
                               onClick={() => {
+                                if (isOpeningFrameTickLocked()) return;
+                                openingFrameTick();
                                 setSelectedSellItemId(slot.itemId);
                                 setSellPromptMode('choice');
                                 setSellCustomInput(String(inCartQty > 0 ? inCartQty : slot.qty));
@@ -1578,6 +1658,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                               type="button"
                               data-testid="trader-sell-all-choice"
                               onClick={() => {
+                                if (isOpeningFrameTickLocked()) return;
+                                openingFrameTick();
                                 setSellCart((prev) => ({
                                   ...prev,
                                   [selectedSlot.itemId]: selectedSlot.qty,
@@ -1592,6 +1674,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                               type="button"
                               data-testid="trader-sell-custom-choice"
                               onClick={() => {
+                                if (isOpeningFrameTickLocked()) return;
+                                openingFrameTick();
                                 setSellPromptMode('custom');
                                 setSellCustomInput('1');
                               }}
@@ -1708,6 +1792,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                           type="button"
                           data-testid="vendor-sell-cart-submit"
                           onClick={() => {
+                            if (isOpeningFrameTickLocked()) return;
+                            openingFrameTick();
                             onVendorAction?.({
                               action: 'sell_cart',
                               cart: cartEntries.map((c) => ({
@@ -1718,11 +1804,13 @@ export const GameHud: React.FC<GameHudProps> = ({
                             setSellCart({});
                             setSelectedSellItemId(null);
                           }}
-                          className="pixel-btn pixel-btn-gold w-full !py-1.5 !text-[11px] font-mono-num gap-1"
+                          className="pixel-btn pixel-btn-gold w-full !py-1 !px-2.5 !text-[11px] font-mono-num flex items-center justify-between gap-1.5"
                         >
-                          <span>Sell Cart (+{formatHudNumber(totalCartDb)}</span>
-                          <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
-                          <span>)</span>
+                          <span className="font-bold">Sell Cart</span>
+                          <span className="px-2 py-0.5 rounded-full bg-white/70 border border-[#854d0e]/75 text-[#091e3a] font-mono-num font-bold text-[10px] inline-flex items-center gap-1 shadow-2xs">
+                            <span>+{formatHudNumber(totalCartDb)}</span>
+                            <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                          </span>
                         </button>
                       </>
                     )}
@@ -2350,7 +2438,10 @@ export const GameHud: React.FC<GameHudProps> = ({
               </button>
             ))}
           </div>
-          <div className="flex flex-col gap-1.5 overflow-y-auto pr-1">
+          <div
+            key={storeCategory}
+            className="flex flex-col gap-1.5 overflow-y-auto pr-1 hud-subview-enter"
+          >
             {(gameConfig.storeListings ?? GEM_STORE_LISTINGS)
               .filter((l) => l.section === storeCategory)
               .map((listing) => {
@@ -2360,25 +2451,37 @@ export const GameHud: React.FC<GameHudProps> = ({
                   key={listing.id}
                   className="pixel-slot flex items-center justify-between gap-2 p-2"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <img
                       src={getItemIconUrl(listing.iconItemId)}
                       alt={listing.name}
                       className="w-7 h-7 pixelated shrink-0"
                       referrerPolicy="no-referrer"
                     />
-                    <div>
-                      <div className="text-xs font-bold text-[#091e3a]">{listing.name}</div>
-                      <div className="text-[10px] text-[#23476d]">{listing.description}</div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-[#091e3a] truncate">{listing.name}</div>
+                      <div className="text-[10px] text-[#23476d] leading-tight">{listing.description}</div>
                     </div>
                   </div>
                   <button
                     type="button"
+                    data-testid={`gemstore-buy-${listing.id}`}
                     disabled={!canAfford}
-                    onClick={() => onBuyGemStore(listing.id)}
-                    className="pixel-btn pixel-btn-primary disabled:opacity-40 !py-1.5 !px-2.5 !text-[10px] font-mono-num shrink-0"
+                    onClick={() => {
+                      if (isOpeningFrameTickLocked()) return;
+                      openingFrameTick();
+                      onBuyGemStore(listing.id);
+                    }}
+                    className="pixel-btn pixel-btn-primary disabled:opacity-40 !py-1 !px-2 !text-[10px] font-mono-num inline-flex items-center gap-1.5 shrink-0"
                   >
-                    {formatHudNumber(listing.gemPrice)} G
+                    <span className="font-bold text-[9px] whitespace-nowrap">Buy For</span>
+                    <span
+                      data-testid={`gemstore-price-pill-${listing.id}`}
+                      className="px-2 py-0.5 rounded-full bg-white/75 border border-[#2c5885]/80 text-[#091e3a] font-mono-num font-bold text-[10px] inline-flex items-center gap-0.5 shadow-2xs"
+                    >
+                      <span>{formatHudNumber(listing.gemPrice)}</span>
+                      <RedGemIcon className="w-3 h-3 shrink-0" />
+                    </span>
                   </button>
                 </div>
               );
@@ -2732,9 +2835,9 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Profile, My Wallet, Masteries, Achievements & Wardrobe Drawer */}
       {activePanel === 'profile' && (() => {
-        const nextCropXp = masteryXpForNextLevel(cropMasteryLevel);
+        const nextCropXp = masteryXpForNextLevel(cropMasteryLevel, 'crop');
         const cropPct = Math.min(100, Math.round((cropMasteryXp / Math.max(1, nextCropXp)) * 100));
-        const nextFarmXp = masteryXpForNextLevel(farmablockMasteryLevel);
+        const nextFarmXp = masteryXpForNextLevel(farmablockMasteryLevel, 'farmablock');
         const farmPct = Math.min(100, Math.round((farmablockMasteryXp / Math.max(1, nextFarmXp)) * 100));
         return (
           <div
@@ -2811,28 +2914,44 @@ export const GameHud: React.FC<GameHudProps> = ({
             </div>
 
             {profileTab === 'wallet' && (
-              <div data-testid="profile-wallet-panel" className="flex flex-col gap-2 overflow-y-auto pr-0.5">
-                {/* Currency Balances */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div className="pixel-slot p-2 flex flex-col gap-0.5">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold text-[#991b1b]">
-                      <RedGemIcon className="w-3 h-3 shrink-0" />
-                      <span>Gems</span>
-                    </span>
-                    <span className="text-sm font-mono-num font-bold text-[#091e3a]">
-                      {formatHudNumber(gems)}
-                    </span>
+              <div data-testid="profile-wallet-panel" className="flex flex-col gap-2 overflow-y-auto pr-0.5 hud-subview-enter">
+                {/* Currency Balances — Brick Pill by Brick Pill */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="pixel-slot p-2 flex flex-col gap-0.5">
+                      <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold text-[#991b1b]">
+                        <RedGemIcon className="w-3 h-3 shrink-0" />
+                        <span>Gems</span>
+                      </span>
+                      <span className="text-sm font-mono-num font-bold text-[#091e3a]">
+                        {formatHudNumber(gems)}
+                      </span>
+                    </div>
+                    <div className="pixel-slot p-2 flex flex-col gap-0.5">
+                      <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold text-[#047857]">
+                        <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span>DigiBits</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-sm font-mono-num font-bold text-[#92400e]">
+                        <span>{formatHudNumber(alterbits)}</span>
+                        <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                      </span>
+                    </div>
                   </div>
-                  <div className="pixel-slot p-2 flex flex-col gap-0.5">
-                    <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold text-[#047857]">
-                      <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
-                      <span>DigiBits</span>
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-sm font-mono-num font-bold text-[#92400e]">
-                      <span>{formatHudNumber(alterbits)}</span>
-                      <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
-                    </span>
-                  </div>
+                  {pixobytes > 0 && (
+                    <div
+                      data-testid="profile-wallet-pixobyte-brick"
+                      className="pixel-slot px-2.5 py-1.5 flex items-center justify-between gap-2 border-[#0284c7] bg-white/85"
+                    >
+                      <span className="inline-flex items-center gap-1.5 text-[11px] uppercase font-bold text-[#0369a1]">
+                        <PixobyteIcon size={18} className="shrink-0" />
+                        <span>Pixobyte</span>
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-[#e0f2fe] border border-[#0284c7] text-xs font-mono-num font-bold text-[#091e3a]">
+                        {formatHudNumber(pixobytes)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Sub-Category Mastery Tracks */}
@@ -2876,8 +2995,15 @@ export const GameHud: React.FC<GameHudProps> = ({
                     >
                       <div className="min-w-0 flex-1">
                         <div className="text-[11px] font-bold text-[#091e3a] truncate">{ach.name}</div>
-                        <div className="text-[10px] font-mono-num text-[#92400e]">
-                          {formatHudNumber(progress)}/{formatHudNumber(ach.target)} · +{formatHudNumber(ach.gemReward)}G · +{formatHudNumber(ach.xpReward)}XP
+                        <div className="text-[10px] font-mono-num text-[#92400e] flex items-center gap-1 flex-wrap">
+                          <span>
+                            {formatHudNumber(progress)}/{formatHudNumber(ach.target)} ·
+                          </span>
+                          <span className="inline-flex items-center gap-0.5 font-bold text-[#991b1b]">
+                            <span>+{formatHudNumber(ach.gemReward)}</span>
+                            <RedGemIcon className="w-2.5 h-2.5 shrink-0" />
+                          </span>
+                          <span>· +{formatHudNumber(ach.xpReward)}XP</span>
                         </div>
                       </div>
                       {claimed ? (

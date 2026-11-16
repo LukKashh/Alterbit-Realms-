@@ -145,6 +145,7 @@ export interface AdminPlayerProfile {
   xp: number;
   gems: number;
   alterbits: number;
+  pixobytes?: number;
   cropMasteryLevel: number;
   cropMasteryXp: number;
   farmablockMasteryLevel: number;
@@ -185,6 +186,7 @@ export interface AuthUserProfile {
   role: UserRole;
   gems: number;
   alterbits: number;
+  pixobytes?: number;
   xp: number;
   level: number;
   cropMasteryXp: number;
@@ -377,7 +379,8 @@ export type ClientMessagePayload =
         | 'buy_seed'
         | 'sell_crop'
         | 'sell_all_crops'
-        | 'sell_cart';
+        | 'sell_cart'
+        | 'buy_pixobyte';
       itemId?: number;
       qty?: number;
       currency?: 'gems' | 'alterbits' | 'digibits';
@@ -405,6 +408,7 @@ export type ServerMessage =
       role: UserRole;
       gems: number;
       alterbits: number;
+      pixobytes?: number;
       xp: number;
       level: number;
       cropMasteryXp: number;
@@ -506,6 +510,7 @@ export type ServerMessage =
       type: 'profile_updated';
       gems: number;
       alterbits: number;
+      pixobytes?: number;
       xp: number;
       level: number;
       cropMasteryXp: number;

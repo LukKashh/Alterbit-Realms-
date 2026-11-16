@@ -14,7 +14,7 @@ test('Server worlds listing exposes lastSeen, dimensions, and realm metadata', (
   assert.equal(reg.ok, true);
   if (!reg.ok) throw new Error('register failed');
 
-  const worldName = `WLD_${id.toUpperCase()}`;
+  const worldName = `GROVE_${id.toUpperCase()}`;
   const cw = store.createOwnedWorld(reg.account, worldName);
   assert.equal(cw.ok, true);
 

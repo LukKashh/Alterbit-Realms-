@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import type { WorldSummary, AdminPlayerProfile } from '../game/network.ts';
+import { isOpeningFrameTickLocked, openingFrameTick } from '../game/openingFrameTick.ts';
 import {
   Globe,
   User,
@@ -32,6 +33,15 @@ export interface AdminWorldsBrowserProps {
   onBackToMenu?: () => void;
   onSwitchToCatalog?: () => void;
   onClose?: () => void;
+}
+
+const EPHEMERAL_TEST_WORLD_RE =
+  /^(FARM|LOCK|VOWNER|ATMUSER|XPW|CT|MGEN|CAP|REALM1|DRS|DRP|CRAFT|BFGTEST|WLD|TEST|GEMTEST|ATMWORLD|VAULT|PLAT|CROP|WS)_[A-Z0-9]{4,12}$/;
+
+function isRealDisplayWorld(w: WorldSummary): boolean {
+  const name = String(w?.name ?? '').trim().toUpperCase();
+  if (!name) return false;
+  return !EPHEMERAL_TEST_WORLD_RE.test(name);
 }
 
 function formatRelativeTime(ts?: number): string {
@@ -120,7 +130,9 @@ export const AdminWorldsBrowser: React.FC<AdminWorldsBrowserProps> = ({
 
   // Load detailed owner profile when a player is selected
   const handleInspectOwner = async (targetId?: string | null, targetName?: string | null) => {
+    if (isOpeningFrameTickLocked()) return;
     if (!targetId && !targetName) return;
+    openingFrameTick();
     setInspectingPlayerTarget({ id: targetId, name: targetName });
     setLoadingProfile(true);
     setProfileError(null);
@@ -156,15 +168,30 @@ export const AdminWorldsBrowser: React.FC<AdminWorldsBrowserProps> = ({
   };
 
   const handleAdminEnter = (worldName: string) => {
+    if (isOpeningFrameTickLocked()) return;
+    openingFrameTick();
     showNotice(`⚡ AdminEnter: Warping into ${worldName} (Approvals & Locks Bypassed)...`);
     window.setTimeout(() => {
       onWarpWorld?.(worldName);
     }, 200);
   };
 
+  const cleanWorlds = useMemo(() => {
+    const seen = new Set<string>();
+    const out: WorldSummary[] = [];
+    for (const w of localWorlds) {
+      if (!isRealDisplayWorld(w)) continue;
+      const key = w.name.toUpperCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(w);
+    }
+    return out;
+  }, [localWorlds]);
+
   // Filtered worlds
   const filteredWorlds = useMemo(() => {
-    let list = localWorlds;
+    let list = cleanWorlds;
     if (filterTab === 'owned') {
       list = list.filter((w) => Boolean(w.ownerName));
     } else if (filterTab === 'system') {
@@ -183,16 +210,16 @@ export const AdminWorldsBrowser: React.FC<AdminWorldsBrowserProps> = ({
     }
 
     return list;
-  }, [localWorlds, filterTab, searchQuery]);
+  }, [cleanWorlds, filterTab, searchQuery]);
 
   const counts = useMemo(() => {
     return {
-      all: localWorlds.length,
-      owned: localWorlds.filter((w) => Boolean(w.ownerName)).length,
-      system: localWorlds.filter((w) => !w.ownerName && !w.isPersonalRealm).length,
-      personal: localWorlds.filter((w) => Boolean(w.isPersonalRealm)).length,
+      all: cleanWorlds.length,
+      owned: cleanWorlds.filter((w) => Boolean(w.ownerName)).length,
+      system: cleanWorlds.filter((w) => !w.ownerName && !w.isPersonalRealm).length,
+      personal: cleanWorlds.filter((w) => Boolean(w.isPersonalRealm)).length,
     };
-  }, [localWorlds]);
+  }, [cleanWorlds]);
 
   // ==========================================================================
   // VIEW: DETAILED PLAYER INFORMATION PANEL (Owner View)
@@ -206,6 +233,8 @@ export const AdminWorldsBrowser: React.FC<AdminWorldsBrowserProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (isOpeningFrameTickLocked()) return;
+                openingFrameTick();
                 setInspectingPlayerTarget(null);
                 setOwnerProfile(null);
                 setProfileError(null);
@@ -679,7 +708,10 @@ export const AdminWorldsBrowser: React.FC<AdminWorldsBrowserProps> = ({
       </div>
 
       {/* Worlds List Container */}
-      <div className="flex-1 overflow-y-auto p-2.5 flex flex-col gap-2">
+      <div
+        data-testid="admin-worlds-scroll-container"
+        className="flex-1 min-h-0 overflow-y-auto p-2.5 flex flex-col gap-2"
+      >
         {filteredWorlds.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#64748b]">
             <Globe size={32} className="text-[#94a3b8] mb-2" />
@@ -695,7 +727,7 @@ export const AdminWorldsBrowser: React.FC<AdminWorldsBrowserProps> = ({
               <div
                 key={w.name}
                 data-testid={`admin-world-card-${w.name}`}
-                className={`bg-white border-2 rounded-[8px] transition-all overflow-hidden ${
+                className={`shrink-0 bg-white border-2 rounded-[8px] transition-all overflow-hidden ${
                   isExpanded
                     ? 'border-[#2563eb] shadow-md'
                     : 'border-[#cbd5e1] hover:border-[#93c5fd] shadow-2xs'
@@ -704,7 +736,11 @@ export const AdminWorldsBrowser: React.FC<AdminWorldsBrowserProps> = ({
                 {/* Main Card Header (Click to expand downwards) */}
                 <button
                   type="button"
-                  onClick={() => setExpandedWorldName(isExpanded ? null : w.name)}
+                  onClick={() => {
+                    if (isOpeningFrameTickLocked()) return;
+                    openingFrameTick();
+                    setExpandedWorldName(isExpanded ? null : w.name);
+                  }}
                   className="w-full text-left p-2.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-[#f8fafc] transition-colors"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">

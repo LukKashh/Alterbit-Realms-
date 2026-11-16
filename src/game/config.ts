@@ -48,12 +48,112 @@ export interface FishingMechanicsConfig {
   fishResistanceByItemId: Record<number, number>;
 }
 
+export type BuiltinDatasetKey =
+  | 'playerMainXp'
+  | 'cropMastery'
+  | 'farmablockMastery'
+  | 'worldCoreXp';
+
+export interface DatasetProgressionCurve {
+  id: string;
+  label: string;
+  unitLabel: string;
+  description: string;
+  /** Base XP/value required to advance from Level 1 to Level 2 */
+  baseAmount: number;
+  /** Default linear increment added per subsequent level */
+  levelStepAmount: number;
+  /** Multiplier applied across the progression curve (1.0 = standard) */
+  growthFactor: number;
+  /** Maximum editable/displayable level cap for the dataset */
+  maxLevel: number;
+  /** Explicit per-level advancement requirement overrides: key = level, value = required amount */
+  levelOverrides: Record<number, number>;
+  /** Optional milestone/unlock level mapping (e.g. Crop seed ID -> required level, or Farmable Tier -> required level) */
+  unlockLevelOverrides?: Record<number, number>;
+}
+
+export interface DatasetValueConfig {
+  playerMainXp: DatasetProgressionCurve;
+  cropMastery: DatasetProgressionCurve;
+  farmablockMastery: DatasetProgressionCurve;
+  worldCoreXp: DatasetProgressionCurve;
+  customDatasets: DatasetProgressionCurve[];
+}
+
 export interface GameConfig {
   mechanics: GameMechanicsConfig;
   fishing: FishingMechanicsConfig;
   itemOverrides: Record<number, ItemConfigOverride>;
   storeListings?: GemStoreListing[];
+  datasets?: DatasetValueConfig;
 }
+
+export const DEFAULT_DATASET_VALUE_CONFIG: DatasetValueConfig = {
+  playerMainXp: {
+    id: 'playerMainXp',
+    label: 'Player Main XP',
+    unitLabel: 'XP',
+    description: 'Primary account level progression earned from breaking blocks, harvesting, and achievements.',
+    baseAmount: 50,
+    levelStepAmount: 35,
+    growthFactor: 1,
+    maxLevel: 100,
+    levelOverrides: {},
+  },
+  cropMastery: {
+    id: 'cropMastery',
+    label: 'Crop Mastery',
+    unitLabel: 'Crop XP',
+    description: 'Agricultural mastery progression governing crop seed tier unlocks and harvest proficiency.',
+    baseAmount: 40,
+    levelStepAmount: 30,
+    growthFactor: 1,
+    maxLevel: 50,
+    levelOverrides: {},
+    unlockLevelOverrides: {
+      870: 1, // Radish Seed
+      871: 1, // Carrot Seed
+      872: 2, // Cabbage Seed
+      873: 3, // Tomato Seed
+      874: 5, // Corn Seed
+      875: 7, // Melon Seed
+    },
+  },
+  farmablockMastery: {
+    id: 'farmablockMastery',
+    label: 'Farmablock Mastery',
+    unitLabel: 'Farma XP',
+    description: 'Specialized mastery progression unlocking Tier 1–8 Farmablock cultivation and splicing.',
+    baseAmount: 40,
+    levelStepAmount: 30,
+    growthFactor: 1,
+    maxLevel: 50,
+    levelOverrides: {},
+    unlockLevelOverrides: {
+      1: 1,
+      2: 2,
+      3: 3,
+      4: 5,
+      5: 7,
+      6: 9,
+      7: 11,
+      8: 13,
+    },
+  },
+  worldCoreXp: {
+    id: 'worldCoreXp',
+    label: 'WorldCore XP',
+    unitLabel: 'Core XP',
+    description: 'World-level core advancement accumulated when players build, harvest, and contribute inside a realm.',
+    baseAmount: 100,
+    levelStepAmount: 75,
+    growthFactor: 1,
+    maxLevel: 50,
+    levelOverrides: {},
+  },
+  customDatasets: [],
+};
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
   fishing: {
@@ -86,7 +186,138 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   },
   itemOverrides: {},
   storeListings: [...GEM_STORE_LISTINGS],
+  datasets: JSON.parse(JSON.stringify(DEFAULT_DATASET_VALUE_CONFIG)) as DatasetValueConfig,
 };
+
+let activeDatasetConfig: DatasetValueConfig = JSON.parse(
+  JSON.stringify(DEFAULT_DATASET_VALUE_CONFIG)
+) as DatasetValueConfig;
+
+export function getActiveDatasetConfig(): DatasetValueConfig {
+  return activeDatasetConfig;
+}
+
+export function setActiveDatasetConfig(datasets?: DatasetValueConfig | null): void {
+  if (!datasets) {
+    activeDatasetConfig = JSON.parse(
+      JSON.stringify(DEFAULT_DATASET_VALUE_CONFIG)
+    ) as DatasetValueConfig;
+    return;
+  }
+  activeDatasetConfig = sanitizeDatasetValueConfig(datasets);
+}
+
+/**
+ * Computes the required progression value to advance from `level` to `level + 1`
+ * for a given dataset progression curve.
+ */
+export function resolveDatasetLevelRequirement(
+  curve: DatasetProgressionCurve | undefined | null,
+  level: number
+): number {
+  const safeLevel = Math.max(1, Math.floor(Number(level) || 1));
+  if (!curve) {
+    return 50 + (safeLevel - 1) * 35;
+  }
+  const explicitOverride = curve.levelOverrides?.[safeLevel];
+  if (typeof explicitOverride === 'number' && Number.isFinite(explicitOverride) && explicitOverride >= 1) {
+    return Math.max(1, Math.round(explicitOverride));
+  }
+  const base = Math.max(1, Number(curve.baseAmount) || 50);
+  const step = Math.max(0, Number(curve.levelStepAmount) ?? 35);
+  const factor = Math.max(0.1, Math.min(10, Number(curve.growthFactor) || 1));
+  return Math.max(1, Math.round((base + (safeLevel - 1) * step) * factor));
+}
+
+export function sanitizeDatasetCurve(
+  raw: Partial<DatasetProgressionCurve> | null | undefined,
+  fallback: DatasetProgressionCurve
+): DatasetProgressionCurve {
+  const clampNum = (val: unknown, def: number, min: number, max: number) => {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return def;
+    return Math.min(max, Math.max(min, n));
+  };
+  const levelOverrides: Record<number, number> = {};
+  if (raw?.levelOverrides && typeof raw.levelOverrides === 'object') {
+    for (const [lvlKey, val] of Object.entries(raw.levelOverrides)) {
+      const lvl = Math.round(Number(lvlKey));
+      const amt = Math.round(Number(val));
+      if (lvl >= 1 && lvl <= 500 && Number.isFinite(amt) && amt >= 1) {
+        levelOverrides[lvl] = Math.min(10_000_000, amt);
+      }
+    }
+  }
+  let unlockLevelOverrides: Record<number, number> | undefined = fallback.unlockLevelOverrides
+    ? { ...fallback.unlockLevelOverrides }
+    : undefined;
+  if (raw?.unlockLevelOverrides && typeof raw.unlockLevelOverrides === 'object') {
+    unlockLevelOverrides = unlockLevelOverrides ?? {};
+    for (const [k, v] of Object.entries(raw.unlockLevelOverrides)) {
+      const keyNum = Math.round(Number(k));
+      const reqLvl = Math.round(Number(v));
+      if (Number.isFinite(keyNum) && Number.isFinite(reqLvl) && reqLvl >= 1 && reqLvl <= 500) {
+        unlockLevelOverrides[keyNum] = reqLvl;
+      }
+    }
+  }
+  return {
+    id: String(raw?.id ?? fallback.id).trim().slice(0, 48) || fallback.id,
+    label: String(raw?.label ?? fallback.label).trim().slice(0, 48) || fallback.label,
+    unitLabel: String(raw?.unitLabel ?? fallback.unitLabel).trim().slice(0, 24) || fallback.unitLabel,
+    description:
+      String(raw?.description ?? fallback.description).trim().slice(0, 180) || fallback.description,
+    baseAmount: Math.round(clampNum(raw?.baseAmount, fallback.baseAmount, 1, 1_000_000)),
+    levelStepAmount: Math.round(clampNum(raw?.levelStepAmount, fallback.levelStepAmount, 0, 500_000)),
+    growthFactor: Number(clampNum(raw?.growthFactor, fallback.growthFactor, 0.1, 10).toFixed(3)),
+    maxLevel: Math.round(clampNum(raw?.maxLevel, fallback.maxLevel, 5, 500)),
+    levelOverrides,
+    ...(unlockLevelOverrides ? { unlockLevelOverrides } : {}),
+  };
+}
+
+export function sanitizeDatasetValueConfig(
+  raw: Partial<DatasetValueConfig> | null | undefined
+): DatasetValueConfig {
+  const customDatasets: DatasetProgressionCurve[] = [];
+  if (Array.isArray(raw?.customDatasets)) {
+    const seenIds = new Set<string>([
+      'playerMainXp',
+      'cropMastery',
+      'farmablockMastery',
+      'worldCoreXp',
+    ]);
+    for (let i = 0; i < raw.customDatasets.length && customDatasets.length < 24; i++) {
+      const item = raw.customDatasets[i];
+      if (!item || typeof item !== 'object') continue;
+      const fallbackId = `custom_dataset_${i + 1}`;
+      const sanitized = sanitizeDatasetCurve(item, {
+        id: fallbackId,
+        label: `Custom Dataset ${i + 1}`,
+        unitLabel: 'PTS',
+        description: 'Custom user-stored progression dataset.',
+        baseAmount: 50,
+        levelStepAmount: 25,
+        growthFactor: 1,
+        maxLevel: 50,
+        levelOverrides: {},
+      });
+      if (seenIds.has(sanitized.id)) continue;
+      seenIds.add(sanitized.id);
+      customDatasets.push(sanitized);
+    }
+  }
+  return {
+    playerMainXp: sanitizeDatasetCurve(raw?.playerMainXp, DEFAULT_DATASET_VALUE_CONFIG.playerMainXp),
+    cropMastery: sanitizeDatasetCurve(raw?.cropMastery, DEFAULT_DATASET_VALUE_CONFIG.cropMastery),
+    farmablockMastery: sanitizeDatasetCurve(
+      raw?.farmablockMastery,
+      DEFAULT_DATASET_VALUE_CONFIG.farmablockMastery
+    ),
+    worldCoreXp: sanitizeDatasetCurve(raw?.worldCoreXp, DEFAULT_DATASET_VALUE_CONFIG.worldCoreXp),
+    customDatasets,
+  };
+}
 
 export function cloneGameConfig(cfg: GameConfig): GameConfig {
   return JSON.parse(JSON.stringify(cfg)) as GameConfig;
@@ -259,7 +490,16 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
     }
   }
 
-  return { mechanics, fishing, itemOverrides, storeListings: storeListings ?? [...GEM_STORE_LISTINGS] };
+  const datasets = sanitizeDatasetValueConfig(raw?.datasets);
+  setActiveDatasetConfig(datasets);
+
+  return {
+    mechanics,
+    fishing,
+    itemOverrides,
+    storeListings: storeListings ?? [...GEM_STORE_LISTINGS],
+    datasets,
+  };
 }
 
 export function getEffectiveItemDef(

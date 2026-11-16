@@ -18,12 +18,15 @@ import {
 import { ensureFluidArrays, type FluidDelta } from './fluids.ts';
 import { createPlayerBody, stepPlayerPhysics, type PlayerBody } from './physics.ts';
 import {
+  CRACK_STAGE_COUNT,
   getCrackOverlay,
   getMarketStandSprite,
+  getPixobyteDigichangeSprite,
   getTileSprite,
   type EquippedWearables,
 } from './pixelArt.ts';
 import { DIGIBITS_ICON_SRC } from '../components/DigiBitsIcon.tsx';
+import { openingFrameTick } from './openingFrameTick.ts';
 import {
   computeModularPlayerRig,
   drawSubLayerPart,
@@ -40,6 +43,7 @@ import {
   getCoveringAreaLock,
   getCoveringShareLock,
   getMarketStandAt,
+  getPixobyteDigichangeAt,
   getPlantGrowthState,
   hasEditPermission,
   inBoundsWorld,
@@ -135,6 +139,7 @@ export interface TileInspectInfo {
   furnace?: FurnaceRecord | null;
   bfgCollector?: BfgCollectorRecord | null;
   isExchangeTerminal?: boolean;
+  isPixobyteDigichange?: boolean;
   signText?: string | null;
   matteragenEngine?: MatteragenRecord | null;
   atmMachine?: AtmMachineRecord | null;
@@ -262,6 +267,7 @@ export class BlockgroveEngine {
   private nameplateCache = new Map<string, HTMLCanvasElement>();
   private wrenchIconTargets: Array<{ playerId: string; x: number; y: number; w: number; h: number }> = [];
   private digibitsCoinImg: HTMLImageElement | null = null;
+  private lastTeleportAt = 0;
 
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
     this.container = container;
@@ -697,7 +703,12 @@ export class BlockgroveEngine {
     const belowSolid = belowFg !== ITEM_IDS.AIR && CATALOG[belowFg]?.collision === 'solid';
 
     if (bgId !== ITEM_IDS.BG_SKY && fgTransparent) {
-      if (isDoorBlock(bgId) || bgId === ITEM_IDS.STONE_FURNACE) {
+      if (bgId === ITEM_IDS.PIXOBYTE_DIGICHANGE) {
+        // Draw recessed sci-fi bulkhead wall behind the 1x2 Pixobyte Digichange terminal
+        this.worldLayerCtx.drawImage(getTileSprite(ITEM_IDS.SCIFI_BULKHEAD_BG), px, py, TILE_SIZE, TILE_SIZE);
+        this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.24)';
+        this.worldLayerCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+      } else if (isDoorBlock(bgId) || bgId === ITEM_IDS.STONE_FURNACE) {
         // Draw recessed stone backing wall behind the background door or WorldCore Furnace
         this.worldLayerCtx.drawImage(getTileSprite(ITEM_IDS.GP_ROCK_BACKGROUND), px, py, TILE_SIZE, TILE_SIZE);
         this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.24)';
@@ -758,16 +769,30 @@ export class BlockgroveEngine {
   }
 
   public teleportLocalPlayer(tx: number, ty: number) {
+    this.lastTeleportAt = performance.now();
+    this.mouseDown = false;
+    this.punchTimer = 0.25;
     const nextBody = createPlayerBody(tx, ty);
     this.body.x = nextBody.x;
     this.body.y = nextBody.y;
     this.body.vx = 0;
     this.body.vy = 0;
+    this.body.grounded = true;
     const px = this.body.x + PLAYER_WIDTH * 0.5;
     const py = this.body.y + PLAYER_HEIGHT * 0.5;
     this.spawnRing(px, py, 36, '#38bdf8', 0.35);
     this.spawnSparks(px, py, 12, '#7dd3fc');
     this.snapCameraToPlayer();
+    this.callbacks.onMoveSync?.({
+      x: this.body.x,
+      y: this.body.y,
+      vx: 0,
+      vy: 0,
+      facing: this.body.facing,
+      grounded: true,
+      punching: false,
+      placing: false,
+    });
   }
 
   private rebuildWorldLayer() {
@@ -800,6 +825,7 @@ export class BlockgroveEngine {
   }
 
   public reconcileServerPose(pose: ResumePosition) {
+    if (performance.now() - this.lastTeleportAt < 850) return;
     const dx = Math.abs(this.body.x - pose.x);
     const dy = Math.abs(this.body.y - pose.y);
     if (dx > 192 || dy > 192) {
@@ -1411,6 +1437,7 @@ export class BlockgroveEngine {
     const fgId = this.world.fg[idx];
     const bgId = this.world.bg[idx];
     const stand = getMarketStandAt(this.world, tx, ty);
+    const digichange = getPixobyteDigichangeAt(this.world, tx, ty);
     const isDoor = isDoorBlock(bgId) || isDoorBlock(fgId);
     const isSign = Boolean(CATALOG[fgId]?.key.includes('sign'));
     const hasFurnace = fgId === ITEM_IDS.STONE_FURNACE || bgId === ITEM_IDS.STONE_FURNACE;
@@ -1418,6 +1445,7 @@ export class BlockgroveEngine {
       fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC;
     const isSpecialBlock =
       Boolean(stand) ||
+      Boolean(digichange) ||
       fgId === ITEM_IDS.WORLD_CORE ||
       fgId === ITEM_IDS.WORLD_LOCK ||
       fgId === ITEM_IDS.SMALL_LOCK ||
@@ -1425,6 +1453,8 @@ export class BlockgroveEngine {
       hasFurnace ||
       fgId === ITEM_IDS.BFG_COLLECTOR ||
       fgId === ITEM_IDS.EXCHANGE_TERMINAL ||
+      fgId === ITEM_IDS.PIXOBYTE_DIGICHANGE ||
+      bgId === ITEM_IDS.PIXOBYTE_DIGICHANGE ||
       fgId === ITEM_IDS.LANDLORD_NPC ||
       fgId === ITEM_IDS.GREENS_VENDOR_NPC ||
       fgId === ITEM_IDS.ATM_MACHINE ||
@@ -1476,7 +1506,12 @@ export class BlockgroveEngine {
     const key = `${tx},${ty}`;
     const rawFgId = this.world.fg[idx];
     const stand = getMarketStandAt(this.world, tx, ty);
-    const fgId = stand ? stand.itemId : rawFgId;
+    const digichange = getPixobyteDigichangeAt(this.world, tx, ty);
+    const fgId = stand
+      ? stand.itemId
+      : digichange
+        ? ITEM_IDS.PIXOBYTE_DIGICHANGE
+        : rawFgId;
     const fgDef = getItemDef(fgId);
     const bgDef = getItemDef(this.world.bg[idx]);
     const bgId = this.world.bg[idx];
@@ -1485,12 +1520,18 @@ export class BlockgroveEngine {
     const { interactable, canEditDoor, canEditSign } = this.getTileInteractability(tx, ty);
     if (!interactable) return;
 
+    openingFrameTick(6);
     if (!quiet) soundEngine.uiClick();
     this.callbacks.onInspectTile?.({
-      tx: stand ? stand.anchorX : tx,
-      ty: stand ? stand.anchorY : ty,
+      tx: stand ? stand.anchorX : digichange ? digichange.anchorX : tx,
+      ty: stand ? stand.anchorY : digichange ? digichange.bottomY : ty,
       fgId,
-      fgName: fgId === ITEM_IDS.AIR && bgId === ITEM_IDS.STONE_FURNACE ? 'Stone Furnace' : (fgDef?.name ?? 'Air'),
+      fgName:
+        digichange
+          ? 'Pixobyte Digichange'
+          : fgId === ITEM_IDS.AIR && bgId === ITEM_IDS.STONE_FURNACE
+            ? 'Stone Furnace'
+            : (fgDef?.name ?? 'Air'),
       bgName: bgDef?.name ?? 'Open Sky',
       worldLock: fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
       areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : getCoveringAreaLock(this.world, tx, ty),
@@ -1502,6 +1543,7 @@ export class BlockgroveEngine {
       furnace: hasFurnace ? (this.world.furnaces?.[key] ?? null) : null,
       bfgCollector: fgId === ITEM_IDS.BFG_COLLECTOR ? (this.world.bfgCollectors?.[key] ?? null) : null,
       isExchangeTerminal: fgId === ITEM_IDS.EXCHANGE_TERMINAL,
+      isPixobyteDigichange: Boolean(digichange) || fgId === ITEM_IDS.PIXOBYTE_DIGICHANGE || bgId === ITEM_IDS.PIXOBYTE_DIGICHANGE,
       signText: canEditSign && Boolean(CATALOG[fgId]?.key.includes('sign')) ? (this.world.signs?.[key] ?? '') : null,
       matteragenEngine:
         fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC
@@ -2554,9 +2596,19 @@ export class BlockgroveEngine {
         continue;
       }
       const [txStr, tyStr] = key.split(',');
-      const sx = Number(txStr) * TILE_SIZE - cx;
-      const sy = Number(tyStr) * TILE_SIZE - cy;
-      const stage = Math.max(1, Math.min(4, Math.ceil((crack.hits / crack.maxHits) * 4)));
+      let sx = Number(txStr) * TILE_SIZE - cx;
+      let sy = Number(tyStr) * TILE_SIZE - cy;
+      const anim = this.tileAnims.get(key);
+      if (anim && anim.kind === 'hit') {
+        const t = Math.min(1, (nowMs - anim.startedAt) / anim.durationMs);
+        const kick = Math.sin(t * Math.PI) * 2.2;
+        sx += anim.dirX * kick;
+        sy += anim.dirY * kick;
+      }
+      const stage = Math.max(
+        1,
+        Math.min(CRACK_STAGE_COUNT, Math.ceil((crack.hits / Math.max(1, crack.maxHits)) * CRACK_STAGE_COUNT))
+      );
       ctx.drawImage(getCrackOverlay(stage), sx, sy, TILE_SIZE, TILE_SIZE);
     }
 
@@ -2692,10 +2744,36 @@ export class BlockgroveEngine {
       worldDistSq: number;
     }> = [];
 
-    // 5b. 3×2 Market Stands (Landlord Steward & Fresh Greens Vendor) & WorldCore in-world presence cues
+    // 5b. 3×2 Market Stands (Landlord Steward & Fresh Greens Vendor), 1×2 Pixobyte Digichange Background Terminals & WorldCore in-world presence cues
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = Math.max(0, tx0 - 1); tx <= Math.min(ww - 1, tx1 + 1); tx++) {
-        const fgId = this.world.fg[ty * ww + tx];
+        const tileIdx = ty * ww + tx;
+        const fgId = this.world.fg[tileIdx];
+        const bgId = this.world.bg[tileIdx];
+
+        if (
+          bgId === ITEM_IDS.PIXOBYTE_DIGICHANGE &&
+          (ty + 1 >= wh || this.world.bg[(ty + 1) * ww + tx] !== ITEM_IDS.PIXOBYTE_DIGICHANGE)
+        ) {
+          const termSprite = getPixobyteDigichangeSprite();
+          const termX = tx * TILE_SIZE - cx;
+          const termY = (ty - 1) * TILE_SIZE - cy;
+          const termW = TILE_SIZE;
+          const termH = TILE_SIZE * 2;
+          ctx.drawImage(termSprite, termX, termY, termW, termH);
+
+          const termPulse = 0.32 + Math.sin(nowMs * 0.005 + tx) * 0.14;
+          ctx.strokeStyle = `rgba(45, 212, 191, ${termPulse})`;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(termX + 2, termY + 1, termW - 4, termH - 2);
+
+          queuedEntityTags.push({
+            name: 'PIXOBYTE DIGICHANGE · BYTOMERGE (WRENCH)',
+            screenX: (termX + termW * 0.5) * viewScale,
+            screenY: (termY - 4) * viewScale,
+          });
+        }
+
         if (fgId === ITEM_IDS.LANDLORD_NPC || fgId === ITEM_IDS.GREENS_VENDOR_NPC) {
           const isLandlord = fgId === ITEM_IDS.LANDLORD_NPC;
           const standSprite = getMarketStandSprite(isLandlord ? 'landlord' : 'greens_vendor');

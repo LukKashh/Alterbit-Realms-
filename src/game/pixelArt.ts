@@ -71,18 +71,6 @@ function makeCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingCo
   return [c, ctx];
 }
 
-// 3x pixel-art grid helper (used by crack overlay)
-function p3(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, w = 1, h = 1) {
-  ctx.fillStyle = color;
-  ctx.fillRect(x * 3, y * 3, w * 3, h * 3);
-}
-
-// 2x high-detail pixel-art grid helper (used by crack overlay)
-function p2(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, w = 1, h = 1) {
-  ctx.fillStyle = color;
-  ctx.fillRect(x * 2, y * 2, w * 2, h * 2);
-}
-
 // High-detail tile & item sprites (32-bit for Farmables 900..939/950..989; 30-bit for all other catalogue items)
 function drawTile48(itemId: number): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(TILE_PX, TILE_PX);
@@ -174,48 +162,223 @@ export function getItemIconUrl(itemId: number): string {
   return url;
 }
 
+export const CRACK_STAGE_COUNT = 8;
+
+interface CrackSegment30 {
+  stage: number;
+  points: ReadonlyArray< readonly [number, number] >;
+  /** Optional chipped-edge highlight offsets relative to each point */
+  bevel?: readonly [number, number];
+  /** Optional secondary width expansion on heavy stages */
+  thickFromStage?: number;
+}
+
+/**
+ * 30-bit (30×30 native grid -> 60×60 TILE_PX) progressive branching fracture segments
+ * for placed blocks, background walls, and placeables across 8 damage stages.
+ */
+const HIGH_DEF_CRACK_SEGMENTS_30: readonly CrackSegment30[] = [
+  // Stage 1: Initial impact star at epicenter (15, 14) with 3 short hairline fractures
+  {
+    stage: 1,
+    points: [
+      [14, 14], [15, 14], [15, 15], [13, 13], [12, 12],
+      [16, 13], [17, 12], [15, 16], [14, 17],
+    ],
+    bevel: [-1, -1],
+    thickFromStage: 5,
+  },
+  // Stage 2: Primary NW & SE diagonal faults extend outward
+  {
+    stage: 2,
+    points: [
+      [11, 11], [10, 11], [9, 10], [8, 9],
+      [16, 16], [17, 17], [18, 17], [19, 18], [20, 19],
+      [13, 15], [12, 16],
+    ],
+    bevel: [0, -1],
+    thickFromStage: 6,
+  },
+  // Stage 3: NE & SW counter-faults split from epicenter + upper stress fork
+  {
+    stage: 3,
+    points: [
+      [18, 11], [19, 11], [20, 10], [21, 9], [22, 8],
+      [11, 17], [10, 18], [9, 19], [8, 20],
+      [10, 9], [10, 8], [11, 7],
+    ],
+    bevel: [-1, 0],
+    thickFromStage: 6,
+  },
+  // Stage 4: Bifurcating side branches & mid-tile shear lines
+  {
+    stage: 4,
+    points: [
+      [7, 9], [6, 8], [5, 7],
+      [19, 14], [20, 14], [21, 15], [22, 15], [23, 16],
+      [14, 11], [14, 10], [15, 9], [15, 8],
+      [15, 18], [15, 19], [16, 20], [16, 21],
+    ],
+    bevel: [0, -1],
+    thickFromStage: 7,
+  },
+  // Stage 5: Deep structural faults reach outer ring + transverse web links
+  {
+    stage: 5,
+    points: [
+      [21, 20], [22, 21], [23, 22], [24, 23],
+      [7, 20], [6, 21], [5, 22], [4, 23],
+      [9, 14], [8, 14], [7, 15], [6, 15], [5, 16],
+      [18, 8], [17, 7], [17, 6],
+    ],
+    bevel: [-1, -1],
+    thickFromStage: 7,
+  },
+  // Stage 6: Peripheral stress fissures approach tile borders + inner ring web
+  {
+    stage: 6,
+    points: [
+      [4, 6], [3, 5], [2, 4],
+      [23, 7], [24, 6], [25, 5], [26, 4],
+      [24, 16], [25, 17], [26, 17], [27, 18],
+      [16, 22], [17, 23], [17, 24], [18, 25],
+      [11, 13], [11, 14], [12, 15], [17, 14], [17, 15],
+    ],
+    bevel: [0, -1],
+    thickFromStage: 8,
+  },
+  // Stage 7: Interlocking shatter web across all 4 quadrants + detached spall chips
+  {
+    stage: 7,
+    points: [
+      [15, 7], [14, 6], [14, 5], [13, 4], [13, 3],
+      [4, 16], [3, 17], [2, 17],
+      [25, 23], [26, 24], [27, 25],
+      [3, 24], [2, 25],
+      [8, 11], [8, 12], [9, 13],
+      [20, 12], [21, 13], [20, 17], [19, 19],
+    ],
+    bevel: [-1, 0],
+  },
+  // Stage 8: Critical failure — edge-to-edge fracture network & impact crater core
+  {
+    stage: 8,
+    points: [
+      [1, 3], [27, 3], [28, 18], [18, 26], [18, 27], [1, 18], [1, 26], [28, 26],
+      [13, 2], [12, 2], [6, 4], [7, 5], [22, 4], [21, 5],
+      [6, 25], [7, 24], [22, 25], [21, 24],
+      [14, 13], [15, 13], [16, 14], [14, 15],
+    ],
+    bevel: [-1, -1],
+  },
+];
+
+const MICRO_SPALL_CHIPS_30: ReadonlyArray< readonly [number, number, number] > = [
+  // [stage, x, y]
+  [2, 13, 11],
+  [3, 18, 13],
+  [3, 12, 18],
+  [4, 8, 7],
+  [4, 21, 18],
+  [5, 12, 8],
+  [5, 22, 11],
+  [5, 8, 17],
+  [6, 5, 11],
+  [6, 24, 13],
+  [6, 13, 22],
+  [7, 4, 19],
+  [7, 25, 9],
+  [7, 19, 23],
+  [8, 9, 4],
+  [8, 24, 20],
+  [8, 10, 25],
+  [8, 3, 9],
+];
+
 export function getCrackOverlay(stage: number): HTMLCanvasElement {
   if (crackFrames.length === 0) {
-    for (let s = 1; s <= 4; s++) {
-      const c48 = document.createElement('canvas');
-      c48.width = 48;
-      c48.height = 48;
-      const ctx48 = c48.getContext('2d')!;
-      ctx48.imageSmoothingEnabled = false;
+    for (let s = 1; s <= CRACK_STAGE_COUNT; s++) {
+      // Render at native 30x30 (30-bit resolution), then upscale 2x to 60x60 TILE_PX
+      const [c30, ctx30] = makeCanvas(CATALOG_TEX30_SIZE, CATALOG_TEX30_SIZE);
 
-      p3(ctx48, 7, 7, 'rgba(14, 19, 30, 0.85)', 2, 2);
-      if (s >= 1) {
-        p3(ctx48, 6, 5, 'rgba(14, 19, 30, 0.8)', 1, 2);
-        p3(ctx48, 9, 9, 'rgba(14, 19, 30, 0.8)', 1, 2);
+      // 1. Subtle outer stress halo + bevel catch-lights so fractures read on both dark & bright tiles
+      for (const seg of HIGH_DEF_CRACK_SEGMENTS_30) {
+        if (seg.stage > s) continue;
+        const [bx, by] = seg.bevel ?? [-1, -1];
+        for (const [px, py] of seg.points) {
+          // Soft ambient occlusion halo on opposite side of bevel
+          ctx30.fillStyle = 'rgba(12, 18, 30, 0.34)';
+          ctx30.fillRect(px - bx, py - by, 1, 1);
+
+          // Crisp chipped-edge specular catch-light along upper/left fracture lip
+          const highlightAlpha = Math.min(0.52, 0.28 + s * 0.028);
+          ctx30.fillStyle = `rgba(232, 245, 255, ${highlightAlpha.toFixed(2)})`;
+          ctx30.fillRect(px + bx, py + by, 1, 1);
+        }
       }
-      if (s >= 2) {
-        p3(ctx48, 4, 3, 'rgba(14, 19, 30, 0.82)', 2, 2);
-        p3(ctx48, 10, 11, 'rgba(14, 19, 30, 0.82)', 2, 2);
-        p2(ctx48, 7, 6, 'rgba(255, 255, 255, 0.22)', 1, 1);
+
+      // 2. Secondary widened fault trench on progressed stages
+      for (const seg of HIGH_DEF_CRACK_SEGMENTS_30) {
+        if (seg.stage > s) continue;
+        if (seg.thickFromStage && s >= seg.thickFromStage) {
+          ctx30.fillStyle = 'rgba(18, 26, 42, 0.78)';
+          for (const [px, py] of seg.points) {
+            ctx30.fillRect(px + 1, py, 1, 1);
+          }
+        }
       }
+
+      // 3. Primary high-contrast fracture seams (30-bit 1px crisp paths)
+      for (const seg of HIGH_DEF_CRACK_SEGMENTS_30) {
+        if (seg.stage > s) continue;
+        const isCoreStage = seg.stage <= Math.ceil(s * 0.5);
+        ctx30.fillStyle = isCoreStage
+          ? 'rgba(6, 9, 16, 0.95)'
+          : 'rgba(14, 20, 33, 0.86)';
+        for (const [px, py] of seg.points) {
+          ctx30.fillRect(px, py, 1, 1);
+        }
+      }
+
+      // 4. Epicenter impact cavity darkening (grows from 1x1 to 3x3 at high stages)
       if (s >= 3) {
-        p3(ctx48, 2, 2, 'rgba(14, 19, 30, 0.86)', 2, 1);
-        p3(ctx48, 11, 3, 'rgba(14, 19, 30, 0.86)', 2, 2);
-        p3(ctx48, 3, 11, 'rgba(14, 19, 30, 0.86)', 2, 2);
+        ctx30.fillStyle = 'rgba(4, 6, 12, 0.96)';
+        ctx30.fillRect(14, 14, 2, 2);
       }
-      if (s >= 4) {
-        p3(ctx48, 1, 7, 'rgba(14, 19, 30, 0.9)', 3, 1);
-        p3(ctx48, 12, 7, 'rgba(14, 19, 30, 0.9)', 3, 1);
-        p3(ctx48, 7, 1, 'rgba(14, 19, 30, 0.9)', 2, 3);
-        p3(ctx48, 7, 12, 'rgba(14, 19, 30, 0.9)', 2, 3);
+      if (s >= 6) {
+        ctx30.fillStyle = 'rgba(4, 6, 12, 0.98)';
+        ctx30.fillRect(14, 13, 3, 3);
+        ctx30.fillStyle = 'rgba(240, 249, 255, 0.55)';
+        ctx30.fillRect(13, 13, 1, 1);
+        ctx30.fillRect(17, 16, 1, 1);
       }
 
-      const scaled = document.createElement('canvas');
-      scaled.width = TILE_PX;
-      scaled.height = TILE_PX;
-      const sCtx = scaled.getContext('2d')!;
-      sCtx.imageSmoothingEnabled = false;
-      sCtx.drawImage(c48, 0, 0, 48, 48, 0, 0, TILE_PX, TILE_PX);
+      // 5. Detached micro-spall chips & grit around fracture lines
+      for (const [chipStage, cx, cy] of MICRO_SPALL_CHIPS_30) {
+        if (chipStage > s) continue;
+        ctx30.fillStyle = 'rgba(10, 15, 26, 0.84)';
+        ctx30.fillRect(cx, cy, 1, 1);
+        ctx30.fillStyle = 'rgba(226, 240, 255, 0.38)';
+        ctx30.fillRect(cx - 1, cy - 1, 1, 1);
+      }
+
+      const [scaled, sCtx] = makeCanvas(TILE_PX, TILE_PX);
+      sCtx.drawImage(
+        c30,
+        0,
+        0,
+        CATALOG_TEX30_SIZE,
+        CATALOG_TEX30_SIZE,
+        0,
+        0,
+        TILE_PX,
+        TILE_PX
+      );
       crackFrames.push(scaled);
     }
   }
-  const idx = Math.max(0, Math.min(3, stage - 1));
-  return crackFrames[idx];
+  const clampedStage = Math.max(1, Math.min(CRACK_STAGE_COUNT, Math.round(stage)));
+  return crackFrames[clampedStage - 1];
 }
 
 export function getPlayerSprite(
@@ -247,148 +410,154 @@ export function getMarketStandSprite(kind: 'landlord' | 'greens_vendor'): HTMLCa
   const height = TILE_PX * 2;
   const [c, ctx] = makeCanvas(width, height);
 
-  // Helper on 48x32 logical 3px grid (48 * 3 = 144, 32 * 3 = 96)
+  // Map 48x32 logical grid across the full 180x120 (3x2 tile) frame so the stand & NPC fit edge-to-edge on the floor
+  const sx = width / 48;
+  const sy = height / 32;
   const b = (gx: number, gy: number, color: string, gw = 1, gh = 1) => {
+    const x0 = Math.round(gx * sx);
+    const y0 = Math.round(gy * sy);
+    const x1 = Math.round((gx + gw) * sx);
+    const y1 = Math.round((gy + gh) * sy);
     ctx.fillStyle = color;
-    ctx.fillRect(gx * 3, gy * 3, gw * 3, gh * 3);
+    ctx.fillRect(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
   };
 
   const isLandlord = kind === 'landlord';
   const outline = THEME.ink.outline;
 
-  // 1. Timber Support Pillars (left and right)
-  b(2, 8, outline, 4, 24);
-  b(42, 8, outline, 4, 24);
-  b(3, 9, '#5c381c', 2, 22);
-  b(43, 9, '#5c381c', 2, 22);
-  b(3, 9, '#8b572a', 1, 22);
-  b(43, 9, '#8b572a', 1, 22);
+  // 1. Timber Support Pillars (left and right, extending flush from canopy down to floor gy = 32)
+  b(0, 7, outline, 5, 25);
+  b(43, 7, outline, 5, 25);
+  b(1, 8, '#5c381c', 3, 23);
+  b(44, 8, '#5c381c', 3, 23);
+  b(1, 8, '#8b572a', 1, 23);
+  b(44, 8, '#8b572a', 1, 23);
 
-  // 2. Backboard Shadow Wall behind counter
-  b(6, 10, 'rgba(12, 18, 28, 0.72)', 36, 12);
+  // 2. Backboard Shadow Wall behind counter (filling interior between pillars)
+  b(5, 8, 'rgba(12, 18, 28, 0.82)', 38, 13);
 
-  // 3. NPC Proprietor standing behind the counter (centered around gx = 21..27, gy = 9..21)
+  // 3. NPC Proprietor standing behind the counter (sized taller & wider to fill the stall interior)
   if (isLandlord) {
     // Royal top hat with gold band
-    b(20, 8, outline, 8, 5);
-    b(19, 12, outline, 10, 2);
-    b(21, 9, '#1e293b', 6, 3);
-    b(21, 11, '#facc15', 6, 1);
+    b(19, 6, outline, 10, 5);
+    b(17, 10, outline, 14, 2);
+    b(20, 7, '#1e293b', 8, 3);
+    b(20, 9, '#facc15', 8, 1);
     // Face + golden monocle
-    b(20, 13, outline, 8, 5);
-    b(21, 14, THEME.character.skinMid, 6, 3);
-    b(22, 15, '#151b26', 1, 1);
-    b(25, 14, '#fde047', 2, 2);
-    b(25, 15, '#38bdf8', 1, 1);
-    // Coat & cravat
-    b(19, 18, outline, 10, 4);
-    b(20, 19, '#1d4ed8', 8, 3);
-    b(23, 19, '#fef08a', 2, 3);
+    b(19, 11, outline, 10, 6);
+    b(20, 12, THEME.character.skinMid, 8, 4);
+    b(21, 13, '#151b26', 1, 2);
+    b(25, 12, '#fde047', 2, 3);
+    b(25, 13, '#38bdf8', 1, 1);
+    // Coat & cravat reaching counter top
+    b(17, 16, outline, 14, 5);
+    b(18, 17, '#1d4ed8', 12, 4);
+    b(23, 17, '#fef08a', 2, 4);
   } else {
     // Sunhat with green ribbon
-    b(19, 9, outline, 10, 3);
-    b(17, 11, outline, 14, 2);
-    b(20, 10, '#eab308', 8, 1);
-    b(18, 11, '#fde047', 12, 1);
-    b(20, 11, '#16a34a', 8, 1);
+    b(18, 7, outline, 12, 3);
+    b(15, 9, outline, 18, 2);
+    b(19, 8, '#eab308', 10, 1);
+    b(16, 9, '#fde047', 16, 1);
+    b(19, 9, '#16a34a', 10, 1);
     // Cheerful face
-    b(20, 12, outline, 8, 5);
-    b(21, 13, THEME.character.skinMid, 6, 4);
-    b(22, 14, '#151b26', 1, 1);
-    b(25, 14, '#151b26', 1, 1);
-    b(23, 16, '#b45309', 2, 1);
-    // Garden apron & tunic
-    b(19, 17, outline, 10, 5);
-    b(20, 18, '#15803d', 8, 4);
-    b(22, 18, '#dcfce7', 4, 4);
+    b(19, 10, outline, 10, 6);
+    b(20, 11, THEME.character.skinMid, 8, 5);
+    b(21, 12, '#151b26', 1, 2);
+    b(26, 12, '#151b26', 1, 2);
+    b(23, 15, '#b45309', 2, 1);
+    // Garden apron & tunic reaching counter top
+    b(17, 16, outline, 14, 5);
+    b(18, 17, '#15803d', 12, 4);
+    b(21, 17, '#dcfce7', 6, 4);
   }
 
-  // 4. Striped Market Awning Canopy (top 3 tiles wide: gx = 0..48, gy = 1..10)
-  b(0, 1, outline, 48, 9);
-  b(1, 1, isLandlord ? '#facc15' : '#4ade80', 46, 1);
+  // 4. Striped Market Awning Canopy (flush with top & sides of 3x2 frame: gx = 0..48, gy = 0..9)
+  b(0, 0, outline, 48, 9);
+  b(1, 0, isLandlord ? '#facc15' : '#4ade80', 46, 1);
   for (let gx = 1; gx < 47; gx += 4) {
     const idx = Math.floor((gx - 1) / 4);
     const w = Math.min(4, 47 - gx);
     if (isLandlord) {
       const topCol = idx % 2 === 0 ? '#1d4ed8' : '#fef08a';
       const botCol = idx % 2 === 0 ? '#1e3a8a' : '#eab308';
-      b(gx, 2, topCol, w, 5);
-      b(gx, 7, botCol, w, 2);
+      b(gx, 1, topCol, w, 5);
+      b(gx, 6, botCol, w, 2);
     } else {
       const topCol = idx % 2 === 0 ? '#16a34a' : '#fef9c3';
       const botCol = idx % 2 === 0 ? '#15803d' : '#fde047';
-      b(gx, 2, topCol, w, 5);
-      b(gx, 7, botCol, w, 2);
+      b(gx, 1, topCol, w, 5);
+      b(gx, 6, botCol, w, 2);
     }
     // Scalloped valance fringe along awning bottom
     if (idx % 2 === 0) {
-      b(gx, 10, outline, w, 2);
-      b(gx + 1, 10, isLandlord ? '#facc15' : '#22c55e', Math.max(1, w - 2), 1);
+      b(gx, 9, outline, w, 2);
+      b(gx + 1, 9, isLandlord ? '#facc15' : '#22c55e', Math.max(1, w - 2), 1);
     }
   }
 
   // 5. Overhead Sign Plaque centered on canopy
-  b(13, 3, outline, 22, 5);
-  b(14, 4, isLandlord ? '#1e293b' : '#14532d', 20, 3);
-  b(15, 5, isLandlord ? '#fde047' : '#bbf7d0', 18, 1);
+  b(13, 2, outline, 22, 5);
+  b(14, 3, isLandlord ? '#1e293b' : '#14532d', 20, 3);
+  b(15, 4, isLandlord ? '#fde047' : '#bbf7d0', 18, 1);
 
   // 6. Hanging Lantern (left) & Scale/Emblem (right)
-  b(9, 10, outline, 3, 5);
-  b(10, 11, '#fde047', 1, 3);
-  b(36, 10, outline, 4, 5);
-  b(37, 11, isLandlord ? '#38bdf8' : '#f97316', 2, 3);
+  b(8, 9, outline, 3, 5);
+  b(9, 10, '#fde047', 1, 3);
+  b(37, 9, outline, 4, 5);
+  b(38, 10, isLandlord ? '#38bdf8' : '#f97316', 2, 3);
 
-  // 7. Full-width Market Counter Desk (gx = 1..47, gy = 20..32)
-  b(1, 20, outline, 46, 12);
+  // 7. Full-width Market Counter Desk grounded flush to bottom of 3x2 frame (gx = 0..48, gy = 20..32)
+  b(0, 20, outline, 48, 12);
   // Counter tabletop
-  b(2, 21, isLandlord ? '#eab308' : '#a16207', 44, 2);
-  b(2, 21, isLandlord ? '#fef08a' : '#ca8a04', 44, 1);
-  // Counter wood body planks
-  b(2, 23, '#5c381c', 44, 8);
-  for (let px = 6; px < 44; px += 8) {
-    b(px, 23, '#3b2112', 1, 8);
-    b(px + 1, 23, '#7c4d28', 2, 8);
+  b(1, 21, isLandlord ? '#eab308' : '#a16207', 46, 2);
+  b(1, 21, isLandlord ? '#fef08a' : '#ca8a04', 46, 1);
+  // Counter wood body planks extending down to gy = 31 (with outline baseboard at gy = 31..32)
+  b(1, 23, '#5c381c', 46, 7);
+  for (let px = 5; px < 45; px += 8) {
+    b(px, 23, '#3b2112', 1, 7);
+    b(px + 1, 23, '#7c4d28', 2, 7);
   }
-  b(2, 30, '#2a180d', 44, 1);
+  b(1, 30, '#2a180d', 46, 1);
 
   // 8. Countertop Props & Merchandise Displays
   if (isLandlord) {
     // Left: Stacked Realm Deeds & Wax-Sealed Scrolls
-    b(6, 16, outline, 9, 5);
-    b(7, 17, '#fef3c7', 7, 3);
-    b(9, 18, '#ef4444', 2, 2);
+    b(5, 16, outline, 9, 5);
+    b(6, 17, '#fef3c7', 7, 3);
+    b(8, 18, '#ef4444', 2, 2);
     // Center-left: Golden WorldCore Globe
-    b(16, 16, outline, 5, 5);
-    b(17, 17, '#f59e0b', 3, 3);
-    b(18, 17, '#fef08a', 1, 1);
+    b(15, 16, outline, 5, 5);
+    b(16, 17, '#f59e0b', 3, 3);
+    b(17, 17, '#fef08a', 1, 1);
     // Right: Royal Ledger Book & Ink Quill
-    b(30, 17, outline, 10, 4);
-    b(31, 18, '#7c2d12', 8, 2);
-    b(32, 18, '#fef9c3', 6, 1);
-    b(38, 14, '#f8fafc', 2, 4);
+    b(31, 17, outline, 10, 4);
+    b(32, 18, '#7c2d12', 8, 2);
+    b(33, 18, '#fef9c3', 6, 1);
+    b(39, 14, '#f8fafc', 2, 4);
   } else {
     // Overflowing Fresh Produce Crates along the counter!
     // Crate 1: Crisp Radishes & Sunroot Carrots (left)
-    b(4, 16, outline, 11, 5);
-    b(5, 17, '#784828', 9, 3);
-    b(5, 16, '#e11d48', 3, 2);
-    b(6, 15, '#4ade80', 2, 1);
-    b(9, 16, '#f97316', 4, 2);
-    b(10, 15, '#22c55e', 2, 1);
+    b(3, 16, outline, 11, 5);
+    b(4, 17, '#784828', 9, 3);
+    b(4, 16, '#e11d48', 3, 2);
+    b(5, 15, '#4ade80', 2, 1);
+    b(8, 16, '#f97316', 4, 2);
+    b(9, 15, '#22c55e', 2, 1);
     // Crate 2: Verdant Cabbages & Ruby Tomatoes (center-left & center-right)
-    b(16, 17, outline, 6, 4);
-    b(17, 18, '#16a34a', 4, 2);
-    b(18, 17, '#86efac', 2, 2);
-    b(26, 17, outline, 6, 4);
-    b(27, 18, '#dc2626', 4, 2);
-    b(28, 17, '#fca5a5', 2, 1);
+    b(15, 17, outline, 6, 4);
+    b(16, 18, '#16a34a', 4, 2);
+    b(17, 17, '#86efac', 2, 2);
+    b(27, 17, outline, 6, 4);
+    b(28, 18, '#dc2626', 4, 2);
+    b(29, 17, '#fca5a5', 2, 1);
     // Crate 3: Golden Sweetcorn & Starlight Melons (right)
-    b(33, 16, outline, 11, 5);
-    b(34, 17, '#784828', 9, 3);
-    b(34, 16, '#eab308', 4, 2);
-    b(35, 15, '#fef08a', 2, 1);
-    b(39, 15, '#0d9488', 4, 3);
-    b(40, 16, '#5eead4', 2, 1);
+    b(34, 16, outline, 11, 5);
+    b(35, 17, '#784828', 9, 3);
+    b(35, 16, '#eab308', 4, 2);
+    b(36, 15, '#fef08a', 2, 1);
+    b(40, 15, '#0d9488', 4, 3);
+    b(41, 16, '#5eead4', 2, 1);
 
     // Front counter emblem banner ("ALTERBITS MARKET")
     b(15, 24, outline, 18, 5);
@@ -399,3 +568,94 @@ export function getMarketStandSprite(kind: 'landlord' | 'greens_vendor'): HTMLCa
   marketStandCache.set(kind, c);
   return c;
 }
+
+let pixobyteDigichangeSpriteCache: HTMLCanvasElement | null = null;
+
+/**
+ * Renders the 1x2 tile (60x120px) interactive background terminal block "Pixobyte Digichange".
+ */
+export function getPixobyteDigichangeSprite(): HTMLCanvasElement {
+  if (pixobyteDigichangeSpriteCache) return pixobyteDigichangeSpriteCache;
+  const width = TILE_PX;
+  const height = TILE_PX * 2;
+  const [c, ctx] = makeCanvas(width, height);
+
+  // 30x60 logical 2px grid filling the entire 60x120 (1x2 tile) frame
+  const b = (gx: number, gy: number, color: string, gw = 1, gh = 1) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(gx * 2, gy * 2, gw * 2, gh * 2);
+  };
+
+  const out = '#050b14';
+  // Outer armored cryptographic monolith chassis (full 30x60 grid -> 60x120px)
+  b(0, 0, out, 30, 60);
+  b(1, 1, '#0f172a', 28, 58);
+  b(2, 2, '#1e293b', 26, 56);
+
+  // Side neon cyan & violet power conduits
+  b(1, 4, '#06b6d4', 1, 52);
+  b(28, 4, '#a855f7', 1, 52);
+
+  // Top Header Crown Banner (gy = 2..8): "PIXOBYTE" cryptic marquee
+  b(3, 3, out, 24, 6);
+  b(4, 4, '#1e1b4b', 22, 4);
+  b(6, 5, '#22d3ee', 4, 2);
+  b(12, 5, '#a855f7', 6, 2);
+  b(20, 5, '#10b981', 4, 2);
+
+  // Upper Holographic Display Screen (gy = 10..31): Live Pixostatic Stock Chart & Coin Emblem
+  b(3, 10, out, 24, 22);
+  b(4, 11, '#022c22', 22, 20);
+  b(5, 12, '#042f2e', 20, 18);
+
+  // Subtle grid lines inside CRT/holo screen
+  for (let gy = 15; gy <= 27; gy += 4) {
+    b(5, gy, '#064e3b', 20, 1);
+  }
+  for (let gx = 9; gx <= 21; gx += 4) {
+    b(gx, 12, '#064e3b', 1, 18);
+  }
+
+  // Stock chart ascending candle/waveform
+  b(6, 25, '#10b981', 3, 2);
+  b(9, 23, '#10b981', 3, 2);
+  b(12, 24, '#f43f5e', 2, 2);
+  b(14, 20, '#22d3ee', 3, 2);
+  b(17, 17, '#22d3ee', 3, 2);
+  b(20, 14, '#a855f7', 4, 2);
+  b(23, 13, '#ecfeff', 2, 2);
+
+  // Floating Pixobyte Coin emblem in upper-left of screen
+  b(6, 13, out, 7, 7);
+  b(7, 14, '#9333ea', 5, 5);
+  b(8, 15, '#67e8f9', 3, 3);
+  b(9, 16, '#ecfeff', 1, 1);
+
+  // Mid-section Cryptic Bytomerge Slot & Angled Control Console (gy = 33..44)
+  b(3, 33, out, 24, 11);
+  b(4, 34, '#0f172a', 22, 9);
+  // Glowing DigiBit -> Pixobyte merge bridge
+  b(6, 36, '#10b981', 5, 3);
+  b(12, 37, '#67e8f9', 6, 1);
+  b(19, 36, '#a855f7', 5, 3);
+  // Tactile terminal keys
+  for (let kx = 6; kx <= 21; kx += 5) {
+    b(kx, 40, '#38bdf8', 3, 2);
+  }
+
+  // Lower Armored Server Pedestal & Floor Plinth (gy = 45..60, flush with deck floor)
+  b(2, 45, out, 26, 15);
+  b(3, 46, '#1e293b', 24, 12);
+  b(5, 48, '#090d16', 20, 8);
+  for (let vy = 49; vy <= 54; vy += 2) {
+    b(7, vy, '#0e7490', 16, 1);
+    b(8, vy, '#22d3ee', 4, 1);
+  }
+  // Heavy grounded baseplate at gy = 57..60
+  b(1, 57, '#334155', 28, 2);
+  b(0, 59, out, 30, 1);
+
+  pixobyteDigichangeSpriteCache = c;
+  return c;
+}
+

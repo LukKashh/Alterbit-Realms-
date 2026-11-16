@@ -36,6 +36,7 @@ interface ClientSession {
   wsSessionId: string | null;
   authToken: string | null;
   sessionExpiresAt: number | null;
+  lastTeleportAt?: number;
 }
 
 const PORT = Number(process.env.PORT || 3000);
@@ -369,6 +370,7 @@ async function startServer() {
       type: 'profile_updated',
       gems: account.gems,
       alterbits: account.alterbits ?? 0,
+      pixobytes: account.pixobytes ?? 0,
       xp: account.xp,
       level: account.level,
       cropMasteryXp: account.cropMasteryXp ?? 0,
@@ -791,6 +793,22 @@ async function startServer() {
     }
 
     if (msg.type === 'move') {
+      // Ignore stale in-flight move packets sent right before a door or NEXUS teleport
+      if (
+        session.lastTeleportAt &&
+        Date.now() - session.lastTeleportAt < 500 &&
+        Math.hypot(msg.x - remote.x, msg.y - remote.y) > 192
+      ) {
+        const postTeleportPose: ResumePosition = {
+          x: remote.x,
+          y: remote.y,
+          vx: remote.vx,
+          vy: remote.vy,
+          facing: remote.facing,
+          grounded: remote.grounded,
+        };
+        return { ok: true, pose: postTeleportPose };
+      }
       const maxPxX = (worldWidth(live.state) - 1) * TILE_SIZE;
       const maxPxY = (worldHeight(live.state) - 1) * TILE_SIZE;
       let nextX = Math.max(0, Math.min(maxPxX, msg.x));
@@ -1085,6 +1103,7 @@ async function startServer() {
         sendTo(ws, { type: 'world_error', message: res.message });
         return { ok: false, errorMessage: res.message };
       }
+      session.lastTeleportAt = Date.now();
       sendTo(ws, {
         type: 'player_teleported',
         tx: res.targetX,
@@ -1101,6 +1120,7 @@ async function startServer() {
         sendTo(ws, { type: 'world_error', message: res.message });
         return { ok: false, errorMessage: res.message };
       }
+      session.lastTeleportAt = Date.now();
       sendTo(ws, {
         type: 'player_teleported',
         tx: res.targetX,
@@ -1277,6 +1297,7 @@ async function startServer() {
           role: account.role,
           gems: account.gems,
           alterbits: account.alterbits ?? 0,
+          pixobytes: account.pixobytes ?? 0,
           xp: account.xp,
           level: account.level,
           cropMasteryXp: account.cropMasteryXp ?? 0,

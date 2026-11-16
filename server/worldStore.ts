@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {
@@ -117,6 +118,7 @@ import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec } from '../src/game/sh
 import type { ShareLockPermissions } from '../src/game/shareLocks.ts';
 import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance, isSystemWorld } from '../src/game/expansion.ts';
 import { decomposeGemValue, rollGemDropPositionInTile } from '../src/game/gems.ts';
+import { getPixostaticMarketSnapshot } from '../src/game/pixobyteMarket.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -149,6 +151,7 @@ export interface PlayerAccount {
   role: UserRole;
   gems: number;
   alterbits: number;
+  pixobytes?: number;
   xp: number;
   level: number;
   cropMasteryXp: number;
@@ -224,13 +227,24 @@ export interface LiveWorld {
   dirty: boolean;
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DATA_DIR =
+  process.env.VITEST || process.env.NODE_TEST_CONTEXT || process.env.NODE_ENV === 'test'
+    ? path.join(os.tmpdir(), 'blockgrove-vitest-data')
+    : path.resolve(process.cwd(), 'data');
 const WORLDS_DIR = path.join(DATA_DIR, 'worlds');
 const PLAYERS_DIR = path.join(DATA_DIR, 'players');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'game-config.json');
 const EXCHANGE_FILE = path.join(DATA_DIR, 'exchange.json');
+
+/** Matches ephemeral unit-test world names so stale test files never pollute the Admin Worlds Browser */
+const EPHEMERAL_TEST_WORLD_RE =
+  /^(FARM|LOCK|VOWNER|ATMUSER|XPW|CT|MGEN|CAP|REALM1|DRS|DRP|CRAFT|BFGTEST|WLD|TEST|GEMTEST|ATMWORLD|VAULT|PLAT|CROP|WS)_[A-Z0-9]{4,12}$/;
+
+export function isEphemeralTestWorldName(name: string): boolean {
+  return EPHEMERAL_TEST_WORLD_RE.test(String(name ?? '').trim().toUpperCase());
+}
 
 const SHIRT_PALETTE = ['#3f8fd9', '#d95b43', '#49a863', '#c99334', '#8e63c9', '#38a3a5'];
 const MAX_OWNED_WORLD_PLAYERS = 10;
@@ -584,6 +598,7 @@ export class AuthoritativeWorldStore {
     acc.activeBuffs = (acc.activeBuffs ?? []).filter((b) => b.expiresAt > Date.now());
     acc.unclaimedWl = Math.max(0, Math.floor(Number(acc.unclaimedWl ?? 0)));
     acc.alterbits = Math.max(0, Math.floor(Number(acc.alterbits ?? 0)));
+    acc.pixobytes = Math.max(0, Math.floor(Number(acc.pixobytes ?? 0)));
     acc.cropMasteryXp = Math.max(0, Math.floor(Number(acc.cropMasteryXp ?? 0)));
     acc.cropMasteryLevel = Math.max(1, Math.floor(Number(acc.cropMasteryLevel ?? 1)));
     acc.farmablockMasteryXp = Math.max(0, Math.floor(Number(acc.farmablockMasteryXp ?? 0)));
@@ -636,6 +651,7 @@ export class AuthoritativeWorldStore {
       role,
       gems: 0,
       alterbits: 0,
+      pixobytes: 0,
       xp: 0,
       level: 1,
       cropMasteryXp: 0,
@@ -874,6 +890,7 @@ export class AuthoritativeWorldStore {
       role: account.role,
       gems: account.gems,
       alterbits: account.alterbits ?? 0,
+      pixobytes: account.pixobytes ?? 0,
       xp: account.xp,
       level: account.level,
       cropMasteryXp: account.cropMasteryXp ?? 0,
@@ -1705,9 +1722,16 @@ export class AuthoritativeWorldStore {
   listWorlds(): WorldSummary[] {
     const files = fs.readdirSync(WORLDS_DIR).filter((f) => f.endsWith('.json'));
     const names = new Set<string>(['START', 'NEXUS', 'DWELLER', 'FISHING', 'STATION', 'TRADE', 'FARM']);
-    for (const f of files) names.add(f.replace(/\.json$/, ''));
+    for (const f of files) {
+      const candidate = f.replace(/\.json$/, '');
+      if (!isEphemeralTestWorldName(candidate)) {
+        names.add(candidate);
+      }
+    }
     for (const [k, lw] of this.worlds.entries()) {
-      if (lw.state.worldKind !== 'mine_shaft') names.add(k);
+      if (lw.state.worldKind !== 'mine_shaft' && !isEphemeralTestWorldName(k)) {
+        names.add(k);
+      }
     }
 
     const summaries: WorldSummary[] = [];
@@ -2476,7 +2500,7 @@ export class AuthoritativeWorldStore {
     if (!suppressDrops) {
       if (tokenSource.kind === 'soil_crop') {
         const cropMasteryGain = Math.max(4, tokenSource.tier * 6);
-        const mRes = addMasteryXp(account.cropMasteryLevel, account.cropMasteryXp, cropMasteryGain);
+        const mRes = addMasteryXp(account.cropMasteryLevel, account.cropMasteryXp, cropMasteryGain, 'crop');
         account.cropMasteryLevel = mRes.level;
         account.cropMasteryXp = mRes.xp;
         if (mRes.leveledUp) {
@@ -2486,7 +2510,12 @@ export class AuthoritativeWorldStore {
         }
       } else if (tokenSource.kind === 'farmable_harvest') {
         const farmMasteryGain = Math.max(4, tokenSource.tier * 5);
-        const mRes = addMasteryXp(account.farmablockMasteryLevel, account.farmablockMasteryXp, farmMasteryGain);
+        const mRes = addMasteryXp(
+          account.farmablockMasteryLevel,
+          account.farmablockMasteryXp,
+          farmMasteryGain,
+          'farmablock'
+        );
         account.farmablockMasteryLevel = mRes.level;
         account.farmablockMasteryXp = mRes.xp;
         if (mRes.leveledUp) {
@@ -2603,7 +2632,8 @@ export class AuthoritativeWorldStore {
         | 'buy_seed'
         | 'sell_crop'
         | 'sell_all_crops'
-        | 'sell_cart';
+        | 'sell_cart'
+        | 'buy_pixobyte';
       itemId?: number;
       qty?: number;
       currency?: 'gems' | 'alterbits' | 'digibits';
@@ -2749,6 +2779,27 @@ export class AuthoritativeWorldStore {
       return {
         ok: true,
         notice: `Sold ${totalCropsSold} harvested crops for +${totalDbEarned} Digibits!`,
+      };
+    }
+
+    if (opts.action === 'buy_pixobyte') {
+      const qty = Math.max(1, Math.min(1000, Math.floor(Number(opts.qty ?? 1))));
+      const snapshot = getPixostaticMarketSnapshot(Date.now());
+      const unitCost = snapshot.currentRate;
+      const totalDb = unitCost * qty;
+      const curDb = Math.max(0, Math.floor(Number(account.alterbits ?? 0)));
+      if (curDb < totalDb) {
+        return {
+          ok: false,
+          message: `Need ${totalDb.toLocaleString()} Digibits to merge ${qty}× Pixobyte (Rate: ${unitCost.toLocaleString()} DB/PB).`,
+        };
+      }
+      account.alterbits = curDb - totalDb;
+      account.pixobytes = Math.max(0, Math.floor(Number(account.pixobytes ?? 0))) + qty;
+      this.savePlayer(account);
+      return {
+        ok: true,
+        notice: `Merged ${qty}× Pixobyte for ${totalDb.toLocaleString()} Digibits (@ ${unitCost.toLocaleString()} DB/PB)!`,
       };
     }
 
@@ -4400,7 +4451,12 @@ export class AuthoritativeWorldStore {
     if (remote) remote.level = account.level;
 
     const farmMasteryGain = Math.max(6, branchTier * 8);
-    const mRes = addMasteryXp(account.farmablockMasteryLevel, account.farmablockMasteryXp, farmMasteryGain);
+    const mRes = addMasteryXp(
+      account.farmablockMasteryLevel,
+      account.farmablockMasteryXp,
+      farmMasteryGain,
+      'farmablock'
+    );
     account.farmablockMasteryLevel = mRes.level;
     account.farmablockMasteryXp = mRes.xp;
 

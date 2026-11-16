@@ -246,7 +246,7 @@ test('50x40 Personal World Preset, Indestructible Pregen Foundation, Starter Sup
   assert.equal(farmer.alterbits, harvestedQty * radishSpec.sellAlterbits);
 
   // 5. Buy Crop Seeds using Digibits
-  farmer.alterbits += 50;
+  farmer.alterbits += 160;
   const buyCarrotSeed = store.handleVendorAction(farmer, {
     action: 'buy_seed',
     itemId: ITEM_IDS.CROP_SEED_CARROT,
@@ -743,3 +743,72 @@ test('Sci-fi Infusion 15-item catalog pack & same-tile floating drop merging str
 
   store.leaveWorld(worldName, acct.id, true);
 });
+
+test('35-DB Crop Rebalance, 1x2 Pixobyte Digichange Background Terminal in NEXUS, 26-bit Pixobyte Coin & Pixostatic Market Exchange', async () => {
+  const { getPixobyteDigichangeAt } = await import('../src/game/rules.ts');
+  const {
+    PIXOBYTE_BASE_RATE,
+    PIXOBYTE_MIN_RATE,
+    PIXOBYTE_MAX_RATE,
+    getPixostaticMarketSnapshot,
+  } = await import('../src/game/pixobyteMarket.ts');
+  const { PIXOBYTE_COIN_RESOLUTION } = await import('../src/components/PixobyteIcon.tsx');
+
+  // 1. Verify 26-bit resolution Pixobyte coin icon
+  assert.equal(PIXOBYTE_COIN_RESOLUTION, 26);
+
+  // 2. Verify Crop Rebalance baseline (starting seed cost = 35 DigiBits) and progressive scaling
+  assert.equal(CROP_SPECS[0].seedAlterbitPrice, 35);
+  assert.deepEqual(
+    CROP_SPECS.map((s) => s.seedAlterbitPrice),
+    [35, 90, 225, 540, 1250, 2800]
+  );
+  assert.deepEqual(
+    CROP_SPECS.map((s) => s.sellAlterbits),
+    [16, 36, 80, 172, 400, 1015]
+  );
+
+  // 3. Verify 1x2 Pixobyte Digichange background terminal placement in NEXUS
+  const nexus = generateWorld('NEXUS');
+  const digiConcourseTop = getPixobyteDigichangeAt(nexus, 48, 28);
+  const digiConcourseBot = getPixobyteDigichangeAt(nexus, 48, 29);
+  assert.ok(digiConcourseTop && digiConcourseBot, 'Pixobyte Digichange 1x2 should exist at x=48, y=28..29');
+  assert.equal(digiConcourseTop.anchorX, 48);
+  assert.equal(digiConcourseTop.topY, 28);
+  assert.equal(digiConcourseTop.bottomY, 29);
+  assert.equal(digiConcourseBot.bottomY, 29);
+
+  const digiUpperTop = getPixobyteDigichangeAt(nexus, 57, 16);
+  const digiUpperBot = getPixobyteDigichangeAt(nexus, 57, 17);
+  assert.ok(digiUpperTop && digiUpperBot, 'Pixobyte Digichange 1x2 should exist at x=57, y=16..17');
+  assert.equal(digiUpperTop.anchorX, 57);
+  assert.equal(digiUpperTop.topY, 16);
+  assert.equal(digiUpperTop.bottomY, 17);
+
+  // 4. Verify Pixostatic Market rate bounds around 1,325 DB midpoint (-29.5% floor = 935, +17.5% ceiling = 1,556)
+  assert.equal(PIXOBYTE_BASE_RATE, 1325);
+  assert.equal(PIXOBYTE_MIN_RATE, 935);
+  assert.equal(PIXOBYTE_MAX_RATE, 1556);
+  for (let i = 0; i < 60; i++) {
+    const snap = getPixostaticMarketSnapshot(1_700_000_000_000 + i * 7000);
+    assert.ok(
+      snap.currentRate >= PIXOBYTE_MIN_RATE && snap.currentRate <= PIXOBYTE_MAX_RATE,
+      `Rate ${snap.currentRate} out of [-29.5%, +17.5%] bounds`
+    );
+    assert.ok(snap.deviationPct >= -29.5 && snap.deviationPct <= 17.5);
+  }
+
+  // 5. Verify one-way DigiBits -> Pixobyte acquisition via store.handleVendorAction
+  const store = new AuthoritativeWorldStore();
+  const buyer = store.getOrCreatePlayer(`pxb_buyer_${Date.now().toString(36)}`, 'PxbTrader');
+  assert.equal(buyer.pixobytes, 0);
+  buyer.alterbits = 5000;
+  const buyPxb = store.handleVendorAction(buyer, {
+    action: 'buy_pixobyte',
+    qty: 2,
+  });
+  assert.equal(buyPxb.ok, true);
+  assert.equal(buyer.pixobytes, 2);
+  assert.ok(buyer.alterbits <= 5000 - 2 * PIXOBYTE_MIN_RATE && buyer.alterbits >= 5000 - 2 * PIXOBYTE_MAX_RATE);
+});
+

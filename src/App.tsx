@@ -106,6 +106,7 @@ export default function App() {
   const [coords, setCoords] = useState<{ tx: number; ty: number }>({ tx: 50, ty: 29 });
   const [gems, setGems] = useState<number>(0);
   const [alterbits, setAlterbits] = useState<number>(0);
+  const [pixobytes, setPixobytes] = useState<number>(0);
   const [hasClaimedStarterLootbox, setHasClaimedStarterLootbox] = useState<boolean>(false);
   const [xp, setXp] = useState<number>(0);
   const [level, setLevel] = useState<number>(1);
@@ -230,6 +231,7 @@ export default function App() {
       setRole(user.role);
       setGems(user.gems);
       setAlterbits(user.alterbits ?? 0);
+      setPixobytes(user.pixobytes ?? 0);
       setHasClaimedStarterLootbox(Boolean(user.hasClaimedStarterLootbox));
       setXp(user.xp);
       setLevel(user.level);
@@ -405,6 +407,7 @@ export default function App() {
             role: msg.role,
             gems: msg.gems,
             alterbits: msg.alterbits ?? 0,
+            pixobytes: msg.pixobytes ?? 0,
             xp: msg.xp,
             level: msg.level,
             cropMasteryXp: msg.cropMasteryXp ?? 0,
@@ -588,6 +591,7 @@ export default function App() {
         case 'profile_updated': {
           setGems(msg.gems);
           setAlterbits(msg.alterbits ?? 0);
+          setPixobytes(msg.pixobytes ?? 0);
           if (msg.hasClaimedStarterLootbox !== undefined) {
             setHasClaimedStarterLootbox(Boolean(msg.hasClaimedStarterLootbox));
           }
@@ -1033,6 +1037,7 @@ export default function App() {
           coords={coords}
           gems={gems}
           alterbits={alterbits}
+          pixobytes={pixobytes}
           xp={xp}
           level={level}
           cropMasteryXp={cropMasteryXp}
@@ -1171,9 +1176,13 @@ export default function App() {
           onUseDoor={(tx, ty) =>
             socketRef.current?.send({ type: 'use_door', tx, ty })
           }
-          onNexusTeleport={(targetX, targetY, label) =>
-            socketRef.current?.send({ type: 'nexus_teleport', targetX, targetY, label })
-          }
+          onNexusTeleport={(targetX, targetY, label) => {
+            engineRef.current?.teleportLocalPlayer(targetX, targetY);
+            if (engineRef.current) {
+              socketRef.current?.updateLocalPose(engineRef.current.getLocalPose());
+            }
+            socketRef.current?.send({ type: 'nexus_teleport', targetX, targetY, label });
+          }}
           orientation={orientation}
           viewZoom={viewZoom}
           onChangeViewZoom={(nextZoom) =>
