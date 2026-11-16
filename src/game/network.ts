@@ -128,6 +128,41 @@ export interface WorldSummary {
   publicAccess: boolean;
   ownerId?: string | null;
   worldKind?: 'standard' | 'mine_shaft';
+  lastSeen?: number;
+  width?: number;
+  height?: number;
+  isPersonalRealm?: boolean;
+  worldLevel?: number;
+  worldXp?: number;
+}
+
+export interface AdminPlayerProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  level: number;
+  xp: number;
+  gems: number;
+  alterbits: number;
+  cropMasteryLevel: number;
+  cropMasteryXp: number;
+  farmablockMasteryLevel: number;
+  farmablockMasteryXp: number;
+  unclaimedWl: number;
+  ownedWorldName: string | null;
+  inventoryCount: number;
+  inventorySlots: number;
+  equipped?: EquippedWearables;
+  stats: Record<string, number>;
+  claimedAchievementsCount: number;
+  totalAchievementsCount: number;
+  favoriteWorlds: string[];
+  recentWorlds: string[];
+  createdAt: number | null;
+  isOnline: boolean;
+  currentWorldName: string | null;
+  lastSeenAt: number | null;
 }
 
 export interface FriendEntry {

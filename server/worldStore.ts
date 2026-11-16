@@ -97,6 +97,7 @@ import type {
   FriendRequestEntry,
   InventorySlot,
   PublicPlayerProfile,
+  AdminPlayerProfile,
   RemotePlayerState,
   ResumePosition,
   UserRole,
@@ -104,6 +105,7 @@ import type {
   WorldSummary,
 } from '../src/game/network.ts';
 import { isCloudSqlConfigured } from '../src/db/index.ts';
+import { adminDb } from '../src/lib/firebase-admin.ts';
 import {
   loadAllSnapshotsFromSql,
   syncAppStateToSql,
@@ -911,6 +913,56 @@ export class AuthoritativeWorldStore {
     };
   }
 
+  getAdminPlayerProfile(targetNameOrId: string): AdminPlayerProfile | null {
+    const target = this.loadPlayerById(targetNameOrId) ?? this.findPlayerByNameOrId(targetNameOrId);
+    if (!target) return null;
+
+    const cred = this.credentials.find(
+      (c) => c.accountId === target.id || c.usernameLower === target.name.toLowerCase()
+    );
+
+    let isOnline = false;
+    let currentWorldName: string | null = null;
+    for (const [wName, live] of this.worlds.entries()) {
+      if (live.players.has(target.id)) {
+        isOnline = true;
+        currentWorldName = wName;
+        break;
+      }
+    }
+
+    const ownedWorldName = target.ownedWorldName ?? this.getUserPersonalWorld(target.id);
+
+    return {
+      id: target.id,
+      name: target.name,
+      email: target.email || cred?.email || 'N/A',
+      role: target.role,
+      level: target.level,
+      xp: target.xp,
+      gems: target.gems,
+      alterbits: target.alterbits,
+      cropMasteryLevel: target.cropMasteryLevel ?? 1,
+      cropMasteryXp: target.cropMasteryXp ?? 0,
+      farmablockMasteryLevel: target.farmablockMasteryLevel ?? 1,
+      farmablockMasteryXp: target.farmablockMasteryXp ?? 0,
+      unclaimedWl: target.unclaimedWl ?? 0,
+      ownedWorldName: ownedWorldName ?? null,
+      inventoryCount: target.inventory.filter((s) => s && s.qty > 0).length,
+      inventorySlots: MAX_INVENTORY_SLOTS,
+      equipped: target.equipped,
+      stats: target.stats as Record<string, number>,
+      claimedAchievementsCount: target.claimedAchievements.length,
+      totalAchievementsCount: ACHIEVEMENTS.length,
+      favoriteWorlds: target.favoriteWorlds,
+      recentWorlds: target.recentWorlds,
+      createdAt: cred?.createdAt ?? null,
+      isOnline,
+      currentWorldName,
+      lastSeenAt: isOnline ? Date.now() : (cred?.createdAt ?? Date.now()),
+    };
+  }
+
   getGameConfig(): GameConfig {
     return cloneGameConfig(this.gameConfig);
   }
@@ -1386,6 +1438,9 @@ export class AuthoritativeWorldStore {
         profileData: account as unknown as Record<string, unknown>,
       });
     }
+    try {
+      adminDb.collection('users').doc(account.id).set(account, { merge: true }).catch(() => {});
+    } catch {}
   }
 
   private hydrateWorldDefaults(state: WorldState): WorldState {
@@ -1641,6 +1696,9 @@ export class AuthoritativeWorldStore {
     if (isCloudSqlConfigured()) {
       void syncWorldSnapshotToSql(live.state);
     }
+    try {
+      adminDb.collection('worlds').doc(live.state.name).set(live.state, { merge: true }).catch(() => {});
+    } catch {}
   }
 
   listWorlds(): WorldSummary[] {
@@ -1655,6 +1713,21 @@ export class AuthoritativeWorldStore {
     for (const name of names) {
       const live = this.getOrCreateWorld(name);
       if (live.state.worldKind === 'mine_shaft') continue;
+
+      let lastSeen = Date.now();
+      const filePath = path.join(WORLDS_DIR, `${live.state.name}.json`);
+      if (fs.existsSync(filePath)) {
+        try {
+          const st = fs.statSync(filePath);
+          lastSeen = st.mtimeMs;
+        } catch {
+          // ignore stat errors
+        }
+      }
+      if (live.players.size > 0) {
+        lastSeen = Date.now();
+      }
+
       summaries.push({
         name: live.state.name,
         playerCount: live.players.size,
@@ -1662,6 +1735,12 @@ export class AuthoritativeWorldStore {
         ownerId: live.state.worldLock?.ownerId ?? null,
         publicAccess: live.state.worldLock ? live.state.worldLock.publicAccess : true,
         worldKind: live.state.worldKind ?? 'standard',
+        lastSeen,
+        width: live.state.width,
+        height: live.state.height,
+        isPersonalRealm: Boolean(live.state.isPersonalRealm),
+        worldLevel: live.state.worldLevel ?? 1,
+        worldXp: live.state.worldXp ?? 0,
       });
     }
     return summaries.sort((a, b) => b.playerCount - a.playerCount || a.name.localeCompare(b.name));

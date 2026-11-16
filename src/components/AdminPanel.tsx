@@ -16,6 +16,8 @@ import {
   type ItemConfigOverride,
 } from '../game/config.ts';
 import { getItemIconUrl } from '../game/pixelArt.ts';
+import { AdminWorldsBrowser } from './AdminWorldsBrowser.tsx';
+import type { WorldSummary } from '../game/network.ts';
 import {
   Shield,
   Search,
@@ -28,6 +30,10 @@ import {
   Undo2,
   RefreshCw,
   Wand2,
+  Globe,
+  ArrowLeft,
+  Layers,
+  ChevronRight,
 } from 'lucide-react';
 
 export interface AdminActionPayload {
@@ -66,6 +72,10 @@ export interface AdminPanelProps {
   adminWorldEdit?: boolean;
   adminBrushItemId?: number | null;
   onToggleAdminWorldEdit?: (enabled: boolean, brushItemId?: number | null) => void;
+  worlds?: WorldSummary[];
+  onRefreshWorlds?: () => void;
+  onWarpWorld?: (worldName: string) => void;
+  initialView?: 'selection' | 'catalog' | 'worlds';
   onClose: () => void;
 }
 
@@ -96,8 +106,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   adminWorldEdit = false,
   adminBrushItemId = null,
   onToggleAdminWorldEdit,
+  worlds = [],
+  onRefreshWorlds,
+  onWarpWorld,
+  initialView = 'selection',
   onClose,
 }) => {
+  const [adminView, setAdminView] = useState<'selection' | 'catalog' | 'worlds'>(initialView);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<FilterCategory>('all');
 
@@ -394,6 +409,213 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const anyBatchFieldChecked =
     applyHardness || applyRarity || applyXp || applyGems || applyDrops;
 
+  // View 1: Server Worlds Browser Window
+  if (adminView === 'worlds') {
+    return (
+      <AdminWorldsBrowser
+        worlds={worlds}
+        onRefreshWorlds={onRefreshWorlds}
+        onWarpWorld={onWarpWorld}
+        onBackToMenu={() => setAdminView('selection')}
+        onSwitchToCatalog={() => setAdminView('catalog')}
+        onClose={onClose}
+      />
+    );
+  }
+
+  // View 2: Admin Tools Selection Menu (Hub)
+  if (adminView === 'selection') {
+    return (
+      <div
+        data-testid="admin-tools-selection-menu"
+        className="flex flex-col h-full w-full bg-[#eef7ff] text-[#091e3a] select-none overflow-hidden rounded-[8px]"
+      >
+        {/* Top Header Bar */}
+        <div className="px-3 py-2 bg-[#c4e0f8]/80 border-b-2 border-[#2c5885] flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            <Shield size={16} className="text-[#c2410c]" />
+            <span className="text-xs font-bold uppercase tracking-wider text-[#091e3a]">
+              Admin Tools Hub
+            </span>
+            <span className="text-[10px] font-mono text-[#23476d]">
+              (Administrator Controls)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* SysEdit Admin World Restriction Bypass Toggle */}
+            <button
+              type="button"
+              data-testid="admin-sysedit-toggle-hub"
+              onClick={() => onToggleAdminWorldEdit?.(!adminWorldEdit, adminBrushItemId)}
+              title="Bypass world ownership & lock restrictions to edit any world freely"
+              className={`px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider border transition-colors flex items-center gap-1 cursor-pointer ${
+                adminWorldEdit
+                  ? 'bg-[#fed7aa] text-[#9a3412] border-[#c2410c]'
+                  : 'bg-white/80 text-[#091e3a] border-[#4172a3] hover:bg-white'
+              }`}
+            >
+              <Wand2 size={11} />
+              {adminWorldEdit ? 'SysEdit ON' : 'SysEdit'}
+            </button>
+
+            {/* Quick +500G */}
+            <button
+              type="button"
+              onClick={() => {
+                onAdminAction?.({ action: 'grant_gems', gems: 500 });
+                showToast('Granted +500 Gems');
+              }}
+              className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase bg-white/80 text-[#92400e] border border-[#b45309] hover:bg-[#fef3c7] cursor-pointer"
+            >
+              +500G
+            </button>
+
+            {/* Quick Insta-Grow */}
+            <button
+              type="button"
+              onClick={() => {
+                onAdminAction?.({ action: 'grow_all_trees' });
+                showToast(`Matured all plants in ${worldName ?? 'world'}`);
+              }}
+              className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase bg-white/80 text-[#047857] border border-[#16a34a] hover:bg-[#dcfce7] cursor-pointer"
+            >
+              Grow
+            </button>
+
+            {/* Rebuild NEXUS */}
+            <button
+              type="button"
+              onClick={() => {
+                onAdminAction?.({ action: 'rebuild_nexus' });
+                showToast('Rebuilt NEXUS layout');
+              }}
+              className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider bg-white/80 text-[#0369a1] border border-[#0284c7] hover:bg-[#dbeafe] flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw size={10} />
+              NEXUS
+            </button>
+
+            {/* Clear Inventory */}
+            <button
+              type="button"
+              onClick={() => {
+                onAdminAction?.({ action: 'clear_inventory' });
+                showToast('Cleared inventory');
+              }}
+              className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider bg-white/80 text-[#b91c1c] border border-[#dc2626] hover:bg-[#fee2e2] flex items-center gap-1 cursor-pointer"
+            >
+              <Trash2 size={10} />
+              Clear Inv
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 text-[#23476d] hover:text-[#091e3a] rounded-[6px] cursor-pointer"
+              title="Close Admin Panel"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Status Toast */}
+        {statusToast && (
+          <div className="px-3 py-1.5 bg-[#dcfce7] border-b border-[#16a34a] text-[#14532d] text-[11px] font-medium flex items-center justify-between shrink-0">
+            <span>{statusToast}</span>
+            <button type="button" onClick={() => setStatusToast(null)}>
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
+        {/* Selection Menu Body */}
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+          <div className="text-center mb-1">
+            <h2 className="text-sm font-bold text-[#0f172a] uppercase tracking-wide">
+              Admin Tool Windows
+            </h2>
+            <p className="text-[11px] text-[#475569]">
+              Select a specialized administrator tool to manage game data or server worlds
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            {/* TOOL 1: Item Catalogue */}
+            <button
+              type="button"
+              data-testid="admin-select-catalogue-btn"
+              onClick={() => setAdminView('catalog')}
+              className="w-full text-left p-3.5 bg-white hover:bg-[#f0fdf4] border-2 border-[#16a34a] hover:border-[#15803d] rounded-[10px] shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 group"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-[9px] bg-gradient-to-br from-[#22c55e] to-[#15803d] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                  <Layers size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-[#0f172a] group-hover:text-[#15803d] transition-colors">
+                      Game Item Catalogue
+                    </h3>
+                    <span className="px-1.5 py-0.5 rounded-[5px] text-[9px] font-bold uppercase bg-[#dcfce7] text-[#166534] border border-[#86efac]">
+                      263 Items · Overrides
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#475569] mt-1 leading-relaxed">
+                    Browse all placeable blocks, materials, farmables, seeds, tools, and gear. Search,
+                    inspect properties, adjust drop tables, modify hardness, batch rebalance, and spawn items directly.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 text-[10px] text-[#16a34a] font-semibold">
+                    <span>• 40 Farmablocks & 40 Seeds</span>
+                    <span>• Drop Table Editor</span>
+                    <span>• Multi-Select Batching</span>
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={20} className="text-[#16a34a] shrink-0 group-hover:translate-x-1 transition-transform" />
+            </button>
+
+            {/* TOOL 2: Server Worlds Browser */}
+            <button
+              type="button"
+              data-testid="admin-select-worlds-btn"
+              onClick={() => setAdminView('worlds')}
+              className="w-full text-left p-3.5 bg-white hover:bg-[#eff6ff] border-2 border-[#2563eb] hover:border-[#1d4ed8] rounded-[10px] shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 group"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-[9px] bg-gradient-to-br from-[#3b82f6] to-[#1d4ed8] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                  <Globe size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-[#0f172a] group-hover:text-[#1d4ed8] transition-colors">
+                      Server Worlds Browser
+                    </h3>
+                    <span className="px-1.5 py-0.5 rounded-[5px] text-[9px] font-bold uppercase bg-[#dbeafe] text-[#1e40af] border border-[#93c5fd]">
+                      Database Worlds · AdminEnter · Player View
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#475569] mt-1 leading-relaxed">
+                    Inspect all server-stored persistent worlds created and active in the database.
+                    View world names, owner usernames, last seen timestamps, and click for downwards-expanding inspection frames with instant AdminEnter and detailed Owner Player Views.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 text-[10px] text-[#2563eb] font-semibold">
+                    <span>• Instant Lock-Bypass AdminEnter</span>
+                    <span>• Detailed Owner Statistics</span>
+                    <span>• Real-Time Activity Tracking</span>
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={20} className="text-[#2563eb] shrink-0 group-hover:translate-x-1 transition-transform" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // View 3: Item Catalogue UI (the whole UI originally displayed)
   return (
     <div
       data-testid="admin-catalog-panel"
@@ -402,6 +624,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Top Header Bar: Title + SysEdit Bypass + Quick Admin Actions */}
       <div className="px-3 py-2 bg-[#c4e0f8]/60 border-b-2 border-[#2c5885] flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="admin-catalog-back-to-menu"
+            onClick={() => setAdminView('selection')}
+            className="px-2 py-1 rounded-[6px] text-[10px] font-bold uppercase tracking-wider bg-white/90 text-[#1e40af] border border-[#3b82f6] hover:bg-white flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+            title="Return to Admin Tools Selection Menu"
+          >
+            <ArrowLeft size={11} />
+            Tools Menu
+          </button>
           <Shield size={15} className="text-[#c2410c]" />
           <span className="text-xs font-bold uppercase tracking-wider text-[#091e3a]">
             Game Item Catalogue
@@ -412,6 +644,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Switch to Worlds Browser */}
+          <button
+            type="button"
+            data-testid="admin-switch-to-worlds-btn"
+            onClick={() => setAdminView('worlds')}
+            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase tracking-wider bg-white/90 text-[#1d4ed8] border border-[#3b82f6] hover:bg-[#dbeafe] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+            title="Switch to Server Worlds Browser"
+          >
+            <Globe size={11} />
+            Server Worlds
+          </button>
           {/* SysEdit Admin World Restriction Bypass Toggle */}
           <button
             type="button"

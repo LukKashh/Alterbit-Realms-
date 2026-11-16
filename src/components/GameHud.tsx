@@ -3261,7 +3261,7 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* In-World Administrator Dev Config & System World Modifier Panel */}
       {activePanel === 'admin' && role === 'admin' && (
-        <div className="pointer-events-auto fixed inset-x-1.5 top-2 bottom-2 md:inset-x-auto md:top-10 md:bottom-auto md:right-3 md:w-[min(480px,94vw)] md:h-[min(88dvh,780px)] z-30 pixel-box p-2.5 sm:p-3 flex flex-col overflow-hidden">
+        <div className="pointer-events-auto fixed inset-x-1.5 top-2 bottom-2 md:inset-x-auto md:top-8 md:bottom-auto md:right-3 md:w-[min(620px,96vw)] md:h-[min(90dvh,800px)] z-30 pixel-box p-2.5 sm:p-3 flex flex-col overflow-hidden">
           <AdminPanel
             gameConfig={gameConfig}
             inWorld={true}
@@ -3272,6 +3272,12 @@ export const GameHud: React.FC<GameHudProps> = ({
             onToggleAdminWorldEdit={onToggleAdminWorldEdit}
             onSaveConfig={onUpdateGameConfig}
             onAdminAction={onAdminAction}
+            worlds={worlds}
+            onRefreshWorlds={onRefreshWorlds}
+            onWarpWorld={(target) => {
+              onJoinWorld(target);
+              setActivePanel('none');
+            }}
             onClose={() => setActivePanel('none')}
           />
         </div>

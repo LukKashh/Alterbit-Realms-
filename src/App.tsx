@@ -102,6 +102,7 @@ export default function App() {
   const [worldKind, setWorldKind] = useState<'standard' | 'mine_shaft'>('standard');
   const [mineExpiresAt, setMineExpiresAt] = useState<number | null>(null);
   const [playerCount, setPlayerCount] = useState<number>(1);
+  const [serverRevision, setServerRevision] = useState<number>(0);
   const [coords, setCoords] = useState<{ tx: number; ty: number }>({ tx: 50, ty: 29 });
   const [gems, setGems] = useState<number>(0);
   const [alterbits, setAlterbits] = useState<number>(0);
@@ -294,6 +295,20 @@ export default function App() {
     }
   }, [viewZoom, orientation]);
 
+  useEffect(() => {
+    if (appState !== 'playing' && appState !== 'paused') return;
+    const engine = engineRef.current;
+    const socket = socketRef.current;
+    if (!engine || !socket) return;
+    const clientRev = engine.getWorldRevision();
+    if (serverRevision - clientRev > 2) {
+      const wName = engine.getWorldState().name;
+      if (wName) {
+        socket.joinWorld(wName, engine.getLocalPose());
+      }
+    }
+  }, [serverRevision, appState]);
+
 
   const fetchWorldsList = useCallback(async () => {
     try {
@@ -478,6 +493,7 @@ export default function App() {
           if (engine.getWorldState().name === msg.worldName) {
             engine.syncPresenceAndDrops(msg.players, msg.drops, msg.revision);
             setPlayerCount(msg.players.length);
+            setServerRevision(msg.revision);
           }
           break;
                         case 'world_error':

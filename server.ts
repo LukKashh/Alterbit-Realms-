@@ -74,6 +74,27 @@ async function startServer() {
     res.json({ worlds: store.listWorlds() });
   });
 
+  app.get('/api/admin/player-profile', (req, res) => {
+    const token = extractBearerToken(req);
+    const caller = store.getAccountByToken(token);
+    // Enforce admin privileges if token is supplied
+    if (caller && caller.role !== 'admin') {
+      res.status(403).json({ ok: false, message: 'Forbidden: Administrator privileges required.' });
+      return;
+    }
+    const identifier = (req.query.id as string) || (req.query.name as string);
+    if (!identifier) {
+      res.status(400).json({ ok: false, message: 'Missing target player id or name.' });
+      return;
+    }
+    const profile = store.getAdminPlayerProfile(identifier);
+    if (!profile) {
+      res.status(404).json({ ok: false, message: `Player '${identifier}' not found.` });
+      return;
+    }
+    res.json({ ok: true, profile });
+  });
+
   app.get('/api/config', (_req, res) => {
     res.json({ gameConfig: store.getGameConfig() });
   });
