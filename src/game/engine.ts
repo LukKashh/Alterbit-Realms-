@@ -68,7 +68,8 @@ import {
 } from './worldGen.ts';
 import { soundEngine } from './audio.ts';
 import { BLOCKGROVE_ART_THEME } from './artTheme.ts';
-import type { ActiveBuff, FishingCastState, RemotePlayerState, WorldDrop } from './network.ts';
+import type { ActiveBuff, FishingCastState, RemotePlayerState, ResumePosition, WorldDrop } from './network.ts';
+import { getGemTierSpec } from './gems.ts';
 
 type ParticleShape = 'shard' | 'spark' | 'ring' | 'dust' | 'plus';
 
@@ -798,10 +799,20 @@ export class BlockgroveEngine {
     };
   }
 
-  public syncPresenceAndDrops(players: RemotePlayerState[], drops: WorldDrop[], revision?: number) {
-    if (typeof revision === 'number' && revision > (this.world.revision ?? 0)) {
-      this.world.revision = revision;
+  public reconcileServerPose(pose: ResumePosition) {
+    const dx = Math.abs(this.body.x - pose.x);
+    const dy = Math.abs(this.body.y - pose.y);
+    if (dx > 192 || dy > 192) {
+      this.body.x = pose.x;
+      this.body.y = pose.y;
+      this.body.vx = pose.vx;
+      this.body.vy = pose.vy;
+      this.body.facing = pose.facing;
+      this.body.grounded = pose.grounded;
     }
+  }
+
+  public syncPresenceAndDrops(players: RemotePlayerState[], drops: WorldDrop[]) {
     const seenIds = new Set<string>();
     for (const p of players) {
       if (p.id === this.localPlayerId) continue;
@@ -994,8 +1005,12 @@ export class BlockgroveEngine {
     matteragenEngine?: MatteragenRecord | null,
     atmMachine?: AtmMachineRecord | null,
     vaultbox?: VaultboxRecord | null,
-    doorLink?: DoorLinkRecord | null
+    doorLink?: DoorLinkRecord | null,
+    revision?: number
   ) {
+    if (typeof revision === 'number' && revision > (this.world.revision ?? 0)) {
+      this.world.revision = revision;
+    }
     const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
     const prevFg = this.world.fg[idx];
@@ -2550,43 +2565,9 @@ export class BlockgroveEngine {
       const bob = Math.sin(nowMs * 0.0055 + drop.x * 0.35 + drop.y * 0.2) * 2.8;
       if (drop.isGem) {
         const qty = drop.qty || 1;
-        let sz = 17;
-        let darkColor = '#713f12';
-        let baseColor = '#ca8a04';
-        let lightColor = '#fde047';
-        let sparkColor = '#fef08a';
-
-        if (qty >= 100) {
-          sz = 31;
-          darkColor = '#581c87';
-          baseColor = '#9333ea';
-          lightColor = '#c084fc';
-          sparkColor = '#f3e8ff';
-        } else if (qty >= 50) {
-          sz = 28;
-          darkColor = '#14532d';
-          baseColor = '#16a34a';
-          lightColor = '#4ade80';
-          sparkColor = '#dcfce7';
-        } else if (qty >= 10) {
-          sz = 24;
-          darkColor = '#991b1b';
-          baseColor = '#dc2626';
-          lightColor = '#f87171';
-          sparkColor = '#fee2e2';
-        } else if (qty >= 5) {
-          sz = 20;
-          darkColor = '#0369a1';
-          baseColor = '#0284c7';
-          lightColor = '#38bdf8';
-          sparkColor = '#e0f2fe';
-        } else {
-          sz = 17;
-          darkColor = '#713f12';
-          baseColor = '#ca8a04';
-          lightColor = '#fde047';
-          sparkColor = '#fef08a';
-        }
+        const gemSpec = getGemTierSpec(qty);
+        const sz = gemSpec.size;
+        const { darkColor, baseColor, lightColor, sparkColor } = gemSpec;
 
         const half = Math.floor(sz / 2);
         const gx = Math.floor(drop.x - cx - half);
@@ -2594,7 +2575,7 @@ export class BlockgroveEngine {
 
         // Ground shadow
         ctx.fillStyle = 'rgba(4, 8, 14, 0.40)';
-        ctx.fillRect(gx + 1, Math.floor(drop.y - cy + half), sz - 2, 3);
+        ctx.fillRect(gx + 1, Math.floor(drop.y - cy + half), sz - 2, 2);
 
         // Gem silhouette (brilliant octagon/diamond cut)
         ctx.fillStyle = '#090d16';
@@ -2604,15 +2585,15 @@ export class BlockgroveEngine {
 
         // Deep facet shadows (left & bottom)
         ctx.fillStyle = darkColor;
-        ctx.fillRect(gx + 1, gy + 2, Math.max(2, Math.floor(sz * 0.3)), sz - 4);
-        ctx.fillRect(gx + 2, gy + sz - 2, sz - 4, Math.max(2, Math.floor(sz * 0.3)));
+        ctx.fillRect(gx + 1, gy + 2, Math.max(2, Math.floor(sz * 0.28)), sz - 4);
+        ctx.fillRect(gx + 2, gy + sz - 2, sz - 4, Math.max(2, Math.floor(sz * 0.28)));
 
         // Mid base color facets
         ctx.fillStyle = baseColor;
         ctx.fillRect(
-          gx + Math.floor(sz * 0.3),
+          gx + Math.floor(sz * 0.28),
           gy + 1,
-          Math.max(2, sz - Math.floor(sz * 0.3) - 2),
+          Math.max(2, sz - Math.floor(sz * 0.28) - 2),
           sz - 2
         );
 
@@ -2621,17 +2602,17 @@ export class BlockgroveEngine {
         ctx.fillRect(
           gx + Math.floor(sz * 0.35),
           gy + 1,
-          Math.max(2, Math.floor(sz * 0.45)),
-          Math.max(2, Math.floor(sz * 0.45))
+          Math.max(2, Math.floor(sz * 0.42)),
+          Math.max(2, Math.floor(sz * 0.42))
         );
 
         // Sparkling glint (animated)
         const glintPhase = Math.sin(nowMs * 0.008 + drop.x * 1.5) > 0.2;
         if (glintPhase) {
           ctx.fillStyle = sparkColor;
-          ctx.fillRect(gx + Math.floor(sz * 0.4), gy + 1, 3, 3);
+          ctx.fillRect(gx + Math.floor(sz * 0.42), gy + 1, 2, 2);
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(gx + Math.floor(sz * 0.45), gy + 1, 2, 2);
+          ctx.fillRect(gx + Math.floor(sz * 0.45), gy + 1, 1, 1);
         }
       } else {
         const dropDef = getItemDef(drop.itemId);

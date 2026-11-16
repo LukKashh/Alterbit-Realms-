@@ -435,10 +435,29 @@ export default function App() {
             msg.worldName &&
             typeof msg.worldRevision === 'number' &&
             (modeRef.current === 'playing' || modeRef.current === 'paused') &&
-            engine.getWorldState().name === msg.worldName &&
-            engine.getWorldRevision() < msg.worldRevision
+            engine.getWorldState().name === msg.worldName
           ) {
-            socket.joinWorld(msg.worldName, engine.getLocalPose());
+            setServerRevision((prev) => Math.max(prev, msg.worldRevision!));
+            if (engine.getWorldRevision() < msg.worldRevision) {
+              socket.joinWorld(msg.worldName, engine.getLocalPose());
+            }
+          }
+          break;
+        case 'action_ack':
+          if (
+            msg.worldName &&
+            typeof msg.worldRevision === 'number' &&
+            engine.getWorldState().name === msg.worldName
+          ) {
+            setServerRevision((prev) => Math.max(prev, msg.worldRevision!));
+          }
+          if (
+            msg.actionType === 'move' &&
+            msg.ok &&
+            msg.pose &&
+            msg.worldName === engine.getWorldState().name
+          ) {
+            engine.reconcileServerPose(msg.pose);
           }
           break;
         case 'auth_error':
@@ -477,6 +496,7 @@ export default function App() {
           setFishingBiting(false);
           setFishingProgress(0);
           setPlayerCount(msg.players.length);
+          setServerRevision(msg.world.revision ?? 0);
           setChatMessages(msg.chatHistory);
           engine.loadWorld(msg.world, msg.players, msg.drops, {
             preserveLocalPose: isReconnectSameWorld,
@@ -491,12 +511,12 @@ export default function App() {
         }
         case 'presence_sync':
           if (engine.getWorldState().name === msg.worldName) {
-            engine.syncPresenceAndDrops(msg.players, msg.drops, msg.revision);
+            engine.syncPresenceAndDrops(msg.players, msg.drops);
             setPlayerCount(msg.players.length);
             setServerRevision(msg.revision);
           }
           break;
-                        case 'world_error':
+        case 'world_error':
           if (modeRef.current === 'loading') {
             setAppState('hub');
             showToast(msg.message);
@@ -540,8 +560,12 @@ export default function App() {
             msg.matteragenEngine,
             msg.atmMachine,
             msg.vaultbox,
-            msg.doorLink
+            msg.doorLink,
+            msg.revision
           );
+          if (typeof msg.revision === 'number') {
+            setServerRevision((prev) => Math.max(prev, msg.revision));
+          }
           if (msg.worldLock !== undefined) {
             setWorldOwner(msg.worldLock?.ownerName ?? null);
           }

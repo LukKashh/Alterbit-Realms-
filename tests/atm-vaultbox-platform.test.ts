@@ -115,11 +115,16 @@ test('ATM Machine store price (10,000 G), single type, 30m-1.5h random interval,
   assert.equal(atm.isReady, false);
   assert.equal(atm.storedGems, 0);
   assert.ok(atm.intervalMs >= ATM_MIN_INTERVAL_MS && atm.intervalMs <= ATM_MAX_INTERVAL_MS);
+  const atmGemDrops = punch.drops.filter((d) => d.isGem);
+  assert.ok(atmGemDrops.length >= 1, 'Punching ready ATM must drop the generated Gem payout');
   assert.equal(
-    punch.drops.some((d) => d.isGem && d.qty === expectedGems),
-    true,
-    'Punching ready ATM must drop the generated Gem payout'
+    atmGemDrops.reduce((sum, d) => sum + d.qty, 0),
+    expectedGems,
+    'ATM gem drops must sum exactly to expectedGems'
   );
+  for (const gd of atmGemDrops) {
+    assert.ok([1, 5, 10, 50, 100].includes(gd.qty), `Unexpected ATM gem denomination ${gd.qty}`);
+  }
 
   store.leaveWorld(worldName, acct.id, true);
 });

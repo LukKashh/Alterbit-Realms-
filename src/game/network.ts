@@ -228,9 +228,15 @@ export interface ResumePosition {
   grounded: boolean;
 }
 
-export type ClientMessage =
-  | { type: 'hello'; token?: string; playerId?: string; playerName?: string }
-  | { type: 'ping'; clientTime: number }
+export interface ClientMessageMeta {
+  ackId?: string;
+  clientRevision?: number;
+  sessionToken?: string;
+}
+
+export type ClientMessagePayload =
+  | { type: 'hello'; token: string }
+  | { type: 'ping'; clientTime: number; clientRevision?: number }
   | { type: 'join_world'; worldName: string; resumePosition?: ResumePosition }
   | { type: 'create_world'; worldName: string; terraBlast?: boolean }
   | { type: 'leave_world' }
@@ -388,6 +394,8 @@ export type ClientMessage =
   | { type: 'use_door'; tx: number; ty: number }
   | { type: 'nexus_teleport'; targetX: number; targetY: number; label?: string };
 
+export type ClientMessage = ClientMessagePayload & ClientMessageMeta;
+
 export type ServerMessage =
   | {
       type: 'welcome';
@@ -416,6 +424,7 @@ export type ServerMessage =
       hasClaimedStarterLootbox?: boolean;
       gameConfig: GameConfig;
       exchange: ExchangeSnapshot;
+      sessionToken?: string;
     }
   | {
       type: 'pong';
@@ -424,6 +433,19 @@ export type ServerMessage =
       worldName?: string | null;
       worldRevision?: number | null;
       playerCount?: number;
+      authenticated?: boolean;
+      sessionExpiresAt?: number | null;
+    }
+  | {
+      type: 'action_ack';
+      ackId: string;
+      actionType: ClientMessagePayload['type'];
+      ok: boolean;
+      serverTime: number;
+      worldName: string | null;
+      worldRevision: number | null;
+      pose?: ResumePosition;
+      errorMessage?: string;
     }
   | { type: 'auth_error'; message: string }
   | { type: 'config_updated'; gameConfig: GameConfig; notice?: string }
@@ -523,6 +545,12 @@ interface QueuedClientMessage {
   queuedAt: number;
 }
 
+interface PendingAckRecord {
+  type: ClientMessagePayload['type'];
+  sentAt: number;
+  worldName: string | null;
+}
+
 export class GameSocketClient {
   private ws: WebSocket | null = null;
   private listeners = new Set<(msg: ServerMessage) => void>();
@@ -531,10 +559,17 @@ export class GameSocketClient {
   private heartbeatTimer: number | null = null;
   private reconnectAttempts = 0;
   private lastMessageReceivedAt = 0;
-  private helloPayload: { token?: string; playerId?: string; playerName?: string } | null = null;
+  private lastPongAt = 0;
+  private latencyMs: number | null = null;
+  private helloPayload: { token: string } | null = null;
+  private wsSessionToken: string | null = null;
   private activeWorldName: string | null = null;
+  private currentWorldRevision = 0;
   private lastLocalPose: ResumePosition | undefined = undefined;
   private pendingQueue: QueuedClientMessage[] = [];
+  private pendingAcks = new Map<string, PendingAckRecord>();
+  private nextAckSeq = 1;
+  private lastAckTimeoutCheckAt = 0;
   private lifecycleBound = false;
   public connected = false;
 
@@ -550,8 +585,8 @@ export class GameSocketClient {
     if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.reconnectNow();
     } else {
-      // Immediately verify liveness when tab returns to foreground
-      this.send({ type: 'ping', clientTime: Date.now() });
+      // Immediately verify liveness and world revision when tab returns to foreground
+      this.sendHeartbeatPing();
     }
   };
 
@@ -580,37 +615,14 @@ export class GameSocketClient {
   }
 
   connectWithToken(token: string) {
+    const cleanToken = token.trim();
+    if (!cleanToken) return;
     this.bindBrowserLifecycle();
-    this.helloPayload = { token };
+    this.helloPayload = { token: cleanToken };
+    this.wsSessionToken = null;
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       if (this.ws.readyState === WebSocket.OPEN) {
-        this.send({ type: 'hello', token });
-        if (this.activeWorldName) {
-          this.send({
-            type: 'join_world',
-            worldName: this.activeWorldName,
-            resumePosition: this.lastLocalPose,
-          });
-        }
-      }
-      return;
-    }
-    this.openSocket();
-  }
-
-  connect(playerId: string, playerName: string) {
-    this.bindBrowserLifecycle();
-    this.helloPayload = { playerId, playerName };
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      if (this.ws.readyState === WebSocket.OPEN) {
-        this.send({ type: 'hello', playerId, playerName });
-        if (this.activeWorldName) {
-          this.send({
-            type: 'join_world',
-            worldName: this.activeWorldName,
-            resumePosition: this.lastLocalPose,
-          });
-        }
+        this.ws.send(JSON.stringify({ type: 'hello', token: cleanToken }));
       }
       return;
     }
@@ -624,6 +636,7 @@ export class GameSocketClient {
       this.reconnectTimer = null;
     }
     this.reconnectAttempts = 0;
+    this.pendingAcks.clear();
     if (this.ws) {
       try {
         this.ws.onclose = null;
@@ -644,20 +657,61 @@ export class GameSocketClient {
     this.statusListeners.forEach((cb) => cb(next));
   }
 
+  private sendHeartbeatPing() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(
+      JSON.stringify({
+        type: 'ping',
+        clientTime: Date.now(),
+        clientRevision: this.currentWorldRevision,
+        ...(this.wsSessionToken ? { sessionToken: this.wsSessionToken } : {}),
+      })
+    );
+  }
+
   private startHeartbeat() {
     this.stopHeartbeat();
     if (typeof window === 'undefined') return;
     this.lastMessageReceivedAt = Date.now();
     this.heartbeatTimer = window.setInterval(() => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-      const silenceMs = Date.now() - this.lastMessageReceivedAt;
-      if (silenceMs > 15000) {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        if (this.helloPayload && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+          this.setConnectedState(false);
+          this.reconnectNow();
+        }
+        return;
+      }
+
+      const now = Date.now();
+      const silenceMs = now - this.lastMessageReceivedAt;
+      if (silenceMs > 12000) {
         // Stale half-open connection detected — force reconnect
         this.reconnectNow();
         return;
       }
-      this.send({ type: 'ping', clientTime: Date.now() });
-    }, 5500);
+
+      // Check for overdue unacknowledged client actions
+      let oldestDiscreteAckAge = 0;
+      for (const [ackId, rec] of this.pendingAcks.entries()) {
+        const age = now - rec.sentAt;
+        if (age > 10000) {
+          this.pendingAcks.delete(ackId);
+          continue;
+        }
+        if (rec.type !== 'move' && age > oldestDiscreteAckAge) {
+          oldestDiscreteAckAge = age;
+        }
+      }
+
+      if (oldestDiscreteAckAge > 5500 && now - this.lastAckTimeoutCheckAt > 4000) {
+        this.lastAckTimeoutCheckAt = now;
+        if (this.activeWorldName) {
+          this.joinWorld(this.activeWorldName, this.lastLocalPose);
+        }
+      }
+
+      this.sendHeartbeatPing();
+    }, 3000);
   }
 
   private stopHeartbeat() {
@@ -683,13 +737,41 @@ export class GameSocketClient {
     }, Math.round(baseDelay + jitter));
   }
 
+  private prepareOutboundMessage(msg: ClientMessage): ClientMessage {
+    if (msg.type === 'hello' || msg.type === 'ping') {
+      return msg;
+    }
+    const ackId = msg.ackId ?? `ack_${this.nextAckSeq++}_${Date.now().toString(36)}`;
+    return {
+      ...msg,
+      ackId,
+      clientRevision: msg.clientRevision ?? this.currentWorldRevision,
+      ...(this.wsSessionToken ? { sessionToken: this.wsSessionToken } : {}),
+    };
+  }
+
+  private trackPendingAck(msg: ClientMessage) {
+    if (!msg.ackId || msg.type === 'hello' || msg.type === 'ping') return;
+    this.pendingAcks.set(msg.ackId, {
+      type: msg.type,
+      sentAt: Date.now(),
+      worldName: this.activeWorldName,
+    });
+    if (this.pendingAcks.size > 256) {
+      const oldestKey = this.pendingAcks.keys().next().value;
+      if (oldestKey) this.pendingAcks.delete(oldestKey);
+    }
+  }
+
   private flushPendingQueue() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.pendingQueue.length === 0) return;
     const cutoff = Date.now() - 15000;
     const items = this.pendingQueue.splice(0, this.pendingQueue.length);
     for (const item of items) {
       if (item.queuedAt >= cutoff) {
-        this.ws.send(JSON.stringify(item.msg));
+        const prepared = this.prepareOutboundMessage(item.msg);
+        this.trackPendingAck(prepared);
+        this.ws.send(JSON.stringify(prepared));
       }
     }
   }
@@ -708,19 +790,11 @@ export class GameSocketClient {
       if (this.ws !== ws) return;
       this.reconnectAttempts = 0;
       this.lastMessageReceivedAt = Date.now();
+      this.wsSessionToken = null;
       this.setConnectedState(true);
       this.startHeartbeat();
       if (this.helloPayload) {
-        this.send({ type: 'hello', ...this.helloPayload });
-      }
-      if (this.activeWorldName) {
-        this.send({
-          type: 'join_world',
-          worldName: this.activeWorldName,
-          resumePosition: this.lastLocalPose,
-        });
-      } else {
-        this.flushPendingQueue();
+        ws.send(JSON.stringify({ type: 'hello', token: this.helloPayload.token }));
       }
     };
 
@@ -729,11 +803,38 @@ export class GameSocketClient {
       this.lastMessageReceivedAt = Date.now();
       try {
         const msg = JSON.parse(ev.data) as ServerMessage;
-        if (msg.type === 'world_joined') {
+        if (msg.type === 'welcome') {
+          this.wsSessionToken = msg.sessionToken ?? null;
+          if (this.activeWorldName) {
+            this.send({
+              type: 'join_world',
+              worldName: this.activeWorldName,
+              resumePosition: this.lastLocalPose,
+            });
+          } else {
+            this.flushPendingQueue();
+          }
+        } else if (msg.type === 'world_joined') {
           this.activeWorldName = msg.world.name;
+          this.currentWorldRevision = msg.world.revision ?? 0;
+          this.pendingAcks.clear();
           this.flushPendingQueue();
-        } else if (msg.type === 'welcome' && !this.activeWorldName) {
-          this.flushPendingQueue();
+        } else if (msg.type === 'tile_updated') {
+          if (typeof msg.revision === 'number' && msg.revision > this.currentWorldRevision) {
+            this.currentWorldRevision = msg.revision;
+          }
+        } else if (msg.type === 'action_ack') {
+          this.pendingAcks.delete(msg.ackId);
+        } else if (msg.type === 'pong') {
+          this.lastPongAt = Date.now();
+          this.latencyMs = Math.max(0, this.lastPongAt - msg.clientTime);
+          if (msg.authenticated === false && this.helloPayload) {
+            ws.send(JSON.stringify({ type: 'hello', token: this.helloPayload.token }));
+          }
+        } else if (msg.type === 'auth_error') {
+          this.wsSessionToken = null;
+          this.helloPayload = null;
+          this.pendingAcks.clear();
         }
         this.listeners.forEach((cb) => cb(msg));
       } catch {
@@ -744,6 +845,7 @@ export class GameSocketClient {
     ws.onclose = () => {
       if (this.ws !== ws) return;
       this.ws = null;
+      this.wsSessionToken = null;
       this.stopHeartbeat();
       this.setConnectedState(false);
       this.scheduleReconnect();
@@ -762,6 +864,18 @@ export class GameSocketClient {
     return this.activeWorldName;
   }
 
+  getConnectionDiagnostics() {
+    return {
+      connected: this.connected,
+      readyState: this.ws?.readyState ?? WebSocket.CLOSED,
+      latencyMs: this.latencyMs,
+      lastPongAt: this.lastPongAt,
+      pendingAckCount: this.pendingAcks.size,
+      worldRevision: this.currentWorldRevision,
+      hasSessionToken: Boolean(this.wsSessionToken),
+    };
+  }
+
   joinWorld(worldName: string, resumePosition?: ResumePosition) {
     const clean = worldName.trim().toUpperCase();
     if (this.activeWorldName !== clean) {
@@ -778,6 +892,8 @@ export class GameSocketClient {
   leaveWorld() {
     this.activeWorldName = null;
     this.lastLocalPose = undefined;
+    this.currentWorldRevision = 0;
+    this.pendingAcks.clear();
     this.send({ type: 'leave_world' });
   }
 
@@ -792,18 +908,20 @@ export class GameSocketClient {
         grounded: msg.grounded,
       };
     }
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
+    const prepared = this.prepareOutboundMessage(msg);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.wsSessionToken) {
+      this.trackPendingAck(prepared);
+      this.ws.send(JSON.stringify(prepared));
       return;
     }
     // Buffer discrete user actions during brief reconnect windows
     if (
-      msg.type !== 'move' &&
-      msg.type !== 'ping' &&
-      msg.type !== 'hello' &&
-      msg.type !== 'join_world'
+      prepared.type !== 'move' &&
+      prepared.type !== 'ping' &&
+      prepared.type !== 'hello' &&
+      prepared.type !== 'join_world'
     ) {
-      this.pendingQueue.push({ msg, queuedAt: Date.now() });
+      this.pendingQueue.push({ msg: prepared, queuedAt: Date.now() });
       if (this.pendingQueue.length > 32) {
         this.pendingQueue.shift();
       }
@@ -831,9 +949,12 @@ export class GameSocketClient {
       this.reconnectTimer = null;
     }
     this.helloPayload = null;
+    this.wsSessionToken = null;
     this.activeWorldName = null;
+    this.currentWorldRevision = 0;
     this.lastLocalPose = undefined;
     this.pendingQueue = [];
+    this.pendingAcks.clear();
     this.setConnectedState(false);
     if (this.ws) {
       try {

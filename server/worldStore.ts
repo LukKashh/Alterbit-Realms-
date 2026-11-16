@@ -116,6 +116,7 @@ import type { EquippedWearables } from '../src/game/pixelArt.ts';
 import { DEFAULT_SHARE_LOCK_PERMISSIONS, getShareLockSpec } from '../src/game/shareLocks.ts';
 import type { ShareLockPermissions } from '../src/game/shareLocks.ts';
 import { canRodFishAtDepth, getFishingDepthLevel, getFishDepthWeight, getRodUpgradeGemCost, getFishingPullStrength, getFishPullResistance, isSystemWorld } from '../src/game/expansion.ts';
+import { decomposeGemValue, rollGemDropPositionInTile } from '../src/game/gems.ts';
 
 
 /** Shared server-side tree reward roll used by player harvesting and BFG collectors. */
@@ -2205,15 +2206,7 @@ export class AuthoritativeWorldStore {
       const atm = live.state.atmMachines?.[key];
       if (atm && atm.isReady && !effectiveAdminEdit) {
         const stored = Math.max(5, Math.min(125, Math.round(atm.storedGems || 0)));
-        const gemDrop: WorldDrop = {
-          id: `gem_${Date.now()}_atm_${Math.random().toString(36).slice(2, 7)}`,
-          itemId: 0,
-          qty: stored,
-          x: tx * TILE_SIZE + TILE_SIZE * 0.5,
-          y: ty * TILE_SIZE + TILE_SIZE * 0.5 - 8,
-          isGem: true,
-        };
-        live.drops.set(gemDrop.id, gemDrop);
+        const atmGemDrops = this.spawnSortedGemDrops(live, stored, tx, ty, 'atm');
 
         const leveled = addXp(account.level, account.xp, 12);
         account.level = leveled.level;
@@ -2237,7 +2230,7 @@ export class AuthoritativeWorldStore {
           layer: 'fg',
           hits: 0,
           maxHits: 1,
-          drops: [gemDrop],
+          drops: atmGemDrops,
           xpGained: 12,
           gemsGained: stored,
           worldXpUpdate,
@@ -2470,37 +2463,8 @@ export class AuthoritativeWorldStore {
     }
 
     if (gemsGained > 0) {
-      const gemSpreadOffsets: ReadonlyArray< readonly [number, number] > = [
-        [0, 0],
-        [-15, -7],
-        [15, -7],
-        [-12, 10],
-        [12, 10],
-        [0, -13],
-        [-18, 3],
-        [18, 3],
-        [-7, 13],
-        [7, -12],
-      ];
-      const packetCount = gemsGained >= 14 ? 3 : gemsGained >= 5 ? 2 : 1;
-      let remGems = gemsGained;
-      for (let p = 0; p < packetCount; p++) {
-        const chunkQty = p === packetCount - 1 ? remGems : Math.max(1, Math.floor(gemsGained / packetCount));
-        remGems -= chunkQty;
-        if (chunkQty <= 0) continue;
-        const spreadIdx = (spawnedDrops.length + (spawnedDrops.length === 0 && p === 0 ? 0 : 1)) % gemSpreadOffsets.length;
-        const [gxOff, gyOff] = gemSpreadOffsets[spreadIdx];
-        const gemDrop: WorldDrop = {
-          id: `gem_${Date.now()}_${p}_${Math.random().toString(36).slice(2, 7)}`,
-          itemId: 0,
-          qty: chunkQty,
-          x: tx * TILE_SIZE + TILE_SIZE * 0.5 + gxOff,
-          y: ty * TILE_SIZE + TILE_SIZE * 0.5 + gyOff,
-          isGem: true,
-        };
-        spawnedDrops.push(gemDrop);
-        live.drops.set(gemDrop.id, gemDrop);
-      }
+      const gemDrops = this.spawnSortedGemDrops(live, gemsGained, tx, ty, 'blk');
+      spawnedDrops.push(...gemDrops);
     }
 
     const leveled = addXp(account.level, account.xp, xpGained);
@@ -2857,6 +2821,41 @@ export class AuthoritativeWorldStore {
       created += 1;
     }
     return firstDrop!;
+  }
+
+  /**
+   * Automatically decomposes totalGems into exact denomination drops (100, 50, 10, 5, 1)
+   * and spawns each gem at a randomized coordinate within its exact origin tile (tx, ty).
+   */
+  public spawnSortedGemDrops(
+    live: LiveWorld,
+    totalGems: number,
+    tx: number,
+    ty: number,
+    tag = 'gem'
+  ): WorldDrop[] {
+    const denoms = decomposeGemValue(totalGems);
+    if (denoms.length === 0) return [];
+
+    const spawned: WorldDrop[] = [];
+    const batchPositions: Array<{ x: number; y: number }> = [];
+
+    for (let i = 0; i < denoms.length; i++) {
+      const denom = denoms[i];
+      const pos = rollGemDropPositionInTile(tx, ty, batchPositions);
+      batchPositions.push(pos);
+      const gemDrop: WorldDrop = {
+        id: `gem_${Date.now()}_${tag}_${i}_${Math.random().toString(36).slice(2, 7)}`,
+        itemId: 0,
+        qty: denom,
+        x: pos.x,
+        y: pos.y,
+        isGem: true,
+      };
+      live.drops.set(gemDrop.id, gemDrop);
+      spawned.push(gemDrop);
+    }
+    return spawned;
   }
 
   handlePlaceTile(
