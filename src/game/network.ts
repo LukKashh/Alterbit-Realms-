@@ -330,10 +330,17 @@ export type ClientMessage =
   | { type: 'plow_tile'; tx: number; ty: number; adminEdit?: boolean }
   | {
       type: 'vendor_action';
-      action: 'reclaim_hoe' | 'buy_hoe' | 'buy_seed' | 'sell_crop' | 'sell_all_crops';
+      action:
+        | 'reclaim_hoe'
+        | 'buy_hoe'
+        | 'buy_seed'
+        | 'sell_crop'
+        | 'sell_all_crops'
+        | 'sell_cart';
       itemId?: number;
       qty?: number;
       currency?: 'gems' | 'alterbits' | 'digibits';
+      cart?: Array<{ itemId: number; qty: number }>;
     }
   | {
       type: 'configure_door';

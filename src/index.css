@@ -292,3 +292,23 @@
   background: #2c5885;
 }
 
+@keyframes hudSlideDownPop {
+  0% {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.94);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(3px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-hud-slide-down {
+  animation: hudSlideDownPop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+

@@ -31,10 +31,18 @@ import {
   type PlayerStatKey,
   type StoreSection,
 } from '../game/catalog.ts';
-import { DEFAULT_VIEW_SCALE, MAX_INVENTORY_SLOTS } from '../game/constants.ts';
+import {
+  DEFAULT_VIEW_SCALE,
+  MAX_INVENTORY_SLOTS,
+  MAX_PLAYER_ZOOM,
+  MIN_PLAYER_ZOOM,
+} from '../game/constants.ts';
+import {
+  useViewportOrientation,
+  type DeviceOrientation,
+} from '../game/orientation.ts';
 import { getItemIconUrl, type EquippedWearables } from '../game/pixelArt.ts';
 import {
-  getCropMasteryRequiredLevel,
   masteryXpForNextLevel,
   worldXpForNextLevel,
   xpForNextLevel,
@@ -55,6 +63,7 @@ import type { TileInspectInfo } from '../game/engine.ts';
 import { NEXUS_DOOR_DESTINATIONS } from '../game/worldGen.ts';
 import { formatHudNumber } from '../game/format.ts';
 import { AdminPanel, type AdminActionPayload } from './AdminPanel.tsx';
+import { DigiBitsIcon } from './DigiBitsIcon.tsx';
 import { ExchangeModal } from './ExchangeModal.tsx';
 import { AtmPanel, BfgPanel, FurnacePanel, VaultboxPanel } from './MachinePanels.tsx';
 import { RedGemIcon } from './RedGemIcon.tsx';
@@ -201,14 +210,22 @@ interface GameHudProps {
   ) => void;
   hasClaimedStarterLootbox?: boolean;
   onVendorAction?: (opts: {
-    action: 'reclaim_hoe' | 'buy_hoe' | 'buy_seed' | 'sell_crop' | 'sell_all_crops';
+    action:
+      | 'reclaim_hoe'
+      | 'buy_hoe'
+      | 'buy_seed'
+      | 'sell_crop'
+      | 'sell_all_crops'
+      | 'sell_cart';
     itemId?: number;
     qty?: number;
     currency?: 'gems' | 'alterbits' | 'digibits';
+    cart?: Array<{ itemId: number; qty: number }>;
   }) => void;
   onConfigureDoor?: (tx: number, ty: number, targetX: number, targetY: number, label?: string) => void;
   onUseDoor?: (tx: number, ty: number) => void;
   onNexusTeleport?: (targetX: number, targetY: number, label?: string) => void;
+  orientation?: DeviceOrientation;
   viewZoom?: number;
   onChangeViewZoom?: (scale: number) => void;
 }
@@ -226,10 +243,11 @@ type ActivePanel =
 
 interface PunchJoystickProps {
   selectedItemId: number;
+  isPortrait: boolean;
   onChange: (active: boolean, dx: number, dy: number) => void;
 }
 
-const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange }) => {
+const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, isPortrait, onChange }) => {
   const baseRef = useRef<HTMLDivElement | null>(null);
   const knobElRef = useRef<HTMLDivElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
@@ -297,7 +315,9 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
         if (pointerIdRef.current !== e.pointerId) return;
         resetStick();
       }}
-      className={`relative w-14 h-14 sm:w-[68px] sm:h-[68px] rounded-[12px] border-[2.5px] flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing backdrop-blur-md shadow-[0_3px_0_rgba(15,42,74,0.3)] transition-colors ${
+      className={`relative ${
+        isPortrait ? 'w-14 h-14' : 'w-[68px] h-[68px]'
+      } rounded-[12px] border-[2.5px] flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing backdrop-blur-md shadow-[0_3px_0_rgba(15,42,74,0.3)] transition-colors ${
         active
           ? 'bg-[#cfe7fc]/85 border-[#0284c7]'
           : 'bg-[#d8ecfc]/75 border-[#2c5885]'
@@ -313,7 +333,9 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
       {/* Movable thumb knob */}
       <div
         ref={knobElRef}
-        className={`pointer-events-none w-8 h-8 sm:w-10 sm:h-10 rounded-xl border-2 flex flex-col items-center justify-center shadow-[0_2px_0_rgba(15,23,42,0.45)] will-change-transform ${
+        className={`pointer-events-none ${
+          isPortrait ? 'w-8 h-8' : 'w-10 h-10'
+        } rounded-xl border-2 flex flex-col items-center justify-center shadow-[0_2px_0_rgba(15,23,42,0.45)] will-change-transform ${
           active
             ? 'bg-[#b91c1c] border-[#fecaca]'
             : 'bg-[#dc2626] border-[#7f1d1d]'
@@ -325,10 +347,14 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
         <img
           src={getItemIconUrl(selectedItemId)}
           alt="Action"
-          className="w-4 h-4 sm:w-5 sm:h-5 pixelated"
+          className={`${isPortrait ? 'w-4 h-4' : 'w-5 h-5'} pixelated`}
           referrerPolicy="no-referrer"
         />
-        <span className="text-[7px] sm:text-[8px] font-bold uppercase tracking-wider text-[#fff2ec] leading-none mt-0.5">
+        <span
+          className={`${
+            isPortrait ? 'text-[7px]' : 'text-[8px]'
+          } font-bold uppercase tracking-wider text-[#fff2ec] leading-none mt-0.5`}
+        >
           {selectedItemId === ITEM_IDS.FIST
             ? 'Punch'
             : selectedItemId === ITEM_IDS.WRENCH
@@ -348,12 +374,15 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, onChange 
   );
 };
 
-const RoleBadgeIcon: React.FC<{ kind: 'admin' | 'owner' | 'guest' }> = ({ kind }) => {
+const RoleBadgeIcon: React.FC<{
+  kind: 'admin' | 'owner' | 'guest';
+  className?: string;
+}> = ({ kind, className = 'w-4 h-4 shrink-0' }) => {
   if (kind === 'admin') {
     return (
       <svg
         viewBox="0 0 20 20"
-        className="w-4 h-4 shrink-0"
+        className={className}
         aria-label="Administrator"
       >
         <circle cx="10" cy="10" r="8.5" fill="#2a0f18" stroke="#ff9f1c" strokeWidth="2" />
@@ -368,7 +397,7 @@ const RoleBadgeIcon: React.FC<{ kind: 'admin' | 'owner' | 'guest' }> = ({ kind }
   }
   if (kind === 'owner') {
     return (
-      <svg viewBox="0 0 18 18" className="w-4 h-4 shrink-0" aria-label="World Owner">
+      <svg viewBox="0 0 18 18" className={className} aria-label="World Owner">
         <circle cx="9" cy="9" r="7.5" fill="#132336" stroke="#facc15" strokeWidth="1.8" />
         <rect x="5" y="9.5" width="8" height="2.2" fill="#fde047" />
         <rect x="5" y="6.8" width="2" height="2.8" fill="#fde047" />
@@ -378,7 +407,7 @@ const RoleBadgeIcon: React.FC<{ kind: 'admin' | 'owner' | 'guest' }> = ({ kind }
     );
   }
   return (
-    <svg viewBox="0 0 18 18" className="w-4 h-4 shrink-0" aria-label="Explorer">
+    <svg viewBox="0 0 18 18" className={className} aria-label="Explorer">
       <circle cx="9" cy="9" r="7.5" fill="#132336" stroke="#94a3b8" strokeWidth="1.8" />
       <polygon points="9,5.3 12.7,9 9,12.7 5.3,9" fill="#cbd5e1" />
     </svg>
@@ -487,10 +516,14 @@ export const GameHud: React.FC<GameHudProps> = ({
   onConfigureDoor,
   onUseDoor,
   onNexusTeleport,
+  orientation,
   viewZoom = DEFAULT_VIEW_SCALE,
   onChangeViewZoom,
 }) => {
   void _hasClaimedStarterLootbox;
+  const trackedOrientation = useViewportOrientation();
+  const activeOrientation: DeviceOrientation = orientation ?? trackedOrientation;
+  const isPortrait = activeOrientation === 'portrait';
   const [activePanel, setActivePanel] = useState<ActivePanel>('none');
   const [showPanelView, setShowPanelView] = useState<boolean>(true);
   const [zoomOpen, setZoomOpen] = useState<boolean>(false);
@@ -557,6 +590,15 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [doorTargetY, setDoorTargetY] = useState<number>(27);
   const [doorLabel, setDoorLabel] = useState<string>('');
 
+  // Crop Trader dialogue, Buy menu, and Sell cart state
+  const [traderView, setTraderView] = useState<'dialogue' | 'buy' | 'sell'>('dialogue');
+  const [expandedSeedId, setExpandedSeedId] = useState<number | null>(null);
+  const [buyQtyInput, setBuyQtyInput] = useState<string>('1');
+  const [selectedSellItemId, setSelectedSellItemId] = useState<number | null>(null);
+  const [sellPromptMode, setSellPromptMode] = useState<'choice' | 'custom'>('choice');
+  const [sellCustomInput, setSellCustomInput] = useState<string>('1');
+  const [sellCart, setSellCart] = useState<Record<number, number>>({});
+
   useEffect(() => {
     if (
       worldKind !== 'mine_shaft' &&
@@ -569,6 +611,16 @@ export const GameHud: React.FC<GameHudProps> = ({
     const id = window.setInterval(() => setNowMs(Date.now()), 500);
     return () => window.clearInterval(id);
   }, [worldKind, activeBuffs.length, inspectInfo?.matteragenEngine, inspectInfo?.atmMachine]);
+
+  useEffect(() => {
+    setTraderView('dialogue');
+    setExpandedSeedId(null);
+    setBuyQtyInput('1');
+    setSelectedSellItemId(null);
+    setSellPromptMode('choice');
+    setSellCustomInput('1');
+    setSellCart({});
+  }, [inspectInfo?.tx, inspectInfo?.ty, inspectInfo?.isGreensVendor]);
 
   useEffect(() => {
     if (inspectInfo?.signText !== undefined && inspectInfo?.signText !== null) {
@@ -646,17 +698,27 @@ export const GameHud: React.FC<GameHudProps> = ({
   const myRealms = worlds.filter((world) => world.ownerId === playerId);
 
   return (
-    <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between p-1.5 sm:p-2.5">
-      {/* Top Perimeter Bar (Responsive status + World Chat below top-left + Menu button) */}
-      <div className="flex items-start justify-between gap-1.5 sm:gap-2">
+    <div
+      data-testid="game-hud-root"
+      data-orientation={activeOrientation}
+      className={`fixed inset-0 z-10 pointer-events-none flex flex-col justify-between ${
+        isPortrait ? 'p-1.5' : 'p-2.5'
+      }`}
+    >
+      {/* Top Perimeter Bar (Orientation-aware status + World Chat below top-left + Menu button) */}
+      <div className={`flex items-start justify-between ${isPortrait ? 'gap-1.5' : 'gap-2'}`}>
         {/* Top-left Column: Recompartmentalized Profile Box + Separated Tight-Fit Gem Box + Chat & Friends */}
-        <div className="flex flex-col items-start gap-1.5 min-w-0 max-w-[calc(100vw-8.5rem)] sm:max-w-[calc(100vw-11rem)]">
+        <div
+          className={`flex flex-col items-start gap-1.5 min-w-0 ${
+            isPortrait ? 'max-w-[calc(100vw-8.5rem)]' : 'max-w-[calc(100vw-11rem)]'
+          }`}
+        >
           {showPanelView && (
             <div
               data-testid="hud-panel-view"
               className="pointer-events-auto flex items-center gap-1.5 max-w-full"
             >
-              {/* Player Profile Box (+1/3 height, retains 1/2 freed Gem width, Name + Role Icon row above Progression Bar + Level) */}
+              {/* Player Profile Box (Icon + Nameplate expanded to fill Profile box inside subtle rounded frames) */}
               <button
                 type="button"
                 tabIndex={-1}
@@ -667,21 +729,44 @@ export const GameHud: React.FC<GameHudProps> = ({
                   e.currentTarget.blur();
                   togglePanel('profile');
                 }}
-                className={`pixel-box relative flex flex-col justify-between text-left min-w-[168px] sm:min-w-[196px] min-h-[54px] sm:min-h-[56px] px-2.5 py-1.5 transition-all cursor-pointer ${
+                className={`pixel-box relative flex flex-col justify-between gap-1 text-left animate-hud-slide-down ${
+                  isPortrait ? 'min-w-[168px] min-h-[54px]' : 'min-w-[196px] min-h-[56px]'
+                } p-1.5 transition-all cursor-pointer ${
                   activePanel === 'profile'
                     ? '!border-[#0284c7] ring-2 ring-[#38bdf8]/45'
                     : 'hover:brightness-[1.03]'
                 }`}
               >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <RoleBadgeIcon
-                    kind={role === 'admin' ? 'admin' : worldOwner === playerId ? 'owner' : 'guest'}
-                  />
-                  <span className="font-pixel text-[11px] sm:text-xs font-bold text-[#091e3a] whitespace-nowrap truncate max-w-[125px] sm:max-w-[155px] leading-none">
-                    {playerName}
-                  </span>
+                <div
+                  data-testid="hud-profile-identity-row"
+                  className="flex items-center gap-1.5 w-full flex-1 min-w-0 rounded-[9px] bg-white/35 backdrop-blur-md border-2 border-[#1e3a5f] shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_2px_6_rgba(15,42,74,0.18)] px-2 py-0.5 my-0.5"
+                >
+                  <div
+                    data-testid="hud-profile-icon-box"
+                    className="flex items-center justify-center shrink-0"
+                  >
+                    <RoleBadgeIcon
+                      kind={role === 'admin' ? 'admin' : worldOwner === playerId ? 'owner' : 'guest'}
+                      className={isPortrait ? 'w-6 h-6 shrink-0' : 'w-7 h-7 shrink-0'}
+                    />
+                  </div>
+                  <div
+                    data-testid="hud-profile-nameplate-box"
+                    className="flex-1 min-w-0 flex items-center justify-center"
+                  >
+                    <span
+                      className={`font-pixel ${
+                        isPortrait ? 'text-[19px]' : 'text-[22px]'
+                      } font-extrabold tracking-wide text-[#0b1622] whitespace-nowrap truncate leading-none text-center w-full`}
+                      style={{
+                        textShadow: '0 1px 0 rgba(255,255,255,0.9), 0 0 4px rgba(255,255,255,0.8), 0 1px 2px rgba(11,22,34,0.35)',
+                      }}
+                    >
+                      {playerName}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 w-full mt-1">
+                <div className="flex items-center gap-1.5 w-full px-0.5">
                   <div className="flex-1 h-2 rounded-[6px] bg-white/75 border border-[#4172a3] overflow-hidden">
                     <div
                       className="h-full rounded-[4px] bg-[#0284c7] transition-[width] duration-150"
@@ -840,8 +925,8 @@ export const GameHud: React.FC<GameHudProps> = ({
                     type="range"
                     data-testid="hud-zoom-slider"
                     aria-label="View Zoom"
-                    min={0.75}
-                    max={2.25}
+                    min={MIN_PLAYER_ZOOM}
+                    max={MAX_PLAYER_ZOOM}
                     step={0.05}
                     value={viewZoom}
                     onChange={(e) => onChangeViewZoom?.(Number(e.target.value))}
@@ -870,7 +955,9 @@ export const GameHud: React.FC<GameHudProps> = ({
               e.currentTarget.blur();
               onPause();
             }}
-            className="pixel-btn pixel-btn-wood relative !h-8 sm:!h-9 !px-2.5 sm:!px-3 gap-1.5 !text-xs !rounded-[9px]"
+            className={`pixel-btn pixel-btn-wood relative ${
+              isPortrait ? '!h-8 !px-2.5' : '!h-9 !px-3'
+            } gap-1.5 !text-xs !rounded-[9px]`}
           >
             <Menu className="w-3.5 h-3.5 text-[#091e3a]" />
             <span>Menu</span>
@@ -932,14 +1019,36 @@ export const GameHud: React.FC<GameHudProps> = ({
         )}
         {inspectInfo && (
           <div className="pointer-events-auto pixel-box p-3 w-80 max-w-[92vw] max-h-[calc(100dvh-12rem)] overflow-y-auto text-xs flex flex-col gap-2">
-            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-4">
-              <span className="ui-pixel-heading text-[11px] text-[#091e3a] truncate">
-                {inspectInfo.fgName} ({inspectInfo.tx}, {inspectInfo.ty})
-              </span>
+            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                {inspectInfo.isGreensVendor && traderView !== 'dialogue' && (
+                  <button
+                    type="button"
+                    data-testid="trader-back-button"
+                    onClick={() => {
+                      setTraderView('dialogue');
+                      setExpandedSeedId(null);
+                      setSelectedSellItemId(null);
+                    }}
+                    className="px-1.5 py-0.5 rounded-[5px] bg-white/75 border border-[#4172a3] text-[10px] font-pixel text-[#091e3a] hover:bg-white cursor-pointer shrink-0"
+                  >
+                    ←
+                  </button>
+                )}
+                <span className="ui-pixel-heading text-[11px] text-[#091e3a] truncate">
+                  {inspectInfo.isGreensVendor
+                    ? traderView === 'buy'
+                      ? 'Buy Goods'
+                      : traderView === 'sell'
+                        ? 'Sell Crops'
+                        : 'Crop Trader'
+                    : `${inspectInfo.fgName} (${inspectInfo.tx}, ${inspectInfo.ty})`}
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={onDismissInspect}
-                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
+                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer shrink-0"
               >
                 [X]
               </button>
@@ -1199,190 +1308,424 @@ export const GameHud: React.FC<GameHudProps> = ({
                       data-testid="worldcore-expansion-btn"
                       disabled={!canUnlockFurnace}
                       onClick={() => onUnlockWorldCoreFurnace?.()}
-                      className="pixel-btn pixel-btn-gold w-full disabled:opacity-45 !py-1.5 !text-[10px]"
+                      className="pixel-btn pixel-btn-gold w-full disabled:opacity-45 !py-1.5 !text-[10px] gap-1"
                     >
-                      WorldCore Expansion: Furnace (2,500 DB · 3 Core Tokens)
+                      <span>WorldCore Expansion: Furnace (2,500</span>
+                      <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                      <span>· 3 Core Tokens)</span>
                     </button>
                   )}
                 </div>
               );
             })()}
 
-            {/* Nexus Fresh Greens Vendor: Compact Crops & Mastery-Unlocked Seeds (No Hoe) */}
+            {/* Crop Trader: Dialogue Screen -> 1. Buy Menu / 2. Sell Menu */}
             {inspectInfo.isGreensVendor && (() => {
               const harvestedCropsInBag = inventory.filter(
                 (s) => isCropItem(s.itemId) && s.qty > 0
               );
-              const totalSellableDb = harvestedCropsInBag.reduce((acc, s) => {
-                const def = getItemDef(s.itemId);
-                return acc + s.qty * (def?.cropSellAlterbits ?? 2);
-              }, 0);
+
+              if (traderView === 'dialogue') {
+                return (
+                  <div
+                    data-testid="greens-vendor-panel"
+                    className="pt-1 flex flex-col gap-2.5"
+                  >
+                    {/* Trader Dialogue Box */}
+                    <div className="hud-subpanel p-2.5 flex items-start gap-2.5">
+                      <img
+                        src={getItemIconUrl(ITEM_IDS.GREENS_VENDOR_NPC)}
+                        alt="Crop Trader"
+                        className="w-9 h-9 pixelated shrink-0 rounded-[7px] bg-white/80 border border-[#4172a3] p-1"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="font-pixel text-[10px] text-[#047857]">
+                          Crop Trader
+                        </span>
+                        <p className="text-[11px] text-[#091e3a] leading-snug">
+                          &ldquo;Welcome, <strong className="font-bold">{playerName}</strong>! Looking for seeds to plant or ready to trade in your harvest?&rdquo;
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Player Dialogue Selections */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-[#23476d] px-0.5">
+                        {playerName}
+                      </span>
+                      <button
+                        type="button"
+                        data-testid="trader-dialogue-buy"
+                        onClick={() => {
+                          setExpandedSeedId(null);
+                          setBuyQtyInput('1');
+                          setTraderView('buy');
+                        }}
+                        className="pixel-slot px-3 py-2 text-left font-bold text-[11px] text-[#091e3a] hover:border-[#0284c7] hover:bg-white/95 transition-colors cursor-pointer"
+                      >
+                        1. I&apos;m here to Buy
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="trader-dialogue-sell"
+                        onClick={() => {
+                          setSelectedSellItemId(null);
+                          setSellPromptMode('choice');
+                          setSellCustomInput('1');
+                          setTraderView('sell');
+                        }}
+                        className="pixel-slot px-3 py-2 text-left font-bold text-[11px] text-[#091e3a] hover:border-[#0284c7] hover:bg-white/95 transition-colors cursor-pointer"
+                      >
+                        2. I&apos;m here to sell
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (traderView === 'buy') {
+                const parsedQty = Math.max(
+                  1,
+                  Math.min(200, Math.floor(Number(buyQtyInput) || 1))
+                );
+                return (
+                  <div
+                    data-testid="greens-vendor-panel"
+                    className="pt-1 flex flex-col gap-1 max-h-72 overflow-y-auto pr-0.5"
+                  >
+                    {CROP_SPECS.map((crop) => {
+                      const seedDef = getItemDef(crop.seedId);
+                      const isExpanded = expandedSeedId === crop.seedId;
+                      const unitPrice = crop.seedAlterbitPrice;
+                      const totalCost = parsedQty * unitPrice;
+                      return (
+                        <div
+                          key={crop.seedId}
+                          data-testid={`vendor-seed-${crop.keyBase}`}
+                          onClick={() => {
+                            if (isExpanded) {
+                              setExpandedSeedId(null);
+                            } else {
+                              setExpandedSeedId(crop.seedId);
+                              setBuyQtyInput('1');
+                            }
+                          }}
+                          className={`pixel-slot px-2 py-1.5 flex flex-col gap-1.5 cursor-pointer transition-colors ${
+                            isExpanded
+                              ? 'border-[#0284c7] bg-white/95'
+                              : 'hover:border-[#0284c7]'
+                          }`}
+                        >
+                          {/* Minimal Offer Row: Icon, Name, Price per Unit */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <img
+                                src={getItemIconUrl(crop.seedId)}
+                                alt={seedDef?.name ?? crop.name}
+                                className="w-5 h-5 pixelated shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                              <span className="font-bold text-[#091e3a] text-[11px] truncate">
+                                {seedDef?.name ?? `${crop.name} Seed`}
+                              </span>
+                            </div>
+                            <span className="inline-flex items-center gap-1 font-mono-num font-bold text-[11px] text-[#091e3a] shrink-0">
+                              <span>{formatHudNumber(unitPrice)}</span>
+                              <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                            </span>
+                          </div>
+
+                          {/* Vertically Expanded Custom Amount Purchase Controls */}
+                          {isExpanded && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="pt-1.5 border-t border-[#4172a3]/30 flex flex-col gap-1.5 cursor-default"
+                            >
+                              <button
+                                type="button"
+                                data-testid={`vendor-buy-confirm-${crop.keyBase}`}
+                                onClick={() =>
+                                  onVendorAction?.({
+                                    action: 'buy_seed',
+                                    itemId: crop.seedId,
+                                    qty: parsedQty,
+                                    currency: 'digibits',
+                                  })
+                                }
+                                className="pixel-btn pixel-btn-emerald w-full !py-1.5 !text-[11px] font-mono-num gap-1"
+                              >
+                                <span>{formatHudNumber(totalCost)}</span>
+                                <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                              </button>
+                              <input
+                                type="number"
+                                data-testid={`vendor-buy-qty-${crop.keyBase}`}
+                                min={1}
+                                max={200}
+                                value={buyQtyInput}
+                                onChange={(e) => setBuyQtyInput(e.target.value)}
+                                placeholder="Amount..."
+                                className="hud-input w-full px-2 py-1 text-xs font-mono-num text-center"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              // traderView === 'sell'
+              const selectedSlot =
+                selectedSellItemId !== null
+                  ? harvestedCropsInBag.find((s) => s.itemId === selectedSellItemId) ?? null
+                  : null;
+              const selectedDef = selectedSlot ? getItemDef(selectedSlot.itemId) : undefined;
+
+              const cartEntries = harvestedCropsInBag
+                .map((slot) => {
+                  const cartQty = Math.min(slot.qty, Math.max(0, Math.floor(sellCart[slot.itemId] ?? 0)));
+                  if (cartQty <= 0) return null;
+                  const def = getItemDef(slot.itemId);
+                  const unitDb = def?.cropSellAlterbits ?? 2;
+                  return {
+                    itemId: slot.itemId,
+                    name: def?.name ?? 'Crop',
+                    qty: cartQty,
+                    unitDb,
+                    lineDb: cartQty * unitDb,
+                  };
+                })
+                .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+              const totalCartDb = cartEntries.reduce((sum, item) => sum + item.lineDb, 0);
+
               return (
                 <div
                   data-testid="greens-vendor-panel"
-                  className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2"
+                  className="pt-1 flex flex-col gap-2"
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="font-pixel text-[11px] text-[#047857]">FRESH GREENS</h3>
-                    <span className="px-2 py-0.5 rounded-[6px] bg-[#dcfce7]/90 border border-[#16a34a] text-xs font-mono-num font-bold text-[#14532d]">
-                      {formatHudNumber(alterbits)} DB
-                    </span>
-                  </div>
-
-                  {/* Sell Crops */}
-                  <div className="rounded-[8px] bg-[#e2f5ec]/75 border border-[#16a34a] p-2 flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-[#14532d] text-[11px]">Sell Crops</span>
-                      {harvestedCropsInBag.length > 0 && (
-                        <button
-                          type="button"
-                          data-testid="vendor-sell-all-crops"
-                          onClick={() => onVendorAction?.({ action: 'sell_all_crops' })}
-                          className="pixel-btn pixel-btn-gold !px-2 !py-0.5 !text-[9px]"
-                        >
-                          Sell All (+{formatHudNumber(totalSellableDb)} DB)
-                        </button>
-                      )}
-                    </div>
+                  {/* Inventory-Shaped Grid of Sellable Player Items Only */}
+                  <div className="hud-subpanel p-2 flex flex-col gap-1.5">
                     {harvestedCropsInBag.length === 0 ? (
-                      <span className="text-[10px] text-[#23476d]">No crops in bag.</span>
+                      <div className="py-4 text-center text-[11px] text-[#23476d]">
+                        No sellable crops in inventory.
+                      </div>
                     ) : (
-                      <div className="flex flex-col gap-1">
+                      <div
+                        data-testid="trader-sell-inventory-grid"
+                        className="grid grid-cols-4 gap-1.5"
+                      >
                         {harvestedCropsInBag.map((slot) => {
                           const def = getItemDef(slot.itemId);
-                          const unitDb = def?.cropSellAlterbits ?? 2;
+                          const inCartQty = Math.min(
+                            slot.qty,
+                            Math.max(0, Math.floor(sellCart[slot.itemId] ?? 0))
+                          );
+                          const isSelected = selectedSellItemId === slot.itemId;
                           return (
-                            <div
+                            <button
                               key={slot.itemId}
-                              className="pixel-slot px-2 py-1 flex items-center justify-between gap-2"
+                              type="button"
+                              data-testid={`trader-sell-slot-${slot.itemId}`}
+                              onClick={() => {
+                                setSelectedSellItemId(slot.itemId);
+                                setSellPromptMode('choice');
+                                setSellCustomInput(String(inCartQty > 0 ? inCartQty : slot.qty));
+                              }}
+                              className={`pixel-slot aspect-square relative p-1.5 flex items-center justify-center cursor-pointer transition-colors ${
+                                isSelected
+                                  ? 'border-[#0284c7] ring-2 ring-[#0284c7]/40 bg-white'
+                                  : inCartQty > 0
+                                    ? 'border-[#16a34a] bg-[#dcfce7]/65'
+                                    : 'hover:border-[#0284c7]'
+                              }`}
                             >
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <img
-                                  src={getItemIconUrl(slot.itemId)}
-                                  alt={def?.name ?? 'Crop'}
-                                  className="w-5 h-5 pixelated shrink-0"
-                                  referrerPolicy="no-referrer"
-                                />
-                                <div className="truncate text-[11px]">
-                                  <span className="font-bold text-[#091e3a]">{def?.name}</span>{' '}
-                                  <span className="font-mono-num font-bold text-[#92400e]">
-                                    ×{formatHudNumber(slot.qty)}
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onVendorAction?.({ action: 'sell_crop', itemId: slot.itemId, qty: 1 })
-                                  }
-                                  className="pixel-btn !px-1.5 !py-0.5 !text-[9px]"
-                                >
-                                  1 (+{formatHudNumber(unitDb)})
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onVendorAction?.({ action: 'sell_crop', itemId: slot.itemId, qty: slot.qty })
-                                  }
-                                  className="pixel-btn pixel-btn-emerald !px-1.5 !py-0.5 !text-[9px]"
-                                >
-                                  All (+{formatHudNumber(slot.qty * unitDb)})
-                                </button>
-                              </div>
-                            </div>
+                              <img
+                                src={getItemIconUrl(slot.itemId)}
+                                alt={def?.name ?? 'Crop'}
+                                className="w-7 h-7 pixelated object-contain"
+                                referrerPolicy="no-referrer"
+                              />
+                              <span className="absolute bottom-1 right-1 px-1 py-0.2 rounded-full bg-[#091e3a]/90 text-white text-[9px] font-mono-num font-bold leading-tight">
+                                {formatHudNumber(slot.qty)}X
+                              </span>
+                            </button>
                           );
                         })}
                       </div>
                     )}
+
+                    {/* Prompt when a sellable inventory slot is clicked: Sell All vs Custom Amount */}
+                    {selectedSlot && (
+                      <div
+                        data-testid="trader-sell-item-prompt"
+                        className="pt-1.5 border-t border-[#4172a3]/35 flex flex-col gap-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="font-bold text-[#091e3a] truncate">
+                            {selectedDef?.name ?? 'Crop'}
+                          </span>
+                          <span className="font-mono-num text-[10px] text-[#23476d]">
+                            Owned: {formatHudNumber(selectedSlot.qty)}
+                          </span>
+                        </div>
+                        {sellPromptMode === 'choice' ? (
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                              type="button"
+                              data-testid="trader-sell-all-choice"
+                              onClick={() => {
+                                setSellCart((prev) => ({
+                                  ...prev,
+                                  [selectedSlot.itemId]: selectedSlot.qty,
+                                }));
+                                setSelectedSellItemId(null);
+                              }}
+                              className="pixel-btn pixel-btn-emerald !py-1 !text-[10px]"
+                            >
+                              Sell All
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="trader-sell-custom-choice"
+                              onClick={() => {
+                                setSellPromptMode('custom');
+                                setSellCustomInput('1');
+                              }}
+                              className="pixel-btn !py-1 !text-[10px]"
+                            >
+                              Custom Amount
+                            </button>
+                          </div>
+                        ) : (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              const clamped = Math.max(
+                                1,
+                                Math.min(
+                                  selectedSlot.qty,
+                                  Math.floor(Number(sellCustomInput) || 1)
+                                )
+                              );
+                              setSellCart((prev) => ({
+                                ...prev,
+                                [selectedSlot.itemId]: clamped,
+                              }));
+                              setSelectedSellItemId(null);
+                            }}
+                            className="flex items-center gap-1.5"
+                          >
+                            <input
+                              type="number"
+                              data-testid="trader-sell-custom-input"
+                              min={1}
+                              max={selectedSlot.qty}
+                              value={sellCustomInput}
+                              onChange={(e) => setSellCustomInput(e.target.value)}
+                              className="hud-input flex-1 min-w-0 px-2 py-1 text-xs font-mono-num text-center"
+                            />
+                            <button
+                              type="submit"
+                              data-testid="trader-sell-custom-confirm"
+                              className="pixel-btn pixel-btn-emerald !px-2.5 !py-1 !text-[10px]"
+                            >
+                              Add
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Crop Seeds (Mastery Gated) */}
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-[#92400e] text-[11px]">Crop Seeds</span>
-                      <span className="text-[10px] font-mono-num font-bold text-[#047857]">
-                        Crop Mastery Lv.{cropMasteryLevel}
+                  {/* Selling Cart & Total Order Calculation */}
+                  <div
+                    data-testid="trader-selling-cart"
+                    className="hud-subpanel p-2 flex flex-col gap-1.5"
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-[#091e3a]">Selling Cart</span>
+                      <span className="inline-flex items-center gap-1 font-mono-num font-bold text-[#14532d]">
+                        <span>{formatHudNumber(totalCartDb)}</span>
+                        <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
                       </span>
                     </div>
-                    <div className="flex flex-col gap-1 max-h-60 overflow-y-auto pr-0.5">
-                      {CROP_SPECS.map((crop) => {
-                        const seedDef = getItemDef(crop.seedId);
-                        const ownedSeeds = getQty(crop.seedId);
-                        const reqLv = getCropMasteryRequiredLevel(crop.seedId);
-                        const unlocked = cropMasteryLevel >= reqLv;
-                        return (
-                          <div
-                            key={crop.seedId}
-                            data-testid={`vendor-seed-${crop.keyBase}`}
-                            className={`pixel-slot p-1.5 flex items-center justify-between gap-2 ${
-                              !unlocked ? 'opacity-65' : ''
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <img
-                                src={getItemIconUrl(crop.seedId)}
-                                alt={seedDef?.name ?? crop.name}
-                                className="w-6 h-6 pixelated shrink-0"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="min-w-0">
-                                <div className="font-bold text-[#091e3a] text-[11px] truncate">
-                                  {crop.name}{' '}
-                                  {ownedSeeds > 0 && (
-                                    <span className="text-[10px] font-mono-num text-[#0e7490]">
-                                      ×{formatHudNumber(ownedSeeds)}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-[10px] font-mono-num text-[#23476d]">
-                                  {crop.growthTimeSec}s · {formatHudNumber(crop.sellAlterbits)} DB
-                                  {!unlocked && (
-                                    <span className="text-[#b91c1c] font-bold ml-1">· Crop Lv.{reqLv}</span>
-                                  )}
-                                </div>
+
+                    {cartEntries.length === 0 ? (
+                      <span className="text-[10px] text-[#23476d]">
+                        Click a crop above to add it to your selling cart.
+                      </span>
+                    ) : (
+                      <>
+                        <div className="flex flex-col gap-1 max-h-32 overflow-y-auto pr-0.5">
+                          {cartEntries.map((entry) => (
+                            <div
+                              key={entry.itemId}
+                              className="pixel-slot px-2 py-1 flex items-center justify-between gap-2 text-[11px]"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <img
+                                  src={getItemIconUrl(entry.itemId)}
+                                  alt={entry.name}
+                                  className="w-4 h-4 pixelated shrink-0"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <span className="font-bold text-[#091e3a] truncate">
+                                  {entry.name}
+                                </span>
+                                <span className="font-mono-num font-bold text-[#92400e] shrink-0">
+                                  ×{formatHudNumber(entry.qty)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="inline-flex items-center gap-0.5 font-mono-num font-bold text-[#14532d]">
+                                  <span>{formatHudNumber(entry.lineDb)}</span>
+                                  <DigiBitsIcon className="w-3 h-3 shrink-0" />
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${entry.name} from cart`}
+                                  onClick={() =>
+                                    setSellCart((prev) => {
+                                      const next = { ...prev };
+                                      delete next[entry.itemId];
+                                      return next;
+                                    })
+                                  }
+                                  className="text-[10px] font-bold text-[#b91c1c] hover:text-[#7f1d1d] cursor-pointer px-0.5"
+                                >
+                                  ×
+                                </button>
                               </div>
                             </div>
-                            {unlocked ? (
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onVendorAction?.({
-                                      action: 'buy_seed',
-                                      itemId: crop.seedId,
-                                      qty: 1,
-                                      currency: 'digibits',
-                                    })
-                                  }
-                                  className="pixel-btn pixel-btn-emerald !px-1.5 !py-1 !text-[9px]"
-                                >
-                                  1 ({formatHudNumber(crop.seedAlterbitPrice)})
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onVendorAction?.({
-                                      action: 'buy_seed',
-                                      itemId: crop.seedId,
-                                      qty: 5,
-                                      currency: 'digibits',
-                                    })
-                                  }
-                                  className="pixel-btn !px-1.5 !py-1 !text-[9px]"
-                                >
-                                  5 ({formatHudNumber(crop.seedAlterbitPrice * 5)})
-                                </button>
-                              </div>
-                            ) : (
-                              <span className="px-1.5 py-0.5 rounded-[6px] bg-[#fee2e2]/90 border border-[#dc2626] text-[9px] font-mono-num font-bold text-[#991b1b] shrink-0">
-                                Lv.{reqLv}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          data-testid="vendor-sell-cart-submit"
+                          onClick={() => {
+                            onVendorAction?.({
+                              action: 'sell_cart',
+                              cart: cartEntries.map((c) => ({
+                                itemId: c.itemId,
+                                qty: c.qty,
+                              })),
+                            });
+                            setSellCart({});
+                            setSelectedSellItemId(null);
+                          }}
+                          className="pixel-btn pixel-btn-gold w-full !py-1.5 !text-[11px] font-mono-num gap-1"
+                        >
+                          <span>Sell Cart (+{formatHudNumber(totalCartDb)}</span>
+                          <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                          <span>)</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -1722,12 +2065,25 @@ export const GameHud: React.FC<GameHudProps> = ({
         )}
       </div>
 
-      {/* Bottom Perimeter: Portrait-friendly 2-row stack (<740px) & Single Row (>=740px Landscape) */}
-      <div className="flex flex-col min-[740px]:flex-row min-[740px]:items-end min-[740px]:justify-between gap-1.5 sm:gap-2">
-        {/* Center Hotbar (top row in portrait, middle in landscape; 4 quick slots + Fist/Wrench + Bag, 20% slimmer) */}
-        <div className="pointer-events-auto order-1 min-[740px]:order-2 flex flex-col items-center gap-0.5 self-center max-w-full">
+      {/* Bottom Perimeter: Dual-State Orientation Layout
+          - Portrait Mode: Toolbar anchored at the bottom (order-2) retaining full Landscape scaling; Touch Controls elevated directly on top of the toolbar (order-1, tight 4px gap).
+          - Landscape Mode: Single bottom row [Left Controls (order-1)] — [Center Toolbar (order-2)] — [Right Controls (order-3)]. */}
+      <div
+        data-testid="hud-bottom-perimeter"
+        data-orientation={activeOrientation}
+        className={
+          isPortrait
+            ? 'flex flex-col items-stretch justify-end gap-1'
+            : 'flex flex-row items-end justify-between gap-2'
+        }
+      >
+        {/* Center Hotbar / Toolbar (Bottom-most in Portrait [order-2], Center in Landscape [order-2]; retains identical Landscape scaling in both states) */}
+        <div
+          data-testid="hud-toolbar-container"
+          className="pointer-events-auto order-2 flex flex-col items-center gap-0.5 self-center max-w-full"
+        >
           {(selectedDef || (role === 'admin' && adminWorldEdit)) && (
-            <div className="pixel-box !rounded-[8px] text-[9px] sm:text-[10px] font-bold text-[#091e3a] px-2 py-[2px] whitespace-nowrap max-w-[92vw] truncate">
+            <div className="pixel-box !rounded-[8px] text-[10px] font-bold text-[#091e3a] px-2 py-[2px] whitespace-nowrap max-w-[92vw] truncate">
               {selectedDef ? selectedDef.name : 'System Edit Mode'}
               {role === 'admin' && adminWorldEdit && (
                 <span className="text-[#0369a1] font-bold">
@@ -1739,7 +2095,7 @@ export const GameHud: React.FC<GameHudProps> = ({
           )}
           <div
             data-testid="hud-hotbar"
-            className="pixel-wood-box !rounded-[9px] flex items-center gap-[3px] sm:gap-1 p-[3px] sm:p-1 max-w-full overflow-x-auto"
+            className="pixel-wood-box !rounded-[9px] flex items-center gap-1 p-1 max-w-full overflow-x-auto"
           >
             {hotbarItemIds.map((itemId, idx) => {
               const isPrimarySlot = idx === 0;
@@ -1787,7 +2143,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                     setAssignSlot(idx);
                     if (effectiveId !== ITEM_IDS.AIR) onSelectItem(effectiveId);
                   }}
-                  className={`pixel-slot relative w-[40px] h-[45px] min-[480px]:w-[45px] min-[480px]:h-[45px] sm:w-[51px] sm:h-[51px] shrink-0 flex flex-col items-center justify-center touch-none select-none cursor-pointer transition-transform ${
+                  className={`pixel-slot relative w-[51px] h-[51px] shrink-0 flex flex-col items-center justify-center touch-none select-none cursor-pointer transition-transform ${
                     active
                       ? effectiveId === ITEM_IDS.WRENCH
                         ? '!bg-[#cffafe] !border-[#0284c7] -translate-y-0.5 shadow-[0_0_8px_rgba(2,132,199,0.28)]'
@@ -1799,14 +2155,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                     <img
                       src={getItemIconUrl(effectiveId)}
                       alt={def?.name ?? 'Item'}
-                      className="pixelated shrink-0 w-[26px] h-[26px] sm:w-[29px] sm:h-[29px]"
+                      className="pixelated shrink-0 w-[29px] h-[29px]"
                       referrerPolicy="no-referrer"
                     />
                   )}
                   {qty !== null && !hasDurability && (
                     <span
                       data-testid={`hotbar-item-qty-${idx + 1}`}
-                      className="absolute bottom-[2px] right-[2px] rounded-full bg-[#eaf5ff]/95 border border-[#2c5885] px-[4px] py-[1px] text-[7px] sm:text-[8px] font-mono-num font-bold text-[#091e3a] leading-none shadow-[0_1px_0_rgba(15,42,74,0.2)]"
+                      className="absolute bottom-[2px] right-[2px] rounded-full bg-[#eaf5ff]/95 border border-[#2c5885] px-[4px] py-[1px] text-[8px] font-mono-num font-bold text-[#091e3a] leading-none shadow-[0_1px_0_rgba(15,42,74,0.2)]"
                     >
                       {formatHudNumber(qty)}x
                     </span>
@@ -1824,7 +2180,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </button>
               );
             })}
-            <div className="h-6 sm:h-7 w-[1.5px] rounded-full bg-[#4172a3]/60 mx-0.5 shrink-0" />
+            <div className="h-7 w-[1.5px] rounded-full bg-[#4172a3]/60 mx-0.5 shrink-0" />
             <button
               type="button"
               tabIndex={-1}
@@ -1835,7 +2191,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                 e.currentTarget.blur();
                 setActivePanel((cur) => (cur === 'backpack' ? 'none' : 'backpack'));
               }}
-              className={`pixel-slot relative w-[40px] h-[45px] min-[480px]:w-[45px] min-[480px]:h-[45px] sm:w-[51px] sm:h-[51px] shrink-0 flex flex-col items-center justify-center gap-0.5 touch-none select-none cursor-pointer transition-transform ${
+              className={`pixel-slot relative w-[51px] h-[51px] shrink-0 flex flex-col items-center justify-center gap-0.5 touch-none select-none cursor-pointer transition-transform ${
                 activePanel === 'backpack'
                   ? '!bg-[#fef3c7]/90 !border-[#b45309] text-[#92400e] -translate-y-0.5'
                   : 'text-[#091e3a]'
@@ -1847,12 +2203,24 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
         </div>
 
-        {/* Touch Controls Row in Portrait; split left/right of Hotbar in Landscape */}
-        <div className="order-2 w-full flex items-end justify-between gap-2 min-[740px]:contents">
+        {/* Touch Controls: Elevated directly on top of the toolbar in Portrait (order-1); split left/right of Hotbar in Landscape */}
+        <div
+          data-testid="hud-touch-controls-row"
+          className={
+            isPortrait
+              ? 'order-1 w-full flex items-end justify-between gap-2'
+              : 'contents'
+          }
+        >
           {/* Left Touch Movement Controls */}
-          <div className="min-[740px]:order-1 flex-1 flex items-end justify-start">
+          <div className={`${isPortrait ? '' : 'order-1'} flex-1 flex items-end justify-start`}>
             {touchEnabled && (
-              <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2" data-testid="touch-left-controls">
+              <div
+                className={`pointer-events-auto flex items-center ${
+                  isPortrait ? 'gap-1.5' : 'gap-2'
+                }`}
+                data-testid="touch-left-controls"
+              >
                 <button
                   type="button"
                   aria-label="Move Left"
@@ -1866,7 +2234,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchMove('left', false)}
                   onPointerCancel={() => onTouchMove('left', false)}
-                  className="pixel-slot w-14 h-14 sm:w-[68px] sm:h-[68px] active:!bg-[#dbeafe] active:!border-[#0284c7] text-[#091e3a] font-bold text-lg sm:text-xl flex items-center justify-center touch-none select-none cursor-pointer"
+                  className={`pixel-slot ${
+                    isPortrait ? 'w-14 h-14 text-lg' : 'w-[68px] h-[68px] text-xl'
+                  } active:!bg-[#dbeafe] active:!border-[#0284c7] text-[#091e3a] font-bold flex items-center justify-center touch-none select-none cursor-pointer`}
                 >
                   ◀
                 </button>
@@ -1883,7 +2253,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchMove('right', false)}
                   onPointerCancel={() => onTouchMove('right', false)}
-                  className="pixel-slot w-14 h-14 sm:w-[68px] sm:h-[68px] active:!bg-[#dbeafe] active:!border-[#0284c7] text-[#091e3a] font-bold text-lg sm:text-xl flex items-center justify-center touch-none select-none cursor-pointer"
+                  className={`pixel-slot ${
+                    isPortrait ? 'w-14 h-14 text-lg' : 'w-[68px] h-[68px] text-xl'
+                  } active:!bg-[#dbeafe] active:!border-[#0284c7] text-[#091e3a] font-bold flex items-center justify-center touch-none select-none cursor-pointer`}
                 >
                   ▶
                 </button>
@@ -1892,11 +2264,17 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
 
           {/* Right Touch Punch Joystick & Jump Button */}
-          <div className="min-[740px]:order-3 flex-1 flex items-end justify-end">
+          <div className={`${isPortrait ? '' : 'order-3'} flex-1 flex items-end justify-end`}>
             {touchEnabled && (
-              <div className="pointer-events-auto flex items-end gap-1.5 sm:gap-2" data-testid="touch-right-controls">
+              <div
+                className={`pointer-events-auto flex items-end ${
+                  isPortrait ? 'gap-1.5' : 'gap-2'
+                }`}
+                data-testid="touch-right-controls"
+              >
                 <PunchJoystick
                   selectedItemId={selectedItemId}
+                  isPortrait={isPortrait}
                   onChange={onTouchPunchStick}
                 />
                 <button
@@ -1912,10 +2290,18 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchJump(false)}
                   onPointerCancel={() => onTouchJump(false)}
-                  className="pixel-btn pixel-btn-emerald w-14 h-14 sm:w-[68px] sm:h-[68px] !rounded-[11px] flex flex-col items-center justify-center gap-0.5 touch-none select-none"
+                  className={`pixel-btn pixel-btn-emerald ${
+                    isPortrait ? 'w-14 h-14' : 'w-[68px] h-[68px]'
+                  } !rounded-[11px] flex flex-col items-center justify-center gap-0.5 touch-none select-none`}
                 >
-                  <span className="text-lg sm:text-xl leading-none">▲</span>
-                  <span className="text-[8px] sm:text-[9px] uppercase tracking-wider leading-none">Jump</span>
+                  <span className={`${isPortrait ? 'text-lg' : 'text-xl'} leading-none`}>▲</span>
+                  <span
+                    className={`${
+                      isPortrait ? 'text-[8px]' : 'text-[9px]'
+                    } uppercase tracking-wider leading-none`}
+                  >
+                    Jump
+                  </span>
                 </button>
               </div>
             )}
@@ -1925,7 +2311,13 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Gem Store Drawer (anchored below Top-Left Panel View + Chat row) */}
       {activePanel === 'store' && (
-        <div className="pointer-events-auto fixed left-2 top-[98px] sm:top-[106px] z-20 w-[min(22rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] pixel-box p-3 flex flex-col gap-2.5">
+        <div
+          className={`pointer-events-auto fixed left-2 ${
+            isPortrait
+              ? 'top-[98px] max-h-[calc(100dvh-13.5rem)]'
+              : 'top-[106px] max-h-[calc(100dvh-10.5rem)]'
+          } z-20 w-[min(22rem,calc(100vw-1rem))] pixel-box p-3 flex flex-col gap-2.5`}
+        >
           <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h2 className="ui-pixel-heading text-xs text-[#091e3a]">Gem Store</h2>
@@ -1999,7 +2391,13 @@ export const GameHud: React.FC<GameHudProps> = ({
       {activePanel === 'backpack' && (
         <div
           data-testid="backpack-drawer"
-          className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-[124px] min-[740px]:bottom-[84px] z-20 w-[min(24rem,calc(100vw-1rem))] max-h-[calc(100dvh-12rem)] min-[740px]:max-h-[calc(100dvh-8.5rem)] pixel-wood-box p-3 flex flex-col gap-2"
+          className={`pointer-events-auto fixed left-1/2 -translate-x-1/2 ${
+            isPortrait
+              ? touchEnabled
+                ? 'bottom-[138px] max-h-[calc(100dvh-13rem)]'
+                : 'bottom-[82px] max-h-[calc(100dvh-9rem)]'
+              : 'bottom-[84px] max-h-[calc(100dvh-8.5rem)]'
+          } z-20 w-[min(24rem,calc(100vw-1rem))] pixel-wood-box p-3 flex flex-col gap-2`}
         >
           <div className="pixel-wood-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1 flex-wrap">
@@ -2212,7 +2610,13 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Friends & Social Drawer */}
       {activePanel === 'friends' && (
-        <div className="pointer-events-auto fixed right-2 top-[56px] sm:top-[64px] z-20 w-[min(21rem,calc(100vw-1rem))] max-h-[calc(100dvh-10.5rem)] min-[740px]:max-h-[calc(100dvh-8.25rem)] pixel-box p-3 flex flex-col gap-2.5 overflow-y-auto">
+        <div
+          className={`pointer-events-auto fixed right-2 ${
+            isPortrait
+              ? 'top-[56px] max-h-[calc(100dvh-11.5rem)]'
+              : 'top-[64px] max-h-[calc(100dvh-8.25rem)]'
+          } z-20 w-[min(21rem,calc(100vw-1rem))] pixel-box p-3 flex flex-col gap-2.5 overflow-y-auto`}
+        >
           <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
             <h2 className="ui-pixel-heading text-xs text-[#091e3a]">Friends &amp; Social</h2>
             <button
@@ -2333,24 +2737,35 @@ export const GameHud: React.FC<GameHudProps> = ({
         const nextFarmXp = masteryXpForNextLevel(farmablockMasteryLevel);
         const farmPct = Math.min(100, Math.round((farmablockMasteryXp / Math.max(1, nextFarmXp)) * 100));
         return (
-          <div className="pointer-events-auto fixed left-2 top-[98px] sm:top-[106px] z-20 w-[min(22rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] pixel-box p-3 flex flex-col gap-2.5">
-            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
-              <div>
-                <h2 className="ui-pixel-heading text-xs text-[#091e3a] flex items-center gap-1.5">
-                  <RoleBadgeIcon
-                    kind={role === 'admin' ? 'admin' : worldOwner === playerId ? 'owner' : 'guest'}
-                  />
-                  <span>{playerName}</span>
-                  <span>· Lv.{formatHudNumber(level)}</span>
+          <div
+            className={`pointer-events-auto fixed left-2 ${
+              isPortrait
+                ? 'top-[98px] max-h-[calc(100dvh-13.5rem)]'
+                : 'top-[106px] max-h-[calc(100dvh-10.5rem)]'
+            } z-20 w-[min(22rem,calc(100vw-1rem))] pixel-box p-3 flex flex-col gap-2.5`}
+          >
+            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-1 flex-1 min-w-0">
+                <h2 className="ui-pixel-heading text-[#091e3a] flex items-stretch gap-1 w-full min-w-0">
+                  <span className="rounded-[7px] bg-white/55 border border-[#4172a3]/55 p-1 flex items-center justify-center shrink-0">
+                    <RoleBadgeIcon
+                      kind={role === 'admin' ? 'admin' : worldOwner === playerId ? 'owner' : 'guest'}
+                      className="w-6 h-6 shrink-0"
+                    />
+                  </span>
+                  <span className="rounded-[7px] bg-white/55 border border-[#4172a3]/55 px-2.5 py-1 flex-1 min-w-0 flex items-center justify-between gap-2">
+                    <span className="text-[19px] font-bold tracking-tight leading-none truncate">{playerName}</span>
+                    <span className="text-xs font-mono-num font-bold leading-none shrink-0">Lv.{formatHudNumber(level)}</span>
+                  </span>
                 </h2>
-                <p className="text-[11px] font-mono-num text-[#23476d]">
+                <p className="text-[11px] font-mono-num text-[#23476d] px-0.5">
                   XP {formatHudNumber(xp)}/{formatHudNumber(nextXp)} · {claimedAchievements.length}/{ACHIEVEMENTS.length} Ach
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setActivePanel('none')}
-                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
+                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer shrink-0"
               >
                 [X]
               </button>
@@ -2409,9 +2824,13 @@ export const GameHud: React.FC<GameHudProps> = ({
                     </span>
                   </div>
                   <div className="pixel-slot p-2 flex flex-col gap-0.5">
-                    <span className="text-[10px] uppercase font-bold text-[#047857]">Digibits (DB)</span>
-                    <span className="text-sm font-mono-num font-bold text-[#92400e]">
-                      {formatHudNumber(alterbits)} DB
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase font-bold text-[#047857]">
+                      <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                      <span>DigiBits</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-sm font-mono-num font-bold text-[#92400e]">
+                      <span>{formatHudNumber(alterbits)}</span>
+                      <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
                     </span>
                   </div>
                 </div>
@@ -2540,20 +2959,27 @@ export const GameHud: React.FC<GameHudProps> = ({
           className="pointer-events-auto fixed inset-0 z-30 bg-[#091e3a]/45 backdrop-blur-[2px] flex items-center justify-center p-3"
         >
           <div className="w-full max-w-xs pixel-box p-3 flex flex-col gap-2.5">
-            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <RoleBadgeIcon kind={publicProfile.role === 'admin' ? 'admin' : 'guest'} />
-                <h2 className="font-pixel text-xs text-[#091e3a] truncate">
-                  {publicProfile.playerName}
-                </h2>
-                <span className="px-1.5 py-0.5 rounded-[6px] bg-white/80 border border-[#4172a3] text-[9px] font-bold text-[#091e3a] shrink-0">
-                  {publicProfile.role === 'admin' ? 'ADMIN' : 'EXPLORER'}
+            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2">
+              <div className="flex items-stretch gap-1 flex-1 min-w-0">
+                <span className="rounded-[7px] bg-white/55 border border-[#4172a3]/55 p-1 flex items-center justify-center shrink-0">
+                  <RoleBadgeIcon
+                    kind={publicProfile.role === 'admin' ? 'admin' : 'guest'}
+                    className="w-6 h-6 shrink-0"
+                  />
                 </span>
+                <div className="rounded-[7px] bg-white/55 border border-[#4172a3]/55 px-2.5 py-1 flex-1 min-w-0 flex items-center justify-between gap-1.5">
+                  <h2 className="font-pixel text-[18px] font-bold tracking-tight leading-none text-[#091e3a] truncate">
+                    {publicProfile.playerName}
+                  </h2>
+                  <span className="px-1.5 py-0.5 rounded-[5px] bg-white/80 border border-[#4172a3] text-[9px] font-bold text-[#091e3a] shrink-0">
+                    {publicProfile.role === 'admin' ? 'ADMIN' : 'EXPLORER'}
+                  </span>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={onDismissPublicProfile}
-                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer"
+                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer shrink-0"
               >
                 [X]
               </button>
@@ -2625,7 +3051,13 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* World Navigator Drawer */}
       {activePanel === 'worlds' && (
-        <div className="pointer-events-auto fixed left-2 top-[98px] sm:top-[106px] z-20 w-[min(21rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] overflow-y-auto pixel-box p-3 flex flex-col gap-2.5">
+        <div
+          className={`pointer-events-auto fixed left-2 ${
+            isPortrait
+              ? 'top-[98px] max-h-[calc(100dvh-13.5rem)]'
+              : 'top-[106px] max-h-[calc(100dvh-10.5rem)]'
+          } z-20 w-[min(21rem,calc(100vw-1rem))] overflow-y-auto pixel-box p-3 flex flex-col gap-2.5`}
+        >
           <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h2 className="ui-pixel-heading text-xs text-[#091e3a]">World Navigator</h2>
@@ -2755,7 +3187,13 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* World Chat Drawer (anchored below Top-Left World Chat button) */}
       {activePanel === 'chat' && (
-        <div className="pointer-events-auto fixed left-2 top-[98px] sm:top-[106px] z-20 w-[min(20rem,calc(100vw-1rem))] max-h-[calc(100dvh-12.5rem)] min-[740px]:max-h-[calc(100dvh-10.5rem)] pixel-box p-2.5 flex flex-col gap-2">
+        <div
+          className={`pointer-events-auto fixed left-2 ${
+            isPortrait
+              ? 'top-[98px] max-h-[calc(100dvh-13.5rem)]'
+              : 'top-[106px] max-h-[calc(100dvh-10.5rem)]'
+          } z-20 w-[min(20rem,calc(100vw-1rem))] pixel-box p-2.5 flex flex-col gap-2`}
+        >
           <div className="pixel-box-header -mx-2.5 -mt-2.5 px-2.5 py-1.5 flex items-center justify-between">
             <span className="ui-pixel-heading text-[10px] text-[#091e3a]">World Chat · {worldName}</span>
             <button

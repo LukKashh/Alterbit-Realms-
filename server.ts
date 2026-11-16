@@ -547,6 +547,7 @@ async function startServer() {
           itemId: msg.itemId,
           qty: msg.qty,
           currency: msg.currency,
+          cart: msg.cart,
         });
         if (!res.ok) {
           sendTo(ws, { type: 'world_error', message: res.message });

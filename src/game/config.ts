@@ -137,7 +137,7 @@ export function sanitizeGameConfig(raw: Partial<GameConfig> | null | undefined):
   };
 
   const mechanics: GameMechanicsConfig = {
-    viewScale: clamp(m.viewScale, DEFAULT_GAME_CONFIG.mechanics.viewScale, 1, 2.5),
+    viewScale: clamp(m.viewScale, DEFAULT_GAME_CONFIG.mechanics.viewScale, 0.75, 2.5),
     reachTiles: clamp(m.reachTiles, DEFAULT_GAME_CONFIG.mechanics.reachTiles, 1.5, 8),
     punchCooldownMs: clamp(m.punchCooldownMs, DEFAULT_GAME_CONFIG.mechanics.punchCooldownMs, 60, 600),
     moveSpeed: clamp(m.moveSpeed, DEFAULT_GAME_CONFIG.mechanics.moveSpeed, 150, 720),

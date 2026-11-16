@@ -6,6 +6,8 @@ export const WORLD_TILE_COUNT = WORLD_WIDTH * WORLD_HEIGHT; // 6,000 tiles
 
 export const TILE_SIZE = 60; // World tile size increased 25% larger (48px -> 60px)
 export const DEFAULT_VIEW_SCALE = 1.5; // Crisps upscaled pixel view
+export const MIN_PLAYER_ZOOM = 0.75;
+export const MAX_PLAYER_ZOOM = 2.25;
 export const MAX_WORLD_PLAYERS = 20;
 export const MAX_REACH_TILES = 3.05; // 3-block interaction radius
 

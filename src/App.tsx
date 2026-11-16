@@ -15,7 +15,13 @@ import {
   type WorldSummary,
 } from './game/network.ts';
 import { getItemDef, ITEM_IDS, type PlayerStatKey } from './game/catalog.ts';
-import { DEFAULT_VIEW_SCALE, TILE_SIZE } from './game/constants.ts';
+import {
+  DEFAULT_VIEW_SCALE,
+  MAX_PLAYER_ZOOM,
+  MIN_PLAYER_ZOOM,
+  TILE_SIZE,
+} from './game/constants.ts';
+import { resolveUnifiedViewScale, useViewportOrientation } from './game/orientation.ts';
 import { cloneGameConfig, DEFAULT_GAME_CONFIG, type GameConfig } from './game/config.ts';
 import { sortInventorySlots } from './game/rules.ts';
 import type { EquippedWearables } from './game/pixelArt.ts';
@@ -148,11 +154,12 @@ export default function App() {
   const [connected, setConnected] = useState<boolean>(false);
   const [adminWorldEdit, setAdminWorldEdit] = useState<boolean>(false);
   const [adminBrushItemId, setAdminBrushItemId] = useState<number | null>(null);
+  const orientation = useViewportOrientation();
   const [viewZoom, setViewZoom] = useState<number>(() => {
     try {
       const saved = Number(localStorage.getItem(ZOOM_STORAGE_KEY));
-      if (Number.isFinite(saved) && saved >= 0.75 && saved <= 2.25) {
-        return Math.round(saved * 100) / 100;
+      if (Number.isFinite(saved) && saved >= MIN_PLAYER_ZOOM && saved <= MAX_PLAYER_ZOOM) {
+        return resolveUnifiedViewScale(saved, DEFAULT_VIEW_SCALE);
       }
     } catch {
       // ignore storage errors
@@ -278,13 +285,14 @@ export default function App() {
     }
   }, [appState]);
   useEffect(() => {
-    engineRef.current?.setPlayerZoomScale(viewZoom);
+    const unified = resolveUnifiedViewScale(viewZoom, DEFAULT_VIEW_SCALE);
+    engineRef.current?.setPlayerZoomScale(unified);
     try {
-      localStorage.setItem(ZOOM_STORAGE_KEY, String(viewZoom));
+      localStorage.setItem(ZOOM_STORAGE_KEY, String(unified));
     } catch {
       // ignore storage errors
     }
-  }, [viewZoom]);
+  }, [viewZoom, orientation]);
 
 
   const fetchWorldsList = useCallback(async () => {
@@ -1126,9 +1134,10 @@ export default function App() {
           onNexusTeleport={(targetX, targetY, label) =>
             socketRef.current?.send({ type: 'nexus_teleport', targetX, targetY, label })
           }
+          orientation={orientation}
           viewZoom={viewZoom}
           onChangeViewZoom={(nextZoom) =>
-            setViewZoom(Math.max(0.75, Math.min(2.25, Math.round(nextZoom * 100) / 100)))
+            setViewZoom(resolveUnifiedViewScale(nextZoom, DEFAULT_VIEW_SCALE))
           }
         />
       )}

@@ -5,6 +5,13 @@ import {
   shadeHex,
 } from './artTheme.ts';
 import { CATALOG, ITEM_IDS } from './catalog.ts';
+import {
+  drawFarmableBlock32,
+  drawFarmableBlock48,
+  drawFarmableSeed32,
+  drawFarmableSeed48,
+  getFarmableTexture32,
+} from './farmableArt.ts';
 import { renderHighDefPlayerSprite } from './playerSpriteHD.ts';
 
 export type PlayerPose =
@@ -359,6 +366,18 @@ function drawTile48(itemId: number): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(TILE_PX, TILE_PX);
   const def = CATALOG[itemId];
   if (!def) return c;
+
+  // Dedicated 32-bit downscaled pixel art renderers for 40 Farmables (900..939) and 40 Seeds (950..989)
+  if (itemId >= 900 && itemId <= 939) {
+    if (drawFarmableBlock32(ctx, itemId, def, 48, 48)) {
+      return c;
+    }
+  }
+  if (itemId >= 950 && itemId <= 989) {
+    if (drawFarmableSeed32(ctx, itemId, def, 48, 48)) {
+      return c;
+    }
+  }
 
   switch (itemId) {
     case ITEM_IDS.BG_SKY: {
@@ -1646,136 +1665,7 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       break;
     }
 
-    // --- 20 Dedicated Farmable Blocks (900..919) ---
-    case ITEM_IDS.FARM_SUGAR_CANE:
-    case ITEM_IDS.FARM_BAMBOO_SHOOT: {
-      for (const sx of [2, 7, 11]) {
-        p3(ctx, sx, 1, THEME.ink.outline, 4, 15);
-        p3(ctx, sx + 1, 2, def.colorSecondary, 2, 13);
-        p3(ctx, sx + 1, 2, def.colorPrimary, 1, 13);
-        p3(ctx, sx, 5, def.colorAccent, 4, 1);
-        p3(ctx, sx, 10, def.colorAccent, 4, 1);
-      }
-      break;
-    }
 
-    case ITEM_IDS.FARM_PEPPER_BUSH:
-    case ITEM_IDS.FARM_VENUS_TRAP: {
-      p3(ctx, 1, 2, THEME.ink.outline, 14, 13);
-      p3(ctx, 2, 3, def.colorSecondary, 12, 11);
-      p3(ctx, 3, 3, '#22c55e', 10, 5);
-      // Hanging peppers / pods
-      for (const [px, py] of [
-        [3, 6],
-        [7, 8],
-        [11, 5],
-      ]) {
-        p3(ctx, px, py, THEME.ink.outline, 3, 5);
-        p3(ctx, px + 1, py + 1, def.colorPrimary, 2, 3);
-        p3(ctx, px + 1, py + 1, def.colorAccent, 1, 1);
-      }
-      break;
-    }
-
-    case ITEM_IDS.FARM_BOUNTY_WHEAT: {
-      drawFramedPanel16(ctx, def.colorPrimary);
-      p3(ctx, 1, 6, '#b91c1c', 14, 2);
-      p3(ctx, 1, 10, '#b91c1c', 14, 2);
-      for (let x = 2; x <= 12; x += 3) {
-        p3(ctx, x, 2, def.colorAccent, 1, 4);
-        p3(ctx, x, 12, def.colorSecondary, 1, 3);
-      }
-      break;
-    }
-
-    case ITEM_IDS.FARM_GLOW_SHROOM:
-    case ITEM_IDS.FARM_FROST_LOTUS: {
-      p3(ctx, 5, 8, THEME.ink.outline, 6, 8);
-      p3(ctx, 6, 9, def.colorSecondary, 4, 6);
-      p3(ctx, 1, 3, THEME.ink.outline, 14, 7);
-      p3(ctx, 2, 4, def.colorPrimary, 12, 5);
-      p3(ctx, 4, 4, def.colorAccent, 3, 2);
-      p3(ctx, 9, 5, '#ffffff', 3, 2);
-      break;
-    }
-
-    case ITEM_IDS.FARM_HONEY_COMB:
-    case ITEM_IDS.FARM_GOLD_TREASURE: {
-      drawFramedPanel16(ctx, def.colorPrimary, { bolts: true });
-      for (const [hx, hy] of [
-        [3, 3],
-        [8, 3],
-        [5, 7],
-        [3, 11],
-        [8, 11],
-      ]) {
-        p3(ctx, hx, hy, def.colorSecondary, 4, 3);
-        p3(ctx, hx + 1, hy + 1, def.colorAccent, 2, 1);
-      }
-      break;
-    }
-
-    case ITEM_IDS.FARM_PINBALL_BUMPER: {
-      p3(ctx, 2, 2, THEME.ink.outline, 12, 12);
-      p3(ctx, 3, 3, def.colorSecondary, 10, 10);
-      p3(ctx, 4, 4, def.colorPrimary, 8, 8);
-      p3(ctx, 6, 5, def.colorAccent, 4, 6);
-      p3(ctx, 5, 6, def.colorAccent, 6, 4);
-      p3(ctx, 7, 7, '#ffffff', 2, 2);
-      break;
-    }
-
-    case ITEM_IDS.FARM_CHANDELIER: {
-      p3(ctx, 7, 0, THEME.ink.outline, 2, 5);
-      p3(ctx, 1, 5, THEME.ink.outline, 14, 5);
-      p3(ctx, 2, 6, def.colorPrimary, 12, 3);
-      for (const cx of [2, 6, 10, 13]) {
-        p3(ctx, cx, 3, def.colorAccent, 2, 3);
-        p3(ctx, cx, 10, '#38bdf8', 2, 4);
-      }
-      break;
-    }
-
-    case ITEM_IDS.FARM_LASER_GRID:
-    case ITEM_IDS.FARM_AETHER_REACTOR: {
-      drawFramedPanel16(ctx, def.colorSecondary, { bolts: true });
-      p3(ctx, 3, 3, THEME.ink.outline, 10, 10);
-      p3(ctx, 4, 4, def.colorPrimary, 8, 8);
-      p3(ctx, 7, 2, def.colorAccent, 2, 12);
-      p3(ctx, 2, 7, def.colorAccent, 12, 2);
-      p3(ctx, 6, 6, '#ffffff', 4, 4);
-      break;
-    }
-
-    case ITEM_IDS.FARM_BLACKROCK_GEM:
-    case ITEM_IDS.FARM_EMERALD_GEODE:
-    case ITEM_IDS.FARM_DRAGON_HOARD: {
-      drawFramedPanel16(ctx, def.colorSecondary);
-      for (const [gx, gy] of [
-        [3, 3],
-        [9, 3],
-        [6, 7],
-        [3, 10],
-        [10, 10],
-      ]) {
-        p3(ctx, gx, gy, THEME.ink.outline, 4, 4);
-        p3(ctx, gx + 1, gy + 1, def.colorPrimary, 2, 2);
-        p3(ctx, gx + 1, gy + 1, def.colorAccent, 1, 1);
-      }
-      break;
-    }
-
-    case ITEM_IDS.FARM_SORCERER_ORB:
-    case ITEM_IDS.FARM_SUNSTONE_PILLAR:
-    case ITEM_IDS.FARM_STARLIGHT_PRISM:
-    case ITEM_IDS.FARM_CELESTIAL_MONOLITH: {
-      drawFramedPanel16(ctx, def.colorSecondary, { bolts: true });
-      p3(ctx, 4, 2, THEME.ink.outline, 8, 12);
-      p3(ctx, 5, 3, def.colorPrimary, 6, 10);
-      p3(ctx, 6, 4, def.colorAccent, 4, 8);
-      p3(ctx, 7, 5, '#ffffff', 2, 4);
-      break;
-    }
     case ITEM_IDS.SEED_POT: {
       // Terracotta planter pot (16x16 grid -> 48x48)
       p3(ctx, 1, 9, THEME.ink.outline, 14, 7);
@@ -1873,60 +1763,7 @@ function drawTile48(itemId: number): HTMLCanvasElement {
       break;
     }
 
-    case ITEM_IDS.FARM_CRYSTAL_BLOSSOM:
-    case ITEM_IDS.FARM_MAGMA_ROSE:
-    case ITEM_IDS.FARM_VOID_LILY:
-    case ITEM_IDS.FARM_SOLARIUM_BLOOM:
-    case ITEM_IDS.FARM_CHRONO_FERN:
-    case ITEM_IDS.FARM_GENESIS_SEEDLING:
-    case ITEM_IDS.FARM_INFINITY_LOTUS: {
-      // Blooming crystal and floral flora
-      p3(ctx, 6, 8, THEME.ink.outline, 4, 8);
-      p3(ctx, 7, 9, def.colorSecondary, 2, 6);
-      p3(ctx, 2, 2, THEME.ink.outline, 12, 8);
-      p3(ctx, 3, 3, def.colorPrimary, 10, 6);
-      p3(ctx, 5, 4, def.colorAccent, 6, 4);
-      p3(ctx, 7, 5, '#ffffff', 2, 2);
-      break;
-    }
 
-    case ITEM_IDS.FARM_PLASMA_ORCHID:
-    case ITEM_IDS.FARM_NEBULA_SPORE:
-    case ITEM_IDS.FARM_PULSAR_BLOSSOM: {
-      drawFramedPanel16(ctx, def.colorSecondary);
-      p3(ctx, 4, 3, THEME.ink.outline, 8, 10);
-      p3(ctx, 5, 4, def.colorPrimary, 6, 8);
-      p3(ctx, 6, 5, def.colorAccent, 4, 6);
-      p3(ctx, 7, 6, '#ffffff', 2, 3);
-      break;
-    }
-
-    case ITEM_IDS.FARM_PRISM_SHARD:
-    case ITEM_IDS.FARM_THUNDER_CACTUS:
-    case ITEM_IDS.FARM_TITAN_THORN: {
-      drawFramedPanel16(ctx, def.colorSecondary, { bolts: true });
-      for (const [sx, sy] of [[3, 2], [8, 4], [4, 9], [10, 8]]) {
-        p3(ctx, sx, sy, THEME.ink.outline, 4, 5);
-        p3(ctx, sx + 1, sy + 1, def.colorPrimary, 2, 3);
-        p3(ctx, sx + 1, sy + 1, def.colorAccent, 1, 1);
-      }
-      break;
-    }
-
-    case ITEM_IDS.FARM_HYPERION_BULB:
-    case ITEM_IDS.FARM_DARK_MATTER_CORE:
-    case ITEM_IDS.FARM_SUPERNOVA_FRUIT:
-    case ITEM_IDS.FARM_QUANTUM_VINE:
-    case ITEM_IDS.FARM_ASTRAL_CHRYSALIS:
-    case ITEM_IDS.FARM_OMEGA_MONOLITH:
-    case ITEM_IDS.FARM_SHADOW_TENDRIL: {
-      drawFramedPanel16(ctx, def.colorSecondary, { crystal: true, bolts: true });
-      p3(ctx, 3, 3, THEME.ink.outline, 10, 10);
-      p3(ctx, 4, 4, def.colorPrimary, 8, 8);
-      p3(ctx, 5, 5, def.colorAccent, 6, 6);
-      p3(ctx, 7, 7, '#ffffff', 2, 2);
-      break;
-    }
 
     default: {
       // Rich procedural pixel-art rendering by category & item key so every catalog item is distinct
@@ -2042,6 +1879,21 @@ function drawTile48(itemId: number): HTMLCanvasElement {
 export function getTileSprite(itemId: number): HTMLCanvasElement {
   let cached = tileCache.get(itemId);
   if (!cached) {
+    // 32-bit pixel art farmable blocks and seeds render directly from the native 32x32 texture
+    if ((itemId >= 900 && itemId <= 939) || (itemId >= 950 && itemId <= 989)) {
+      const tex32 = getFarmableTexture32(itemId, CATALOG[itemId]);
+      if (tex32) {
+        const scaled = document.createElement('canvas');
+        scaled.width = TILE_PX;
+        scaled.height = TILE_PX;
+        const sCtx = scaled.getContext('2d')!;
+        sCtx.imageSmoothingEnabled = false;
+        sCtx.drawImage(tex32, 0, 0, 32, 32, 0, 0, TILE_PX, TILE_PX);
+        cached = scaled;
+        tileCache.set(itemId, cached);
+        return cached;
+      }
+    }
     const raw48 = drawTile48(itemId);
     const scaled = document.createElement('canvas');
     scaled.width = TILE_PX;

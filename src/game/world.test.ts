@@ -968,3 +968,27 @@ test('HUD number formatting uses commas for 4+ digits and period for decimals', 
   assert.equal(formatHudFixed(1250, 2), '1,250.00');
   assert.equal(formatHudFixed(0.5, 2), '0.50');
 });
+
+import { resolveUnifiedViewScale, resolveViewportOrientation } from './orientation.ts';
+
+test('Viewport orientation tracking and unified Player FOV Zoom baseline stay consistent across Portrait and Landscape', () => {
+  // Portrait viewports (height > width, including wide tablets)
+  assert.equal(resolveViewportOrientation(390, 844), 'portrait');
+  assert.equal(resolveViewportOrientation(768, 1024), 'portrait');
+  assert.equal(resolveViewportOrientation(820, 1180), 'portrait');
+
+  // Landscape viewports (width >= height, including compact mobile landscape)
+  assert.equal(resolveViewportOrientation(844, 390), 'landscape');
+  assert.equal(resolveViewportOrientation(667, 375), 'landscape');
+  assert.equal(resolveViewportOrientation(1280, 720), 'landscape');
+  assert.equal(resolveViewportOrientation(800, 800), 'landscape');
+
+  // Unified FOV zoom baseline is 1.5 default, min 0.75, max 2.25, invariant to orientation
+  assert.equal(resolveUnifiedViewScale(undefined), DEFAULT_VIEW_SCALE);
+  assert.equal(resolveUnifiedViewScale(1.5), 1.5);
+  assert.equal(resolveUnifiedViewScale(0.75), 0.75);
+  assert.equal(resolveUnifiedViewScale(2.25), 2.25);
+  assert.equal(resolveUnifiedViewScale(0.4), 0.75);
+  assert.equal(resolveUnifiedViewScale(3.0), 2.25);
+});
+

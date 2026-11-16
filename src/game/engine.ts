@@ -1,10 +1,13 @@
 import {
   DEFAULT_VIEW_SCALE,
   DROP_PICKUP_RADIUS,
+  MAX_PLAYER_ZOOM,
+  MIN_PLAYER_ZOOM,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
   TILE_SIZE,
 } from './constants.ts';
+import { resolveUnifiedViewScale } from './orientation.ts';
 import { CATALOG, getItemDef, isCropSeed, ITEM_IDS } from './catalog.ts';
 import {
   cloneGameConfig,
@@ -20,10 +23,15 @@ import {
   getTileSprite,
   type EquippedWearables,
 } from './pixelArt.ts';
+import { DIGIBITS_ICON_SRC } from '../components/DigiBitsIcon.tsx';
 import {
-  drawModularCharacter,
+  computeModularPlayerRig,
+  drawSubLayerPart,
+  getCharacterPartTextures,
   PLAYER_LOGICAL_H,
   PLAYER_LOGICAL_W,
+  type CharacterPartTextures,
+  type ModularPlayerRigState,
 } from './playerSpriteHD.ts';
 import {
   canBreakTile,
@@ -221,6 +229,9 @@ export class BlockgroveEngine {
   private punchAnimTimer = 0;
   private placeAnimTimer = 0;
   private landAnimTimer = 0;
+  private actionFacing: 1 | -1 = 1;
+  private actionAimX = 48;
+  private actionAimY = 0;
   private lastSyncSent = 0;
   private lastCoordTx = -1;
   private lastCoordTy = -1;
@@ -249,10 +260,17 @@ export class BlockgroveEngine {
   private callbacks: EngineCallbacks;
   private nameplateCache = new Map<string, HTMLCanvasElement>();
   private wrenchIconTargets: Array<{ playerId: string; x: number; y: number; w: number; h: number }> = [];
+  private digibitsCoinImg: HTMLImageElement | null = null;
 
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
     this.container = container;
     this.callbacks = callbacks;
+
+    if (typeof Image !== 'undefined') {
+      const img = new Image();
+      img.src = DIGIBITS_ICON_SRC;
+      this.digibitsCoinImg = img;
+    }
 
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'block w-full h-full pixelated touch-none';
@@ -340,6 +358,9 @@ export class BlockgroveEngine {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.clearInputs);
+    window.addEventListener('resize', this.onWindowResize);
+    window.addEventListener('orientationchange', this.onWindowResize);
+    window.visualViewport?.addEventListener('resize', this.onWindowResize);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
 
     this.canvas.addEventListener('pointermove', this.onPointerMove);
@@ -354,6 +375,10 @@ export class BlockgroveEngine {
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  private onWindowResize = () => {
+    this.handleResize();
+  };
+
   destroy() {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
     if (this.throttleTimerId !== null) clearTimeout(this.throttleTimerId);
@@ -361,6 +386,9 @@ export class BlockgroveEngine {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.clearInputs);
+    window.removeEventListener('resize', this.onWindowResize);
+    window.removeEventListener('orientationchange', this.onWindowResize);
+    window.visualViewport?.removeEventListener('resize', this.onWindowResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
@@ -516,9 +544,12 @@ export class BlockgroveEngine {
     this.punchStick = { active, dx: clampedDx, dy: clampedDy };
     this.touchState.punchHeld = active;
     if (active) {
-      if (Math.abs(clampedDx) > 0.12) {
+      if (Math.abs(clampedDx) > 0.1) {
         this.body.facing = clampedDx > 0 ? 1 : -1;
+        this.actionFacing = this.body.facing;
       }
+      this.actionAimX = clampedDx * 60;
+      this.actionAimY = clampedDy * 60;
       const { tx, ty } = this.getTargetTileFromJoystick();
       this.performTileInteraction(tx, ty);
     }
@@ -568,22 +599,24 @@ export class BlockgroveEngine {
     return this.playerZoomScale;
   }
 
+  public getEffectiveViewScale(): number {
+    return this.viewScale;
+  }
+
   public setPlayerZoomScale(scale: number) {
-    const clamped = Math.max(0.75, Math.min(2.25, Number(scale) || DEFAULT_VIEW_SCALE));
+    const clamped = Math.max(
+      MIN_PLAYER_ZOOM,
+      Math.min(MAX_PLAYER_ZOOM, Number(scale) || DEFAULT_VIEW_SCALE)
+    );
     this.playerZoomScale = Math.round(clamped * 100) / 100;
     this.applyEffectiveViewScale();
   }
 
   private applyEffectiveViewScale() {
-    const baseZoom =
-      this.playerZoomScale || this.gameConfig.mechanics.viewScale || DEFAULT_VIEW_SCALE;
-    const configured = Math.max(0.75, Math.min(2.25, baseZoom));
-    if (this.cssWidth >= 900 && this.cssHeight >= 520) {
-      this.viewScale = configured;
-      return;
-    }
-    const factor = Math.min(this.cssWidth / 900, this.cssHeight / 520);
-    this.viewScale = Math.max(0.65, Math.min(configured, Math.round(configured * factor * 20) / 20));
+    this.viewScale = resolveUnifiedViewScale(
+      this.playerZoomScale,
+      this.gameConfig.mechanics.viewScale || DEFAULT_VIEW_SCALE
+    );
   }
 
   public applyGameConfig(cfg: GameConfig) {
@@ -1471,9 +1504,36 @@ export class BlockgroveEngine {
     });
   }
 
+  private updateActionDirectionToTile(tx: number, ty: number) {
+    const shoulderX = this.body.x + PLAYER_WIDTH * 0.5;
+    const shoulderY = this.body.y + PLAYER_HEIGHT * 0.42;
+    const targetX = tx * TILE_SIZE + TILE_SIZE * 0.5;
+    const targetY = ty * TILE_SIZE + TILE_SIZE * 0.5;
+    const dx = targetX - shoulderX;
+    const dy = targetY - shoulderY;
+
+    if (this.punchStick.active && Math.hypot(this.punchStick.dx, this.punchStick.dy) > 0.12) {
+      this.actionAimX = this.punchStick.dx * 60;
+      this.actionAimY = this.punchStick.dy * 60;
+      if (Math.abs(this.punchStick.dx) > 0.1) {
+        this.body.facing = this.punchStick.dx >= 0 ? 1 : -1;
+      } else if (Math.abs(dx) > 4) {
+        this.body.facing = dx >= 0 ? 1 : -1;
+      }
+    } else {
+      this.actionAimX = dx;
+      this.actionAimY = dy;
+      if (Math.abs(dx) > 4) {
+        this.body.facing = dx >= 0 ? 1 : -1;
+      }
+    }
+    this.actionFacing = this.body.facing;
+  }
+
   private performTileInteraction(tx: number, ty: number) {
     if (this.punchTimer > 0) return;
     if (!inBoundsWorld(this.world, tx, ty)) return;
+    this.updateActionDirectionToTile(tx, ty);
     const playerCtx = {
       id: this.localPlayerId,
       x: this.body.x,
@@ -1940,6 +2000,22 @@ export class BlockgroveEngine {
       effMechanics
     );
     this.jumpJustPressed = false;
+
+    // Keep player facing direction strictly consistent with any active breaking/placing action
+    if (this.punchStick.active) {
+      if (Math.abs(this.punchStick.dx) > 0.1) {
+        this.actionFacing = this.punchStick.dx >= 0 ? 1 : -1;
+      }
+      this.body.facing = this.actionFacing;
+      this.actionAimX = this.punchStick.dx * 60;
+      this.actionAimY = this.punchStick.dy * 60;
+    } else if (this.mouseDown) {
+      const { tx, ty } = this.getTargetTileFromCursor();
+      this.updateActionDirectionToTile(tx, ty);
+      this.body.facing = this.actionFacing;
+    } else if (this.punchAnimTimer > 0 || this.placeAnimTimer > 0) {
+      this.body.facing = this.actionFacing;
+    }
 
     const footTx = Math.max(0, Math.min(worldWidth(this.world) - 1, Math.floor((this.body.x + PLAYER_WIDTH * 0.5) / TILE_SIZE)));
     const footTy = Math.max(0, Math.min(worldHeight(this.world) - 1, Math.floor((this.body.y + PLAYER_HEIGHT + 2) / TILE_SIZE)));
@@ -2647,6 +2723,20 @@ export class BlockgroveEngine {
           const standW = TILE_SIZE * 3;
           const standH = TILE_SIZE * 2;
           ctx.drawImage(standSprite, standX, standY, standW, standH);
+          if (
+            !isLandlord &&
+            this.digibitsCoinImg &&
+            this.digibitsCoinImg.complete &&
+            this.digibitsCoinImg.naturalWidth > 0
+          ) {
+            ctx.drawImage(
+              this.digibitsCoinImg,
+              Math.round(standX + standW * 0.5 - 11),
+              Math.round(standY + standH * 0.78 - 11),
+              22,
+              22
+            );
+          }
 
           const glowPulse = 0.26 + Math.sin(nowMs * 0.004 + tx) * 0.12;
           ctx.strokeStyle = isLandlord
@@ -2836,6 +2926,10 @@ export class BlockgroveEngine {
         this.punchAnimTimer > 0
           ? Math.max(0, Math.min(1, 1 - this.punchAnimTimer / PUNCH_ANIM_DURATION))
           : 0;
+      const placeProgress =
+        this.placeAnimTimer > 0
+          ? Math.max(0, Math.min(1, 1 - this.placeAnimTimer / PLACE_ANIM_DURATION))
+          : 0;
       const selDef = getItemDef(this.selectedItemId);
       const actionKind: 'punch' | 'mine' =
         selDef?.toolKind === 'pickaxe' || this.selectedItemId === ITEM_IDS.WRENCH ? 'mine' : 'punch';
@@ -2862,7 +2956,10 @@ export class BlockgroveEngine {
         this.localEquipped,
         actionKind,
         this.landAnimTimer > 0,
-        localFishState
+        localFishState,
+        placeProgress,
+        this.actionAimX,
+        this.actionAimY
       );
       queuedPlayerTags.push({
         playerId: this.localPlayerId,
@@ -3002,21 +3099,21 @@ export class BlockgroveEngine {
         }
       }
 
-      // Tool swing slash arc when punching/mining
+      // Directional tool swing slash arc when punching/mining
       if (this.punchAnimTimer > 0) {
         const pt = 1 - Math.max(0, Math.min(1, this.punchAnimTimer / PUNCH_ANIM_DURATION));
-        const arcCx = this.body.x + PLAYER_WIDTH * 0.5 + this.body.facing * 20 - cx;
-        const arcCy = this.body.y + PLAYER_HEIGHT * 0.45 - cy;
+        const aimMag = Math.max(1, Math.hypot(this.actionAimX, this.actionAimY));
+        const dirX = this.actionAimX / aimMag;
+        const dirY = this.actionAimY / aimMag;
+        const baseAng = Math.atan2(dirY, dirX);
+        const arcCx = this.body.x + PLAYER_WIDTH * 0.5 + dirX * 20 - cx;
+        const arcCy = this.body.y + PLAYER_HEIGHT * 0.42 + dirY * 18 - cy;
         ctx.save();
         ctx.globalAlpha = Math.max(0, (1 - pt) * 0.8);
         ctx.strokeStyle = actionKind === 'mine' ? '#8cf7ee' : '#fef08a';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        if (this.body.facing === 1) {
-          ctx.arc(arcCx, arcCy, 16 + pt * 4, -0.95 + pt * 0.5, 0.75 + pt * 0.4);
-        } else {
-          ctx.arc(arcCx, arcCy, 16 + pt * 4, Math.PI - 0.75 - pt * 0.4, Math.PI + 0.95 - pt * 0.5);
-        }
+        ctx.arc(arcCx, arcCy, 16 + pt * 4, baseAng - 0.85 + pt * 0.35, baseAng + 0.85 + pt * 0.35);
         ctx.stroke();
         ctx.restore();
       }
@@ -3571,53 +3668,75 @@ export class BlockgroveEngine {
   ): { canvas: HTMLCanvasElement; textOffsetCssX: number; textCssWidth: number; iconCssHeight: number } {
     const displayName = name;
     const roleIconKind = isAdmin ? 'admin' : access;
-    const cacheKey = `${displayName}::${roleIconKind}`;
+    const cacheKey = `pillbox::${displayName}::${roleIconKind}`;
     const existing = this.playerTitleCache.get(cacheKey);
     if (existing) return existing;
 
-    const scaleBoost = isAdmin ? 1.25 : 1;
-    const circleDia = Math.round(32 * scaleBoost); // 2x HiDPI: 16px normal, 20px admin
-    const gap = Math.round(7 * scaleBoost);
-    const fontPx = Math.round(20 * scaleBoost);
+    const scaleBoost = isAdmin ? 1.1 : 1;
+    const circleDia = Math.round(20 * scaleBoost);
+    const gap = Math.round(6 * scaleBoost);
+    const fontPx = Math.round(13 * scaleBoost); // 10% larger than 12px
     const fontStr = `bold ${fontPx}px "Pixelify Sans", monospace`;
 
-    const c = document.createElement('canvas');
-    const measureCtx = c.getContext('2d')!;
+    const tmpC = document.createElement('canvas');
+    const measureCtx = tmpC.getContext('2d')!;
     measureCtx.font = fontStr;
     const textW = Math.ceil(measureCtx.measureText(displayName).width);
-    const padOuter = 5;
 
-    c.width = padOuter * 2 + circleDia + gap + textW + 4;
-    c.height = padOuter * 2 + circleDia;
+    const padX = 6;
+    const padY = 4;
+    const pillW = padX * 2 + circleDia + gap + textW + 4;
+    const pillH = Math.max(circleDia + padY * 2, fontPx + padY * 2 + 2);
+
+    const c = document.createElement('canvas');
+    c.width = pillW * 2; // 2x HiDPI
+    c.height = pillH * 2;
 
     const ctx = c.getContext('2d')!;
-    const cy = c.height / 2;
+    ctx.scale(2, 2);
 
-    // 1. Left Role Icon directly next to the bare username (same elevation)
-    const circCx = padOuter + circleDia / 2;
+    // Connected Frosted Foggy Pillbox Background
+    ctx.save();
+    ctx.fillStyle = 'rgba(232, 244, 254, 0.68)';
+    ctx.strokeStyle = '#1e3a5f';
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.roundRect(1, 1, pillW - 2, pillH - 2, pillH / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Inner highlight
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(2, 2, pillW - 4, pillH - 4, pillH / 2 - 1);
+    ctx.stroke();
+    ctx.restore();
+
+    const cy = pillH / 2;
+    const circCx = padX + circleDia / 2;
     const circCy = cy;
-    const r = circleDia / 2 - 2;
+    const r = circleDia / 2 - 1.5;
 
+    // Draw Role Icon inside pillbox
     if (roleIconKind === 'admin') {
-      // Distinctive Game Administrator Medallion (crimson-obsidian circle + bright gold crest + pixel crown & gem)
       ctx.fillStyle = '#2a0f18';
       ctx.beginPath();
       ctx.arc(circCx, circCy, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#ff9f1c';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2.5;
       ctx.stroke();
 
       const u = Math.max(2, Math.round(circleDia * 0.11));
       ctx.save();
-      // Golden Admin Crown silhouette
       ctx.fillStyle = '#fde047';
       ctx.fillRect(Math.round(circCx - u * 2.5), Math.round(circCy + u * 0.7), u * 5, u * 1.1);
       ctx.fillRect(Math.round(circCx - u * 2.5), Math.round(circCy - u * 1.3), u * 1.1, u * 2.2);
       ctx.fillRect(Math.round(circCx - u * 0.55), Math.round(circCy - u * 1.9), u * 1.1, u * 2.8);
       ctx.fillRect(Math.round(circCx + u * 1.4), Math.round(circCy - u * 1.3), u * 1.1, u * 2.2);
       ctx.fillRect(Math.round(circCx - u * 1.6), Math.round(circCy - u * 0.2), u * 3.2, u * 1.1);
-      // Warm orange base band + cyan core gem
       ctx.fillStyle = '#ff9f1c';
       ctx.fillRect(Math.round(circCx - u * 2.2), Math.round(circCy + u * 0.8), u * 4.4, u * 0.7);
       ctx.fillStyle = '#38e8d8';
@@ -3631,17 +3750,16 @@ export class BlockgroveEngine {
             ? '#34d399'
             : '#94a3b8';
 
-      ctx.fillStyle = 'rgba(10, 18, 28, 0.55)';
+      ctx.fillStyle = 'rgba(19, 35, 54, 0.75)';
       ctx.beginPath();
       ctx.arc(circCx, circCy, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = ringColor;
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.2;
       ctx.stroke();
 
       ctx.save();
       if (roleIconKind === 'owner') {
-        // Crown emblem for World Owner
         ctx.fillStyle = '#fde047';
         const u = Math.max(2, Math.round(circleDia * 0.1));
         ctx.fillRect(Math.round(circCx - u * 2), Math.round(circCy + u * 0.2), u * 4, u * 1.2);
@@ -3649,13 +3767,11 @@ export class BlockgroveEngine {
         ctx.fillRect(Math.round(circCx - u * 0.5), Math.round(circCy - u * 1.3), u, u * 1.5);
         ctx.fillRect(Math.round(circCx + u), Math.round(circCy - u), u, u * 1.2);
       } else if (roleIconKind === 'shared') {
-        // Key / Builder badge for Shared Access
         ctx.fillStyle = '#6ee7b7';
         const u = Math.max(2, Math.round(circleDia * 0.1));
         ctx.fillRect(Math.round(circCx - u * 1.5), Math.round(circCy - u * 0.5), u * 3, u);
         ctx.fillRect(Math.round(circCx - u * 0.5), Math.round(circCy - u * 1.5), u, u * 3);
       } else {
-        // Guest diamond pip
         ctx.fillStyle = '#cbd5e1';
         ctx.translate(circCx, circCy);
         ctx.rotate(Math.PI / 4);
@@ -3665,25 +3781,23 @@ export class BlockgroveEngine {
       ctx.restore();
     }
 
-    // 2. Bare Case-Sensitive Pixel-Art Username with thin black outline (no outer pill frame)
-    const textStartX = padOuter + circleDia + gap;
+    const textStartX = padX + circleDia + gap;
     ctx.font = fontStr;
-    ctx.textAlign = 'center';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = isAdmin ? 5 : 4;
-    ctx.strokeStyle = '#05080f';
-    const textCenterX = textStartX + textW * 0.5;
+    ctx.lineWidth = 3.8;
+    ctx.strokeStyle = '#0b1622';
     const textY = cy + 1;
-    ctx.strokeText(displayName, textCenterX, textY);
-    ctx.fillStyle = isAdmin ? '#FF9F1C' : '#f4f1ea';
-    ctx.fillText(displayName, textCenterX, textY);
+    ctx.strokeText(displayName, textStartX, textY);
+    ctx.fillStyle = isAdmin ? '#fde047' : '#ffffff';
+    ctx.fillText(displayName, textStartX, textY);
 
     const result = {
       canvas: c,
-      textOffsetCssX: textStartX / 2,
-      textCssWidth: textW / 2,
-      iconCssHeight: c.height / 2,
+      textOffsetCssX: 0,
+      textCssWidth: pillW,
+      iconCssHeight: pillH,
     };
     this.playerTitleCache.set(cacheKey, result);
     return result;
@@ -3772,6 +3886,79 @@ export class BlockgroveEngine {
     return c;
   }
 
+  private drawPlayerFeetSubLayer(
+    ctx: CanvasRenderingContext2D,
+    rig: ModularPlayerRigState,
+    parts: CharacterPartTextures
+  ) {
+    drawSubLayerPart(ctx, parts.feetBack[rig.backFootVariant], rig.footBack);
+    drawSubLayerPart(ctx, parts.feetFront[rig.frontFootVariant], rig.footFront);
+  }
+
+  private drawPlayerTorsoSubLayer(
+    ctx: CanvasRenderingContext2D,
+    rig: ModularPlayerRigState,
+    parts: CharacterPartTextures
+  ) {
+    drawSubLayerPart(ctx, parts.torsos[rig.torsoVariant], rig.torso);
+  }
+
+  private drawPlayerHeadSubLayer(
+    ctx: CanvasRenderingContext2D,
+    rig: ModularPlayerRigState,
+    parts: CharacterPartTextures
+  ) {
+    drawSubLayerPart(ctx, parts.head, rig.head);
+  }
+
+  private drawPlayerFaceSubLayer(
+    ctx: CanvasRenderingContext2D,
+    rig: ModularPlayerRigState,
+    parts: CharacterPartTextures
+  ) {
+    ctx.save();
+    ctx.translate(rig.head.x, rig.head.y);
+    if (Math.abs(rig.head.angleRad) > 0.002) {
+      ctx.rotate(rig.head.angleRad);
+    }
+    ctx.drawImage(
+      parts.faces[rig.faceExpr],
+      Math.round(rig.faceOffsetX),
+      Math.round(rig.faceOffsetY)
+    );
+    ctx.restore();
+  }
+
+  private drawPlayerHandsSubLayer(
+    ctx: CanvasRenderingContext2D,
+    rig: ModularPlayerRigState,
+    parts: CharacterPartTextures,
+    layer: 'back' | 'front'
+  ) {
+    if (layer === 'back') {
+      drawSubLayerPart(ctx, parts.handsBack[rig.backHandVariant], rig.handBack);
+      return;
+    }
+    ctx.save();
+    ctx.translate(rig.handFront.x, rig.handFront.y);
+    if (Math.abs(rig.handFront.angleRad) > 0.002) {
+      ctx.rotate(rig.handFront.angleRad);
+    }
+    ctx.drawImage(
+      parts.handsFront[rig.frontHandVariant],
+      Math.round(-rig.handFront.pivotX),
+      Math.round(-rig.handFront.pivotY)
+    );
+    if (rig.activeProp === 'pickaxe') {
+      ctx.drawImage(parts.pickaxe, -2, 16);
+    } else if (rig.activeProp === 'placeCube') {
+      ctx.drawImage(parts.placeCube, -3, 20);
+    } else if (rig.activeProp === 'fishingRod') {
+      ctx.drawImage(parts.fishingRod, -2, 12);
+    }
+    ctx.restore();
+  }
+
   private drawCharacter(
     ctx: CanvasRenderingContext2D,
     screenX: number,
@@ -3789,12 +3976,16 @@ export class BlockgroveEngine {
     equipped?: EquippedWearables,
     actionKind: 'punch' | 'mine' = 'punch',
     landing = false,
-    fishingState: 'none' | 'hold' | 'reel' = 'none'
+    fishingState: 'none' | 'hold' | 'reel' = 'none',
+    placeProgress = 0.5,
+    aimX?: number,
+    aimY?: number
   ): number {
     const drawX = Math.round(screenX + (PLAYER_WIDTH - PLAYER_LOGICAL_W) * 0.5);
     const drawY = Math.round(screenY + PLAYER_HEIGHT - PLAYER_LOGICAL_H);
 
-    return drawModularCharacter(ctx, drawX, drawY, {
+    const parts = getCharacterPartTextures(shirtColor);
+    const rig = computeModularPlayerRig(drawX, drawY, {
       facing,
       vx,
       vy,
@@ -3805,10 +3996,31 @@ export class BlockgroveEngine {
       walkPhase,
       nowMs,
       punchProgress,
+      placeProgress,
       actionKind,
+      aimX,
+      aimY,
       landing,
       fishingState,
       equipped,
     });
+
+    const prevSmoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.save();
+    ctx.translate(rig.centerX, rig.groundBottomY);
+    ctx.scale(rig.facing * rig.scaleX, rig.scaleY);
+
+    // Modular sub-layer draw order: Back Hand -> Feet -> Torso -> Head -> Face -> Front Hand
+    this.drawPlayerHandsSubLayer(ctx, rig, parts, 'back');
+    this.drawPlayerFeetSubLayer(ctx, rig, parts);
+    this.drawPlayerTorsoSubLayer(ctx, rig, parts);
+    this.drawPlayerHeadSubLayer(ctx, rig, parts);
+    this.drawPlayerFaceSubLayer(ctx, rig, parts);
+    this.drawPlayerHandsSubLayer(ctx, rig, parts, 'front');
+
+    ctx.restore();
+    ctx.imageSmoothingEnabled = prevSmoothing;
+    return rig.topBoxY;
   }
 }

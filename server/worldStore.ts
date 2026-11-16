@@ -2554,10 +2554,17 @@ export class AuthoritativeWorldStore {
   handleVendorAction(
     account: PlayerAccount,
     opts: {
-      action: 'reclaim_hoe' | 'buy_hoe' | 'buy_seed' | 'sell_crop' | 'sell_all_crops';
+      action:
+        | 'reclaim_hoe'
+        | 'buy_hoe'
+        | 'buy_seed'
+        | 'sell_crop'
+        | 'sell_all_crops'
+        | 'sell_cart';
       itemId?: number;
       qty?: number;
       currency?: 'gems' | 'alterbits' | 'digibits';
+      cart?: Array<{ itemId: number; qty: number }>;
     }
   ): { ok: true; notice: string } | { ok: false; message: string } {
     account.alterbits = Math.max(0, Math.floor(Number(account.alterbits ?? 0)));
@@ -2586,7 +2593,7 @@ export class AuthoritativeWorldStore {
 
     if (opts.action === 'buy_seed') {
       const seedId = Number(opts.itemId ?? 0);
-      const qty = Math.max(1, Math.min(50, Math.floor(Number(opts.qty ?? 1))));
+      const qty = Math.max(1, Math.min(200, Math.floor(Number(opts.qty ?? 1))));
       if (!isCropSeed(seedId)) {
         return { ok: false, message: 'Invalid Crop Seed selected.' };
       }
@@ -2641,6 +2648,39 @@ export class AuthoritativeWorldStore {
       return {
         ok: true,
         notice: `Sold ${sellQty}× ${def?.name ?? 'Crop'} for +${earnedDb} Digibits!`,
+      };
+    }
+
+    if (opts.action === 'sell_cart') {
+      const entries = Array.isArray(opts.cart) ? opts.cart : [];
+      if (entries.length === 0) {
+        return { ok: false, message: 'Your selling cart is empty.' };
+      }
+      let totalCropsSold = 0;
+      let totalDbEarned = 0;
+      for (const entry of entries) {
+        const cropId = Number(entry?.itemId ?? 0);
+        const reqQty = Math.floor(Number(entry?.qty ?? 0));
+        if (!isCropItem(cropId) || reqQty <= 0) continue;
+        const slot = account.inventory.find((s) => s.itemId === cropId && s.qty > 0);
+        if (!slot) continue;
+        const sellQty = Math.min(slot.qty, reqQty);
+        const spec = getCropSpec(cropId);
+        const def = getItemDef(cropId);
+        const unitDb = spec?.sellAlterbits ?? def?.cropSellAlterbits ?? 2;
+        if (this.consumeInventory(account, cropId, sellQty)) {
+          totalCropsSold += sellQty;
+          totalDbEarned += sellQty * unitDb;
+        }
+      }
+      if (totalCropsSold === 0) {
+        return { ok: false, message: 'No matching crops in your inventory to sell.' };
+      }
+      account.alterbits += totalDbEarned;
+      this.savePlayer(account);
+      return {
+        ok: true,
+        notice: `Sold ${totalCropsSold} harvested crops for +${totalDbEarned} Digibits!`,
       };
     }
 
