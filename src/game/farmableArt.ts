@@ -70,7 +70,7 @@ function prng(seed: number): () => number {
 // 40 DEDICATED HIGH-DETAIL BLOCK ART RENDERERS (IDs 900..939)
 // ============================================================================
 
-export function drawFarmableBlockRaw48(
+function drawFarmableBlockArtwork48(
   ctx: CanvasRenderingContext2D,
   itemId: number,
   def: ItemDefinition
@@ -1128,6 +1128,72 @@ export function drawFarmableBlockRaw48(
     default:
       return false;
   }
+}
+
+export const FARMABLE_TIER_FRAME_COLORS: Record<number, { border: string; highlight: string; shadow: string }> = {
+  1: { border: '#a17347', highlight: '#cfa276', shadow: '#4d331c' }, // T1 Earth Bronze
+  2: { border: '#8fa1b5', highlight: '#c3d2e3', shadow: '#3a4654' }, // T2 Quarry Slate
+  3: { border: '#2dd4bf', highlight: '#99f6e4', shadow: '#0f5c54' }, // T3 Ceramic Teal
+  4: { border: '#60a5fa', highlight: '#bfdbfe', shadow: '#1e3a6e' }, // T4 Alloy Cobalt
+  5: { border: '#c084fc', highlight: '#e9d5ff', shadow: '#4c1d7a' }, // T5 Crystal Amethyst
+  6: { border: '#f59e0b', highlight: '#fde68a', shadow: '#78350f' }, // T6 Amber Gold
+  7: { border: '#34d399', highlight: '#a7f3d0', shadow: '#064e3b' }, // T7 Imperial Emerald
+  8: { border: '#fde047', highlight: '#fef9c3', shadow: '#713f12' }, // T8 Sovereign Radiant Gold
+};
+
+export function drawFarmableTierFrame48(
+  ctx: CanvasRenderingContext2D,
+  itemId: number,
+  def?: ItemDefinition
+): void {
+  if (itemId < 900 || itemId > 939) return;
+  const tier = def?.farmableTier ?? Math.floor((itemId - 900) / 5) + 1;
+  const pal = FARMABLE_TIER_FRAME_COLORS[tier] ?? FARMABLE_TIER_FRAME_COLORS[1];
+  const prevAlpha = typeof ctx.globalAlpha === 'number' ? ctx.globalAlpha : 1;
+  ctx.save?.();
+
+  // Subtle dark outer hairline to separate the tinted frame cleanly
+  ctx.globalAlpha = prevAlpha * 0.34;
+  ctx.fillStyle = pal.shadow;
+  ctx.fillRect(0, 0, 48, 1);
+  ctx.fillRect(0, 47, 48, 1);
+  ctx.fillRect(0, 1, 1, 46);
+  ctx.fillRect(47, 1, 1, 46);
+
+  // Subtle, readable 2px tier-colored perimeter band
+  ctx.globalAlpha = prevAlpha * 0.46;
+  ctx.fillStyle = pal.border;
+  ctx.fillRect(1, 1, 46, 2);
+  ctx.fillRect(1, 45, 46, 2);
+  ctx.fillRect(1, 3, 2, 42);
+  ctx.fillRect(45, 3, 2, 42);
+
+  // Crisp subtle corner jewel accents + top-left inner glint
+  ctx.globalAlpha = prevAlpha * 0.62;
+  ctx.fillStyle = pal.highlight;
+  ctx.fillRect(1, 1, 4, 2);
+  ctx.fillRect(1, 1, 2, 4);
+  ctx.fillRect(43, 1, 4, 2);
+  ctx.fillRect(45, 1, 2, 4);
+  ctx.fillRect(1, 45, 4, 2);
+  ctx.fillRect(1, 43, 2, 4);
+  ctx.fillRect(43, 45, 4, 2);
+  ctx.fillRect(45, 43, 2, 4);
+
+  ctx.restore?.();
+  ctx.globalAlpha = prevAlpha;
+}
+
+export function drawFarmableBlockRaw48(
+  ctx: CanvasRenderingContext2D,
+  itemId: number,
+  def: ItemDefinition
+): boolean {
+  const ok = drawFarmableBlockArtwork48(ctx, itemId, def);
+  if (ok) {
+    drawFarmableTierFrame48(ctx, itemId, def);
+  }
+  return ok;
 }
 
 // ============================================================================

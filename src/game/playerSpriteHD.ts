@@ -1,10 +1,224 @@
 import { BLOCKGROVE_ART_THEME as THEME } from './artTheme.ts';
 import { PLAYER_HEIGHT, PLAYER_WIDTH } from './constants.ts';
 
+export const DRAGON_BONE_WINGS_IMG_SRC =
+  '/assets/aistudio/file_0000000043c08246a1af2ecf8c765682_61b8c150.png';
+
+export const DRAGON_BONE_WINGS_IMG_CROP = {
+  left: { sx: 73, sy: 143, sw: 685, sh: 730, shoulderRatioX: 398 / 685, shoulderRatioY: 85 / 730 },
+  right: { sx: 778, sy: 143, sw: 685, sh: 730, shoulderRatioX: 276 / 685, shoulderRatioY: 85 / 730 },
+  full: { sx: 73, sy: 143, sw: 1390, sh: 730 },
+} as const;
+
+export interface DragonWingFlapFrame {
+  upAngleRad: number;
+  scaleX: number;
+  scaleY: number;
+  dy: number;
+}
+
+export const DRAGON_WING_FLAP_FRAMES_GROUNDED: readonly DragonWingFlapFrame[] = [
+  { upAngleRad: 0.02, scaleX: 1.0, scaleY: 1.0, dy: 0 },
+  { upAngleRad: 0.07, scaleX: 1.02, scaleY: 0.98, dy: -0.5 },
+  { upAngleRad: 0.12, scaleX: 1.04, scaleY: 0.96, dy: -1 },
+  { upAngleRad: 0.07, scaleX: 1.02, scaleY: 0.98, dy: -0.5 },
+];
+
+export const DRAGON_WING_FLAP_FRAMES_AIRBORNE: readonly DragonWingFlapFrame[] = [
+  { upAngleRad: 0.03, scaleX: 1.0, scaleY: 1.0, dy: 0 },
+  { upAngleRad: 0.16, scaleX: 1.05, scaleY: 0.95, dy: -1 },
+  { upAngleRad: 0.29, scaleX: 1.1, scaleY: 0.9, dy: -2 },
+  { upAngleRad: 0.14, scaleX: 1.04, scaleY: 0.96, dy: -1 },
+];
+
+export function getDragonBoneWingFlapFrame(nowMs: number, grounded: boolean): DragonWingFlapFrame {
+  if (grounded) {
+    const idx = Math.floor(Math.max(0, nowMs) / 240) % DRAGON_WING_FLAP_FRAMES_GROUNDED.length;
+    return DRAGON_WING_FLAP_FRAMES_GROUNDED[idx];
+  }
+  const idx = Math.floor(Math.max(0, nowMs) / 90) % DRAGON_WING_FLAP_FRAMES_AIRBORNE.length;
+  return DRAGON_WING_FLAP_FRAMES_AIRBORNE[idx];
+}
+
+let cachedDragonWingsImg: HTMLImageElement | null = null;
+export function getDragonBoneWingsImage(): HTMLImageElement | null {
+  if (typeof document === 'undefined') return null;
+  if (!cachedDragonWingsImg && typeof Image !== 'undefined') {
+    const img = new Image();
+    img.src = DRAGON_BONE_WINGS_IMG_SRC;
+    cachedDragonWingsImg = img;
+  }
+  return cachedDragonWingsImg;
+}
+
 export interface EquippedWearables {
   head?: number;
+  hair?: number;
   face?: number;
+  torso?: number;
   back?: number;
+  legs?: number;
+  feet?: number;
+}
+
+export type WearableBodyPart = 'head' | 'hair' | 'face' | 'torso' | 'back' | 'hand' | 'legs' | 'feet';
+export type WearableRenderLayer =
+  | 'behind_torso'
+  | 'on_torso'
+  | 'on_legs'
+  | 'on_feet'
+  | 'on_face'
+  | 'on_head';
+
+export interface WearableLocalizationSpec {
+  itemId: number;
+  slot: keyof EquippedWearables;
+  bodyPart: WearableBodyPart;
+  parentPart: 'head' | 'torso' | 'feet';
+  layer: WearableRenderLayer;
+  offsetX: number;
+  offsetY: number;
+  pivotX: number;
+  pivotY: number;
+  extraTopClearancePx: number;
+}
+
+export const WEARABLE_LOCALIZATION: Record<number, WearableLocalizationSpec> = {
+  401: {
+    // Sunforged Monarch Crown: nested directly atop cranium bevel in head local space
+    itemId: 401,
+    slot: 'head',
+    bodyPart: 'head',
+    parentPart: 'head',
+    layer: 'on_head',
+    offsetX: 0,
+    offsetY: -31,
+    pivotX: 18,
+    pivotY: 18,
+    extraTopClearancePx: 12,
+  },
+  402: {
+    // Frontier Ranger Hat: wide-brim expedition hat hugging top forehead in head local space
+    itemId: 402,
+    slot: 'head',
+    bodyPart: 'head',
+    parentPart: 'head',
+    layer: 'on_head',
+    offsetX: 0,
+    offsetY: -29,
+    pivotX: 22,
+    pivotY: 18,
+    extraTopClearancePx: 11,
+  },
+  403: {
+    // Crystal Sight Visor: locked directly over face eyes inside head rotation space
+    itemId: 403,
+    slot: 'face',
+    bodyPart: 'face',
+    parentPart: 'head',
+    layer: 'on_face',
+    offsetX: -14,
+    offsetY: -22,
+    pivotX: 0,
+    pivotY: 0,
+    extraTopClearancePx: 0,
+  },
+  404: {
+    // Aether Feather Wings: anchored to rear torso shoulder socket, drawn behind torso
+    itemId: 404,
+    slot: 'back',
+    bodyPart: 'back',
+    parentPart: 'torso',
+    layer: 'behind_torso',
+    offsetX: -10,
+    offsetY: -28,
+    pivotX: 28,
+    pivotY: 10,
+    extraTopClearancePx: 0,
+  },
+  405: {
+    // Space Helmet: wraps full head module with slightly see-through visor & neck seal collar
+    itemId: 405,
+    slot: 'head',
+    bodyPart: 'head',
+    parentPart: 'head',
+    layer: 'on_head',
+    offsetX: 0,
+    offsetY: 0,
+    pivotX: 22,
+    pivotY: 38,
+    extraTopClearancePx: 5,
+  },
+  406: {
+    // Astro Suit: pressurized torso chest armor + linked overlapping gauntlet sleeves & EVA gloves
+    itemId: 406,
+    slot: 'torso',
+    bodyPart: 'torso',
+    parentPart: 'torso',
+    layer: 'on_torso',
+    offsetX: 0,
+    offsetY: 0,
+    pivotX: 16,
+    pivotY: 38,
+    extraTopClearancePx: 0,
+  },
+  407: {
+    // Astro Pants: waist utility girdle anchored to torso + padded leg armor anchored to leg/foot bones
+    itemId: 407,
+    slot: 'legs',
+    bodyPart: 'legs',
+    parentPart: 'torso',
+    layer: 'on_torso',
+    offsetX: 0,
+    offsetY: 0,
+    pivotX: 16,
+    pivotY: 38,
+    extraTopClearancePx: 0,
+  },
+  408: {
+    // Astro Boots: cushioned ankle collar + cyan thruster sole fitted tightly over feet/ankles
+    itemId: 408,
+    slot: 'feet',
+    bodyPart: 'feet',
+    parentPart: 'feet',
+    layer: 'on_feet',
+    offsetX: 0,
+    offsetY: 0,
+    pivotX: 7,
+    pivotY: 5,
+    extraTopClearancePx: 0,
+  },
+  409: {
+    // Lifesup Backpack: twin-hose PLSS oxygen pack anchored directly behind the torso
+    itemId: 409,
+    slot: 'back',
+    bodyPart: 'back',
+    parentPart: 'torso',
+    layer: 'behind_torso',
+    offsetX: -12,
+    offsetY: -20,
+    pivotX: 20,
+    pivotY: 16,
+    extraTopClearancePx: 0,
+  },
+  410: {
+    // Dragon Bone Wings: paired left/right skeletal wing cutouts anchored symmetrically behind left & right shoulders
+    itemId: 410,
+    slot: 'back',
+    bodyPart: 'back',
+    parentPart: 'torso',
+    layer: 'behind_torso',
+    offsetX: 0,
+    offsetY: -35,
+    pivotX: 18,
+    pivotY: 4,
+    extraTopClearancePx: 0,
+  },
+};
+
+export function getWearableLocalization(itemId?: number): WearableLocalizationSpec | undefined {
+  if (!itemId) return undefined;
+  return WEARABLE_LOCALIZATION[itemId];
 }
 
 // Fitted 1:1 to the maximum player hitbox border dimensions (48x105)
@@ -950,6 +1164,594 @@ export function drawSubLayerPart(
   ctx.restore();
 }
 
+const wearablePartCache = new Map<number, HTMLCanvasElement>();
+
+function buildWearableCanvas(itemId: number): HTMLCanvasElement | null {
+  if (typeof document === 'undefined') return null;
+  const cached = wearablePartCache.get(itemId);
+  if (cached) return cached;
+
+  let canvas: HTMLCanvasElement | null = null;
+
+  switch (itemId) {
+    case 401: {
+      // Sunforged Monarch Crown (18x9 texels = 36x18px, crisp fitted silhouette)
+      const b = createTexelBuffer(18, 9);
+      // Base crown band
+      b.fill(1, 5, 16, 4, INK);
+      b.fill(2, 6, 14, 2, '#eab308');
+      b.fill(2, 6, 14, 1, '#fef08a');
+      b.fill(2, 7, 14, 1, '#a16207');
+      // 5 royal spires with ink silhouette
+      const spires: Array<[number, number, number]> = [
+        [1, 1, 3],
+        [5, 2, 2],
+        [8, 0, 2],
+        [11, 2, 2],
+        [14, 1, 3],
+      ];
+      for (const [sx, sy, sw] of spires) {
+        b.fill(sx, sy, sw, 6 - sy, INK);
+        if (sw >= 2) {
+          b.fill(sx + 1, sy + 1, Math.max(1, sw - 2), Math.max(1, 5 - sy), '#facc15');
+        }
+        b.set(sx + Math.floor(sw / 2), sy + 1, '#fef9c3');
+      }
+      // Crisp bright gold fills inside central and flanking spires
+      b.fill(2, 2, 1, 4, '#facc15');
+      b.fill(8, 1, 2, 5, '#fef08a');
+      b.fill(15, 2, 1, 4, '#facc15');
+      // Crown jewels (Sapphire center crest + Ruby flanks)
+      b.fill(4, 6, 2, 2, '#ef4444');
+      b.set(4, 6, '#fca5a5');
+      b.fill(8, 5, 2, 2, '#38bdf8');
+      b.set(8, 5, '#e0f2fe');
+      b.fill(12, 6, 2, 2, '#ef4444');
+      b.set(12, 6, '#fca5a5');
+      canvas = b.toCanvas();
+      break;
+    }
+
+    case 402: {
+      // Frontier Ranger Hat (22x9 texels = 44x18px, wide leather brim wrapping cranium)
+      const b = createTexelBuffer(22, 9);
+      // Upper pinched crown
+      b.fill(5, 1, 12, 6, INK);
+      b.fill(6, 2, 10, 4, '#92400e');
+      b.fill(7, 2, 8, 2, '#b45309');
+      // Darker leather hatband & gold buckle
+      b.fill(6, 5, 10, 1, '#451a03');
+      b.fill(10, 4, 3, 2, '#facc15');
+      b.set(11, 4, '#fef9c3');
+      // Wide brim sitting cleanly over forehead line
+      b.fill(0, 6, 22, 3, INK);
+      b.fill(1, 7, 20, 1, '#78350f');
+      b.fill(3, 6, 16, 1, '#b45309');
+      // Scarlet expedition feather swept backward on -X side
+      b.fill(3, 2, 2, 4, '#991b1b');
+      b.fill(2, 0, 2, 3, '#ef4444');
+      b.set(2, 1, '#fecaca');
+      canvas = b.toCanvas();
+      break;
+    }
+
+    case 403: {
+      // Crystal Sight Visor (16x6 texels = 32x12px, fitted across head face eye band)
+      const b = createTexelBuffer(16, 6);
+      // Side temple strap connecting toward ear
+      b.fill(0, 2, 3, 2, INK);
+      b.fill(1, 2, 2, 1, '#64748b');
+      // Outer titanium housing
+      b.fill(2, 0, 14, 6, INK);
+      b.fill(3, 1, 12, 4, '#334155');
+      b.fill(3, 1, 12, 1, '#94a3b8');
+      // Translucent neon cyan visor glass
+      b.fill(4, 2, 10, 3, '#0284c7');
+      b.fill(4, 2, 8, 1, '#67e8f9');
+      b.fill(5, 2, 4, 1, '#e0f2fe');
+      // Red holographic targeting reticle over leading eye
+      b.fill(11, 2, 2, 2, '#f43f5e');
+      b.set(12, 2, '#ffffff');
+      canvas = b.toCanvas();
+      break;
+    }
+
+    case 404: {
+      // Aether Feather Wings (16x19 texels = 32x38px, extends backward into -X behind torso)
+      const b = createTexelBuffer(16, 19);
+      // Wing feather tiers sweeping back-upward from shoulder socket at (14, 5)
+      const feathers: Array<[number, number, number, number, string, string]> = [
+        [0, 0, 13, 5, '#e0f2fe', '#7dd3fc'],
+        [2, 4, 12, 4, '#ffffff', '#bae6fd'],
+        [4, 8, 10, 4, '#e0f2fe', '#38bdf8'],
+        [6, 12, 8, 4, '#bae6fd', '#0284c7'],
+      ];
+      for (const [fx, fy, fw, fh, topCol, shadeCol] of feathers) {
+        b.fill(fx, fy, fw, fh, INK);
+        b.fill(fx + 1, fy + 1, Math.max(1, fw - 2), Math.max(1, fh - 2), topCol);
+        b.fill(fx + 1, fy + fh - 2, Math.max(1, fw - 2), 1, shadeCol);
+      }
+      // Golden winged shoulder harness mount anchored at (12..16, 3..9)
+      b.fill(11, 3, 5, 6, INK);
+      b.fill(12, 4, 3, 4, '#eab308');
+      b.fill(12, 4, 2, 2, '#fef08a');
+      b.set(13, 5, '#38bdf8');
+      canvas = b.toCanvas();
+      break;
+    }
+
+    case 405: {
+      // Space Helmet (22x20 texels = 44x40px, wraps 20x18 head + slightly see-through tinted visor)
+      const b = createTexelBuffer(22, 20);
+      // Top cyan dome beacon crest (y = 0..3)
+      b.fill(8, 0, 6, 3, INK);
+      b.fill(9, 1, 4, 2, '#06b6d4');
+      b.fill(10, 1, 2, 1, '#cffafe');
+
+      // White pressurized dome shell perimeter (x = 1..20, y = 2..19)
+      b.chamferBox(1, 2, 20, 16, '#e2e8f0', '#ffffff', '#94a3b8', 2);
+      // Lower neck ring seal extending down to overlap Astro Suit collar cleanly (y = 16..19)
+      b.fill(4, 16, 14, 4, INK);
+      b.fill(5, 17, 12, 2, '#cbd5e1');
+      b.fill(5, 17, 7, 1, '#f8fafc');
+      b.fill(10, 17, 3, 1, '#22d3ee'); // chin comm mic light
+
+      // Twin side comms ear pods with cyan glow strips (x = 0..2 and x = 19..21)
+      b.fill(0, 7, 3, 7, INK);
+      b.fill(1, 8, 1, 5, '#64748b');
+      b.fill(1, 9, 1, 3, '#22d3ee');
+
+      b.fill(19, 7, 3, 7, INK);
+      b.fill(20, 8, 1, 5, '#64748b');
+      b.fill(20, 9, 1, 3, '#22d3ee');
+
+      // Visor outer bezel frame (x = 4..18, y = 4..16)
+      b.fill(4, 4, 14, 12, INK);
+      b.fill(5, 5, 12, 10, '#334155');
+
+      // Translucent dark-navy see-through viewport glass (x = 6..17, y = 6..14)
+      // Semi-transparent rgba preserves the animated player face beneath the glass!
+      b.fill(6, 6, 11, 8, 'rgba(18, 34, 68, 0.44)');
+      b.fill(6, 12, 11, 2, 'rgba(14, 26, 54, 0.56)');
+      // Crisp white diagonal lens reflection highlights in upper-left glass
+      b.fill(7, 7, 3, 1, 'rgba(255, 255, 255, 0.88)');
+      b.fill(7, 8, 1, 2, 'rgba(224, 242, 254, 0.82)');
+      b.set(15, 13, 'rgba(56, 189, 248, 0.72)');
+
+      canvas = b.toCanvas();
+      break;
+    }
+
+    case 406: {
+      // Astro Suit Torso Cuirass (16x19 texels = 32x38px, aligns 1:1 over torso bone)
+      const b = createTexelBuffer(16, 19);
+      // Main pearl-white upper chestplate & shoulders starting at y = 1 to cover full trapezius/shoulder edges
+      b.chamferBox(0, 1, 16, 12, '#e2e8f0', '#ffffff', '#94a3b8', 1);
+      // Pressurized raised neck collar ring centered at top (x = 3..12, y = 0..3)
+      b.fill(3, 0, 10, 4, INK);
+      b.fill(4, 1, 8, 2, '#cbd5e1');
+      b.fill(5, 1, 6, 1, '#f8fafc');
+      b.fill(7, 2, 2, 1, '#22d3ee');
+
+      // Abdominal & pelvic armor covering lower torso block cleanly down to y = 18
+      b.chamferBox(1, 11, 14, 8, '#cbd5e1', '#f8fafc', '#64748b', 1);
+      b.fill(2, 10, 12, 3, '#e2e8f0');
+
+      // Charcoal shoulder harness straps descending from collar toward chest console
+      b.fill(1, 2, 2, 6, '#334155');
+      b.fill(13, 2, 2, 6, '#334155');
+      b.fill(2, 7, 2, 2, '#475569');
+      b.fill(12, 7, 2, 2, '#475569');
+
+      // Center chest life-support computer box (x = 4..11, y = 5..12)
+      b.chamferBox(4, 5, 8, 7, '#f8fafc', '#ffffff', '#94a3b8', 1);
+      b.fill(6, 6, 4, 2, '#06b6d4');
+      b.fill(6, 6, 2, 1, '#cffafe');
+      b.set(6, 9, '#22d3ee');
+      b.set(9, 9, '#22d3ee');
+
+      // Lower waist utility belt, side pouches & hip seam overlap (y = 14..18)
+      b.fill(1, 14, 14, 4, '#334155');
+      b.chamferBox(1, 14, 4, 4, '#475569', '#94a3b8', '#1e293b', 1);
+      b.chamferBox(11, 14, 4, 4, '#475569', '#94a3b8', '#1e293b', 1);
+      b.fill(6, 14, 4, 3, INK);
+      b.fill(7, 15, 2, 1, '#cbd5e1');
+      b.set(2, 17, '#22d3ee');
+      b.set(13, 17, '#22d3ee');
+
+      canvas = b.toCanvas();
+      break;
+    }
+
+    case 407: {
+      // Astro Pants Waistband & Pelvic Armor Overlay (16x19 texels, seals legs cleanly into torso)
+      const b = createTexelBuffer(16, 19);
+      b.fill(1, 13, 14, 6, INK);
+      b.fill(2, 14, 12, 2, '#334155');
+      b.fill(2, 14, 12, 1, '#475569');
+      b.fill(6, 14, 4, 2, '#cbd5e1'); // metallic belt buckle
+      b.fill(2, 16, 12, 2, '#e2e8f0'); // padded trouser hip girdle
+      b.fill(2, 17, 5, 1, '#cbd5e1');
+      b.fill(9, 17, 5, 1, '#94a3b8');
+      b.set(3, 15, '#22d3ee');
+      b.set(12, 15, '#22d3ee');
+      canvas = b.toCanvas();
+      break;
+    }
+
+    case 409: {
+      // Lifesup Backpack (12x16 texels = 24x32px, tucked tightly behind torso backplate)
+      const b = createTexelBuffer(12, 16);
+      // Curved upper oxygen conduit pipe arching into Astro Suit collar/shoulder (x = 4..11, y = 0..4)
+      b.fill(4, 0, 7, 4, INK);
+      b.fill(5, 1, 5, 2, '#cbd5e1');
+      b.fill(6, 1, 3, 1, '#ffffff');
+      // Lower mounting bracket extending forward into torso backplate
+      b.fill(9, 4, 3, 8, INK);
+      b.fill(9, 5, 2, 6, '#475569');
+
+      // Main white pressurized oxygen pack chassis (x = 1..10, y = 3..14)
+      b.chamferBox(1, 3, 9, 11, '#e2e8f0', '#ffffff', '#94a3b8', 1);
+      // Side pressurized booster pod + glowing cyan telemetry strip
+      b.chamferBox(0, 5, 5, 8, '#cbd5e1', '#f8fafc', '#64748b', 1);
+      b.fill(2, 7, 2, 4, '#06b6d4');
+      b.fill(2, 7, 1, 2, '#cffafe');
+      // Cooling louver ribs on main pack
+      b.fill(6, 6, 3, 1, '#64748b');
+      b.fill(6, 8, 3, 1, '#64748b');
+      b.fill(6, 10, 3, 1, '#64748b');
+
+      // Bottom dark charcoal thruster exhaust bell + cyan pilot glow
+      b.fill(2, 13, 6, 3, INK);
+      b.fill(3, 14, 4, 1, '#334155');
+      b.fill(4, 15, 2, 1, '#22d3ee');
+
+      canvas = b.toCanvas();
+      break;
+    }
+
+    case 410: {
+      // Dragon Bone Wings (28x22 texels = 56x44px, dual outward-expanded skeletal wings matching reference image)
+      const b = createTexelBuffer(28, 22);
+      const wingPalette: Record<string, string> = {
+        K: INK,
+        H: '#fff7ea',
+        B: '#f3dec0',
+        S: '#d4b089',
+        C: '#a37b56',
+        '1': '#4a3c3c',
+        '2': '#70584e',
+        '3': '#9c7e6a',
+        '4': '#c3a488',
+      };
+      const leftWingRows = [
+        '.....KKKK..', // y=0
+        '...KHHBBK..', // y=1
+        '..KKHBBSK..', // y=2
+        '.KKHHBBSCCK', // y=3
+        'KHHB1KBSBBK', // y=4
+        'HHBS12KB1KBK', // y=5
+        'HBBC22KHB1KBK', // y=6
+        'HBSC22KBS12KBK', // y=7
+        'HBB233KBS22KBBK', // y=8
+        'HB233KHB22KB1BK', // y=9
+        'B334KBS33KB12BK', // y=10
+        'BS4KKBS34KB2BBK', // y=11
+        'SK..KBS44KBKKK', // y=12
+        'SK..KB44KHBK..', // y=13
+        'SK..KBKKKHBK..', // y=14
+        'BK..KHHK.KHHK.', // y=15
+        'BK..KHBK.KHBK.', // y=16
+        'BK..KBSK.KBSK.', // y=17
+        'K..KHBK.KHBK..', // y=18
+        '...KBSK.KBSK..', // y=19
+        '....KBSK..KK..', // y=20
+        '.....KK.......', // y=21
+      ];
+      for (let y = 0; y < leftWingRows.length; y++) {
+        const row = leftWingRows[y];
+        for (let x = 0; x < row.length; x++) {
+          const ch = row[x];
+          if (ch === '.') continue;
+          const color = wingPalette[ch];
+          if (!color) continue;
+          b.set(x, y, color);
+          const mirrorColor =
+            ch === 'H' && x >= 7 ? '#f3dec0' : ch === 'S' && x <= 2 ? '#f3dec0' : color;
+          b.set(27 - x, y, mirrorColor);
+        }
+      }
+      canvas = b.toCanvas();
+      break;
+    }
+
+    default:
+      return null;
+  }
+
+  if (canvas) {
+    wearablePartCache.set(itemId, canvas);
+  }
+  return canvas;
+}
+
+const suitArmCache = new Map<string, HTMLCanvasElement>();
+
+function getAstroSuitArmCanvas(front: boolean, variant: HandVariant): HTMLCanvasElement | null {
+  if (typeof document === 'undefined') return null;
+  const key = `406:${front ? 'f' : 'b'}:${variant}`;
+  const cached = suitArmCache.get(key);
+  if (cached) return cached;
+
+  const armLight = front ? '#ffffff' : '#e2e8f0';
+  const armBase = front ? '#e2e8f0' : '#cbd5e1';
+  const armShade = front ? '#94a3b8' : '#64748b';
+  const gloveLight = front ? '#64748b' : '#475569';
+  const gloveBase = front ? '#334155' : '#1e293b';
+  const gloveShade = '#0f172a';
+  const cuffCyan = front ? '#22d3ee' : '#0891b2';
+  const b = createTexelBuffer(8, 18);
+
+  if (variant === 'strike') {
+    // Upper shoulder pauldron + articulated forearm + framed cyan wrist + full 8-texel EVA fist
+    b.chamferBox(0, 0, 7, 11, armBase, armLight, armShade, 1);
+    b.fill(1, 5, 5, 1, armShade);
+    b.fill(0, 9, 7, 2, INK);
+    b.fill(1, 9, 5, 2, cuffCyan);
+    if (front) b.fill(2, 9, 2, 1, '#cffafe');
+    b.chamferBox(0, 11, 8, 7, gloveBase, gloveLight, gloveShade, 1);
+    b.fill(2, 13, 4, 3, gloveLight);
+    b.set(6, 12, gloveLight);
+  } else if (variant === 'raise') {
+    b.chamferBox(0, 0, 7, 12, armBase, armLight, armShade, 1);
+    b.fill(1, 5, 5, 1, armShade);
+    b.fill(0, 10, 7, 2, INK);
+    b.fill(1, 10, 5, 2, cuffCyan);
+    if (front) b.fill(2, 10, 2, 1, '#cffafe');
+    b.chamferBox(0, 11, 7, 7, gloveBase, gloveLight, gloveShade, 1);
+    b.fill(1, 13, 4, 3, gloveLight);
+  } else if (variant === 'swing_fwd') {
+    b.chamferBox(0, 0, 7, 10, armBase, armLight, armShade, 1);
+    b.fill(1, 5, 5, 1, armShade);
+    b.chamferBox(1, 7, 7, 6, armBase, armLight, armShade, 1);
+    b.fill(1, 11, 7, 2, INK);
+    b.fill(2, 11, 5, 2, cuffCyan);
+    if (front) b.fill(3, 11, 2, 1, '#cffafe');
+    b.chamferBox(1, 12, 7, 6, gloveBase, gloveLight, gloveShade, 1);
+    b.fill(2, 14, 4, 2, gloveLight);
+  } else if (variant === 'swing_back') {
+    b.chamferBox(1, 0, 7, 10, armBase, armLight, armShade, 1);
+    b.fill(2, 5, 5, 1, armShade);
+    b.chamferBox(0, 7, 7, 6, armBase, armLight, armShade, 1);
+    b.fill(0, 11, 7, 2, INK);
+    b.fill(1, 11, 5, 2, cuffCyan);
+    if (front) b.fill(2, 11, 2, 1, '#cffafe');
+    b.chamferBox(0, 12, 7, 6, gloveBase, gloveLight, gloveShade, 1);
+    b.fill(1, 14, 4, 2, gloveLight);
+  } else {
+    // 'rest': Rounded shoulder pauldron overlapping torso + ribbed white sleeve + framed cyan wrist + EVA glove
+    b.chamferBox(0, 0, 7, 7, armBase, armLight, armShade, 1);
+    b.chamferBox(0, 5, 7, 6, armBase, armLight, armShade, 1);
+    b.fill(1, 2, 4, 2, armLight);
+    b.fill(1, 5, 5, 1, armShade);
+    b.fill(1, 8, 5, 1, armShade);
+    b.fill(0, 10, 7, 2, INK);
+    b.fill(1, 10, 5, 2, cuffCyan);
+    if (front) b.fill(2, 10, 2, 1, '#cffafe');
+    b.chamferBox(0, 11, 7, 7, gloveBase, gloveLight, gloveShade, 1);
+    b.fill(1, 13, 3, 2, gloveLight);
+    b.set(5, 13, gloveLight);
+  }
+
+  const canvas = b.toCanvas();
+  suitArmCache.set(key, canvas);
+  return canvas;
+}
+
+const legFootWearCache = new Map<string, HTMLCanvasElement>();
+
+function getComposedLegFootCanvas(
+  baseImg: HTMLCanvasElement,
+  legsId: number | undefined,
+  feetId: number | undefined,
+  front: boolean,
+  variant: FootVariant
+): HTMLCanvasElement {
+  if ((legsId !== 407 && feetId !== 408) || typeof document === 'undefined') {
+    return baseImg;
+  }
+  const key = `${legsId ?? 0}:${feetId ?? 0}:${front ? 'f' : 'b'}:${variant}`;
+  const cached = legFootWearCache.get(key);
+  if (cached) return cached;
+
+  const legLight = front ? '#ffffff' : '#e2e8f0';
+  const legBase = front ? '#e2e8f0' : '#cbd5e1';
+  const legShade = front ? '#94a3b8' : '#64748b';
+  const padBase = front ? '#94a3b8' : '#64748b';
+  const padLit = front ? '#cbd5e1' : '#94a3b8';
+  const cyanGlow = front ? '#22d3ee' : '#0891b2';
+  const soleGlow = front ? '#06b6d4' : '#0e7490';
+  const b = createTexelBuffer(9, 18);
+
+  // Compose Astro Pants (407) leg armor across full thigh & shin matching buildFoot exact dimensions
+  if (legsId === 407) {
+    const legH =
+      variant === 'jump_tuck'
+        ? 11
+        : variant === 'land_crouch'
+          ? 12
+          : variant === 'stand'
+            ? 14
+            : 13;
+    const legY = variant === 'land_crouch' ? 2 : 0;
+    const legX = variant === 'stride_back' ? 1 : 0;
+    b.chamferBox(legX, legY, 7, legH, legBase, legLight, legShade, 1);
+    // Hip cyan sensor trim & molded slate knee guard pad
+    b.set(legX + (front ? 1 : 5), legY + 2, cyanGlow);
+    const kneeY = legY + (variant === 'jump_tuck' ? 4 : 5);
+    b.chamferBox(legX + 1, kneeY, 5, 4, padBase, padLit, '#475569', 1);
+    b.set(legX + (front ? 1 : 5), kneeY + 1, cyanGlow);
+    // Crisp shaded cuff fold at ankle
+    b.fill(legX + 1, legY + legH - 2, 5, 1, legShade);
+  }
+
+  // Compose Astro Boots (408) overlapping pant cuff down to glowing thruster sole (covering 100% of bare foot)
+  if (feetId === 408) {
+    if (variant === 'jump_tuck') {
+      b.chamferBox(0, 7, 8, 4, legBase, legLight, legShade, 1);
+      b.chamferBox(1, 8, 8, 8, legBase, legLight, '#334155', 1);
+      b.fill(2, 9, 6, 1, legLight);
+      b.fill(2, 14, 6, 1, soleGlow);
+      if (front) b.fill(3, 14, 3, 1, '#cffafe');
+    } else if (variant === 'stride_fwd') {
+      b.chamferBox(0, 10, 8, 3, legBase, legLight, legShade, 1);
+      b.chamferBox(1, 12, 8, 6, legBase, legLight, '#334155', 1);
+      b.fill(1, 11, 6, 1, legLight);
+      b.fill(2, 16, 6, 1, soleGlow);
+      if (front) b.fill(4, 16, 3, 1, '#cffafe');
+    } else if (variant === 'stride_back') {
+      b.chamferBox(1, 10, 7, 3, legBase, legLight, legShade, 1);
+      b.chamferBox(0, 12, 8, 6, legBase, legLight, '#334155', 1);
+      b.fill(2, 11, 5, 1, legLight);
+      b.fill(1, 16, 6, 1, soleGlow);
+      if (front) b.fill(2, 16, 3, 1, '#cffafe');
+    } else {
+      // 'stand' / 'land_crouch'
+      b.chamferBox(0, 10, 8, 3, legBase, legLight, legShade, 1);
+      b.chamferBox(0, 12, 9, 6, legBase, legLight, '#334155', 1);
+      b.fill(1, 11, 6, 1, legLight);
+      b.fill(1, 13, 6, 2, legLight);
+      b.fill(1, 15, 7, 1, '#334155');
+      b.fill(1, 16, 7, 1, soleGlow);
+      if (front) b.fill(3, 16, 4, 1, '#cffafe');
+    }
+  }
+
+  // Composite bare base skin underneath any unarmored portion (e.g. Pants without Boots, or Boots without Pants)
+  const overlayCanvas = b.toCanvas();
+  const combined = document.createElement('canvas');
+  combined.width = baseImg.width;
+  combined.height = baseImg.height;
+  const cctx = combined.getContext('2d')!;
+  cctx.imageSmoothingEnabled = false;
+  cctx.drawImage(baseImg, 0, 0);
+  cctx.drawImage(overlayCanvas, 0, 0);
+
+  legFootWearCache.set(key, combined);
+  return combined;
+}
+
+export function drawModularWearableSubLayer(
+  ctx: CanvasRenderingContext2D,
+  rig: ModularPlayerRigState,
+  equipped: EquippedWearables | undefined,
+  layer: WearableRenderLayer,
+  nowMs = 0,
+  grounded = true
+): void {
+  if (!equipped) return;
+
+  const candidateIds: number[] = [];
+  if (layer === 'behind_torso' && equipped.back) {
+    candidateIds.push(equipped.back);
+  }
+  if (layer === 'on_torso') {
+    // Render pants belt/girdle before suit cuirass so waist armor cleanly connects over belt
+    if (equipped.legs) candidateIds.push(equipped.legs);
+    if (equipped.torso) candidateIds.push(equipped.torso);
+  }
+  if (layer === 'on_face' && equipped.face) {
+    candidateIds.push(equipped.face);
+  }
+  if (layer === 'on_head') {
+    if (equipped.hair) candidateIds.push(equipped.hair);
+    if (equipped.head) candidateIds.push(equipped.head);
+  }
+
+  for (const itemId of candidateIds) {
+    const spec = getWearableLocalization(itemId);
+    if (!spec || spec.layer !== layer) continue;
+    const img = buildWearableCanvas(itemId);
+    if (!img) continue;
+
+    const parentTransform = spec.parentPart === 'torso' ? rig.torso : rig.head;
+    ctx.save();
+    ctx.translate(parentTransform.x, parentTransform.y);
+    if (Math.abs(parentTransform.angleRad) > 0.002) {
+      ctx.rotate(parentTransform.angleRad);
+    }
+
+    if (itemId === 410) {
+      // Draw Left & Right Dragon Bone Wing halves independently behind left & right torso shoulders,
+      // flanking the character symmetrically with non-downward upward/outward flapping frames.
+      const frame = getDragonBoneWingFlapFrame(nowMs, grounded);
+      const wingW = 36;
+      const wingH = 38;
+      const shoulderOffsetX = 15;
+      const shoulderOffsetY = spec.offsetY + frame.dy;
+      const imgAsset = getDragonBoneWingsImage();
+      const useAsset = Boolean(imgAsset && imgAsset.complete && imgAsset.naturalWidth > 0);
+
+      // Left wing (pivoted around left shoulder socket; +upAngleRad lifts outer wing UP & LEFT)
+      const leftBallX = Math.round(wingW * DRAGON_BONE_WINGS_IMG_CROP.left.shoulderRatioX);
+      const leftBallY = Math.round(wingH * DRAGON_BONE_WINGS_IMG_CROP.left.shoulderRatioY);
+      ctx.save();
+      ctx.translate(-shoulderOffsetX, shoulderOffsetY);
+      ctx.rotate(frame.upAngleRad);
+      ctx.scale(frame.scaleX, frame.scaleY);
+      if (useAsset && imgAsset) {
+        const c = DRAGON_BONE_WINGS_IMG_CROP.left;
+        ctx.drawImage(imgAsset, c.sx, c.sy, c.sw, c.sh, -leftBallX, -leftBallY, wingW, wingH);
+      } else {
+        const halfW = Math.floor(img.width / 2);
+        ctx.drawImage(img, 0, 0, halfW, img.height, -leftBallX, -leftBallY, wingW, wingH);
+      }
+      ctx.restore();
+
+      // Right wing (pivoted around right shoulder socket; -upAngleRad lifts outer wing UP & RIGHT)
+      const rightBallX = Math.round(wingW * DRAGON_BONE_WINGS_IMG_CROP.right.shoulderRatioX);
+      const rightBallY = Math.round(wingH * DRAGON_BONE_WINGS_IMG_CROP.right.shoulderRatioY);
+      ctx.save();
+      ctx.translate(shoulderOffsetX, shoulderOffsetY);
+      ctx.rotate(-frame.upAngleRad);
+      ctx.scale(frame.scaleX, frame.scaleY);
+      if (useAsset && imgAsset) {
+        const c = DRAGON_BONE_WINGS_IMG_CROP.right;
+        ctx.drawImage(imgAsset, c.sx, c.sy, c.sw, c.sh, -rightBallX, -rightBallY, wingW, wingH);
+      } else {
+        const halfW = Math.floor(img.width / 2);
+        ctx.drawImage(img, halfW, 0, img.width - halfW, img.height, -rightBallX, -rightBallY, wingW, wingH);
+      }
+      ctx.restore();
+    } else if (itemId === 404) {
+      // Pivot feather wings neatly around shoulder harness socket so flight flutter doesn't detach mount
+      ctx.translate(spec.offsetX, spec.offsetY);
+      const wingFlap = grounded ? Math.sin(nowMs * 0.003) * 0.03 : Math.sin(nowMs * 0.022) * 0.16;
+      if (Math.abs(wingFlap) > 0.002) {
+        ctx.rotate(wingFlap);
+      }
+      ctx.drawImage(img, Math.round(-spec.pivotX), Math.round(-spec.pivotY));
+    } else if (spec.layer === 'on_face') {
+      ctx.drawImage(img, Math.round(spec.offsetX), Math.round(spec.offsetY));
+    } else {
+      ctx.drawImage(img, Math.round(spec.offsetX - spec.pivotX), Math.round(spec.offsetY - spec.pivotY));
+    }
+    ctx.restore();
+  }
+}
+
+export function getWearableExtraTopClearance(equipped?: EquippedWearables): number {
+  if (!equipped) return 0;
+  let extra = 0;
+  if (equipped.head) {
+    extra = Math.max(extra, getWearableLocalization(equipped.head)?.extraTopClearancePx ?? 0);
+  }
+  if (equipped.hair) {
+    extra = Math.max(extra, getWearableLocalization(equipped.hair)?.extraTopClearancePx ?? 0);
+  }
+  return extra;
+}
+
 export function drawModularCharacter(
   ctx: CanvasRenderingContext2D,
   drawX: number,
@@ -958,6 +1760,8 @@ export function drawModularCharacter(
 ): number {
   const parts = getCharacterPartTextures(params.shirtColor);
   const rig = computeModularPlayerRig(drawX, drawY, params);
+  const equipped = params.equipped;
+  const wearingAstroSuit = equipped?.torso === 406;
 
   const prevSmoothing = ctx.imageSmoothingEnabled;
   ctx.imageSmoothingEnabled = false;
@@ -965,20 +1769,41 @@ export function drawModularCharacter(
   ctx.translate(rig.centerX, rig.groundBottomY);
   ctx.scale(rig.facing * rig.scaleX, rig.scaleY);
 
-  // 1. Back Hand Sub-Layer (connected to back shoulder socket)
-  drawSubLayerPart(ctx, parts.handsBack[rig.backHandVariant], rig.handBack);
+  // 1. Back Hand Sub-Layer (bare or linked Astro Suit sleeve/glove connected to back shoulder socket)
+  const backHandImg = wearingAstroSuit
+    ? (getAstroSuitArmCanvas(false, rig.backHandVariant) ?? parts.handsBack[rig.backHandVariant])
+    : parts.handsBack[rig.backHandVariant];
+  drawSubLayerPart(ctx, backHandImg, rig.handBack);
 
-  // 2. Feet Sub-Layer (Back Foot then Front Foot connected to hip sockets)
-  drawSubLayerPart(ctx, parts.feetBack[rig.backFootVariant], rig.footBack);
-  drawSubLayerPart(ctx, parts.feetFront[rig.frontFootVariant], rig.footFront);
+  // 2. Back Wearables Sub-Layer (Lifesup Backpack or wings anchored behind torso spine)
+  drawModularWearableSubLayer(ctx, rig, equipped, 'behind_torso', params.nowMs, params.grounded);
 
-  // 3. Torso Sub-Layer
+  // 3. Feet & Legs Sub-Layer (Back then Front leg/foot composed cleanly with Astro Pants & Astro Boots)
+  const backFootImg = getComposedLegFootCanvas(
+    parts.feetBack[rig.backFootVariant],
+    equipped?.legs,
+    equipped?.feet,
+    false,
+    rig.backFootVariant
+  );
+  const frontFootImg = getComposedLegFootCanvas(
+    parts.feetFront[rig.frontFootVariant],
+    equipped?.legs,
+    equipped?.feet,
+    true,
+    rig.frontFootVariant
+  );
+  drawSubLayerPart(ctx, backFootImg, rig.footBack);
+  drawSubLayerPart(ctx, frontFootImg, rig.footFront);
+
+  // 4. Torso Sub-Layer & Torso Armor/Pants Waist Girdle
   drawSubLayerPart(ctx, parts.torsos[rig.torsoVariant], rig.torso);
+  drawModularWearableSubLayer(ctx, rig, equipped, 'on_torso', params.nowMs, params.grounded);
 
-  // 4. Head Sub-Layer
+  // 5. Head Sub-Layer
   drawSubLayerPart(ctx, parts.head, rig.head);
 
-  // 5. Face Sub-Layer (decoupled expression anchored to Head transform)
+  // 6. Face Sub-Layer (decoupled expression anchored to Head transform; stays visible through Space Helmet visor!)
   ctx.save();
   ctx.translate(rig.head.x, rig.head.y);
   if (Math.abs(rig.head.angleRad) > 0.002) {
@@ -991,14 +1816,21 @@ export function drawModularCharacter(
   );
   ctx.restore();
 
-  // 6. Front Hand Sub-Layer (overlapping & connected to front shoulder socket + Held Action Prop)
+  // 7. Face & Head Wearables Sub-Layers (visors, hats, crowns, and translucent Space Helmet over head/face)
+  drawModularWearableSubLayer(ctx, rig, equipped, 'on_face', params.nowMs, params.grounded);
+  drawModularWearableSubLayer(ctx, rig, equipped, 'on_head', params.nowMs, params.grounded);
+
+  // 8. Front Hand Sub-Layer (bare or linked Astro Suit sleeve/glove overlapping shoulder socket + Held Action Prop)
+  const frontHandImg = wearingAstroSuit
+    ? (getAstroSuitArmCanvas(true, rig.frontHandVariant) ?? parts.handsFront[rig.frontHandVariant])
+    : parts.handsFront[rig.frontHandVariant];
   ctx.save();
   ctx.translate(rig.handFront.x, rig.handFront.y);
   if (Math.abs(rig.handFront.angleRad) > 0.002) {
     ctx.rotate(rig.handFront.angleRad);
   }
   ctx.drawImage(
-    parts.handsFront[rig.frontHandVariant],
+    frontHandImg,
     Math.round(-rig.handFront.pivotX),
     Math.round(-rig.handFront.pivotY)
   );
@@ -1013,14 +1845,14 @@ export function drawModularCharacter(
 
   ctx.restore();
   ctx.imageSmoothingEnabled = prevSmoothing;
-  return rig.topBoxY;
+  return rig.topBoxY - getWearableExtraTopClearance(equipped);
 }
 
 export function renderHighDefPlayerSprite(
   pose: string,
   facing: 1 | -1,
   shirtColor: string,
-  _equipped?: EquippedWearables
+  equipped?: EquippedWearables
 ): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = PLAYER_LOGICAL_W;
@@ -1050,6 +1882,7 @@ export function renderHighDefPlayerSprite(
     landing: pose === 'land',
     fishingState:
       pose === 'fish_reel' ? 'reel' : pose === 'fish_hold' || pose === 'fish_cast' ? 'hold' : 'none',
+    equipped,
   });
   return c;
 }

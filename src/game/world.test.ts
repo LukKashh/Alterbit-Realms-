@@ -462,7 +462,8 @@ test('calculated Farmability system function determines positive block yield ran
   assert.equal(dirtDefault.hasSeedCycle, false);
   assert.equal(dirtDefault.linkedSeedId, null);
 
-  // 2. Farmable blocks from the 40-crop registry have full seed cycles and positive block yield
+  // 2. Farmablocks from the 40-block registry drop block-back + misc specimen without seed cycles,
+  //    and admin farmability overrides can elevate them into positive direct yields
   for (const farmId of [
     ITEM_IDS.FARM_SUGAR_CANE,
     ITEM_IDS.FARM_CHANDELIER,
@@ -470,8 +471,9 @@ test('calculated Farmability system function determines positive block yield ran
     ITEM_IDS.FARM_OMEGA_MONOLITH,
   ]) {
     const baseProfile = calculateFarmabilityProfile(farmId, DEFAULT_GAME_CONFIG);
-    assert.equal(baseProfile.hasSeedCycle, true);
-    assert.ok(baseProfile.expectedBlockYield > 1.0, `Farmable block #${farmId} must have positive yield`);
+    assert.equal(baseProfile.hasSeedCycle, false);
+    assert.equal(baseProfile.linkedSeedId, null);
+    assert.ok(baseProfile.directBlockReturn > 0 && baseProfile.directBlockReturn < 0.15);
 
     const { targetItemId, override } = buildFarmabilityOverride(farmId, 'farmable', DEFAULT_GAME_CONFIG);
     assert.equal(targetItemId, farmId);
@@ -844,20 +846,29 @@ test('Global WL Exchange escrow, 5% WL sink, 10-Gem clearing fee, Claim Vault & 
   const bfgPlace = store.handlePlaceTile(joinedBfg.world, seller, ITEM_IDS.BFG_COLLECTOR, bTx, bTy);
   assert.equal(bfgPlace.ok, true);
 
-  // Plant a mature farmable tree 2 tiles away -> BFG tick harvests & stores it
-  const treeTx = bTx + 2;
-  joinedBfg.world.state.plants[`${treeTx},${bTy}`] = {
-    x: treeTx,
-    y: bTy,
-    seedId: ITEM_IDS.SEED_FARM_SUGAR_CANE,
-    plantedAt: 1000,
-    maturityAt: 2000,
-    ownerId: seller.id,
-  };
+  // Spawn a nearby item drop + gem drop within 5 tiles -> BFG tick magnets & stores both
+  const dropTx = bTx + 2;
+  joinedBfg.world.drops.set('test_bfg_item', {
+    id: 'test_bfg_item',
+    itemId: ITEM_IDS.FARM_SUGAR_CANE,
+    qty: 3,
+    x: (dropTx + 0.5) * TILE_SIZE,
+    y: (bTy + 0.5) * TILE_SIZE,
+  });
+  joinedBfg.world.drops.set('test_bfg_gem', {
+    id: 'test_bfg_gem',
+    itemId: 0,
+    qty: 5,
+    x: (dropTx + 0.5) * TILE_SIZE,
+    y: (bTy + 0.5) * TILE_SIZE,
+    isGem: true,
+  });
   store.tickBfgCollectors(Date.now());
   const bfgRec = joinedBfg.world.state.bfgCollectors![`${bTx},${bTy}`];
-  assert.ok(bfgRec.storedItems.length >= 1, 'BFG tick must buffer harvested blocks');
-  assert.ok(bfgRec.storedGems >= 2, 'BFG tick must buffer harvest Gems');
+  assert.ok(bfgRec.storedItems.length >= 1, 'BFG tick must magnetize nearby item drops');
+  assert.equal(bfgRec.storedItems[0].itemId, ITEM_IDS.FARM_SUGAR_CANE);
+  assert.equal(bfgRec.storedItems[0].qty, 3);
+  assert.ok(bfgRec.storedGems >= 5, 'BFG tick must magnetize nearby Gem drops');
 
   const withdrawRes = store.handleConfigureBfg(joinedBfg.world, seller, bTx, bTy, {
     action: 'withdraw',

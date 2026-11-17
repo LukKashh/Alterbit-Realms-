@@ -64,6 +64,7 @@ import type { TileInspectInfo } from '../game/engine.ts';
 import { NEXUS_DOOR_DESTINATIONS } from '../game/worldGen.ts';
 import { formatHudNumber } from '../game/format.ts';
 import { AdminPanel, type AdminActionPayload } from './AdminPanel.tsx';
+import type { WorldEntitiesSnapshot } from './AdminEntityPanel.tsx';
 import { BytomergeTerminalModal } from './BytomergeTerminalModal.tsx';
 import { DigiBitsIcon } from './DigiBitsIcon.tsx';
 import { ExchangeModal } from './ExchangeModal.tsx';
@@ -230,6 +231,15 @@ interface GameHudProps {
   onConfigureDoor?: (tx: number, ty: number, targetX: number, targetY: number, label?: string) => void;
   onUseDoor?: (tx: number, ty: number) => void;
   onNexusTeleport?: (targetX: number, targetY: number, label?: string) => void;
+  entitiesSnapshot?: WorldEntitiesSnapshot | null;
+  onRefreshEntities?: () => void;
+  onTeleportEntity?: (opts: {
+    entityKind: 'player' | 'npc';
+    entityId: string;
+    targetTx?: number;
+    targetTy?: number;
+    summon?: boolean;
+  }) => void;
   orientation?: DeviceOrientation;
   viewZoom?: number;
   onChangeViewZoom?: (scale: number) => void;
@@ -522,6 +532,9 @@ export const GameHud: React.FC<GameHudProps> = ({
   onConfigureDoor,
   onUseDoor,
   onNexusTeleport,
+  entitiesSnapshot = null,
+  onRefreshEntities,
+  onTeleportEntity,
   orientation,
   viewZoom = DEFAULT_VIEW_SCALE,
   onChangeViewZoom,
@@ -539,7 +552,7 @@ export const GameHud: React.FC<GameHudProps> = ({
   const [useTerraBlast, setUseTerraBlast] = useState(false);
   const [worldTab, setWorldTab] = useState<'public' | 'favorites' | 'recent'>('public');
   const [chatInput, setChatInput] = useState('');
-  const [bagFilter, setBagFilter] = useState<'all' | 'farmable' | 'seed' | 'block'>('all');
+  const [bagFilter, setBagFilter] = useState<'all' | 'farmable' | 'seed' | 'block' | 'misc'>('all');
   const [assignSlot, setAssignSlot] = useState<number>(1);
   const [storeCategory, setStoreCategory] = useState<StoreSection>('seeds');
   const [profileTab, setProfileTab] = useState<'wallet' | 'achievements' | 'wardrobe'>('wallet');
@@ -2510,6 +2523,7 @@ export const GameHud: React.FC<GameHudProps> = ({
                   { id: 'farmable', label: 'Crops' },
                   { id: 'seed', label: 'Seeds' },
                   { id: 'block', label: 'Blocks' },
+                  { id: 'misc', label: 'Misc' },
                 ] as const
               ).map((tab) => (
                 <button
@@ -2596,21 +2610,24 @@ export const GameHud: React.FC<GameHudProps> = ({
                     def.category === 'background'
                   );
                 }
+                if (bagFilter === 'misc') {
+                  return def.category === 'misc';
+                }
                 return true;
               })
               .map((slot, idx) => {
                 const def = getItemDef(slot.itemId);
                 if (!def) return null;
                 const isSelected = selectedItemId === slot.itemId;
-                const isEquippedWearable =
-                  equipped.head === slot.itemId ||
-                  equipped.face === slot.itemId ||
-                  equipped.back === slot.itemId;
+                const isEquippedWearable = Boolean(
+                  def.wearableSlot && equipped[def.wearableSlot] === slot.itemId
+                );
                 const hasDur = typeof slot.maxDurability === 'number' && slot.maxDurability > 0;
                 const durRatio = hasDur
                   ? Math.max(0, Math.min(1, (slot.durability ?? slot.maxDurability!) / slot.maxDurability!))
                   : 1;
-                const isFarmable = def.category === 'farmable' || Boolean(def.farmableTier);
+                const isFarmable = def.category === 'farmable';
+                const isMisc = def.category === 'misc';
                 const isProtectedTool =
                   slot.itemId === ITEM_IDS.FIST || slot.itemId === ITEM_IDS.WRENCH;
                 const canTrash =
@@ -2620,14 +2637,18 @@ export const GameHud: React.FC<GameHudProps> = ({
                   <button
                     key={slot.rodInstanceId ?? `${slot.itemId}-${idx}`}
                     type="button"
-                    title={`${def.name} (${formatHudNumber(slot.qty)})${isFarmable ? ` · T${def.farmableTier ?? 1}` : ''}`}
+                    title={`${def.name} (${formatHudNumber(slot.qty)})${isFarmable ? ` · T${def.farmableTier ?? 1}` : ''}${isMisc ? ` · Misc${def.farmableTier ? ` T${def.farmableTier}` : ''}` : ''}`}
                     onClick={() => {
                       if (def.category === 'wearable') {
                         onEquipWearable(slot.itemId);
                         return;
                       }
                       onSelectItem(slot.itemId);
-                      if (slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH) {
+                      if (
+                        slot.itemId !== ITEM_IDS.FIST &&
+                        slot.itemId !== ITEM_IDS.WRENCH &&
+                        def.category !== 'misc'
+                      ) {
                         const targetIdx =
                           assignSlot >= 1 && assignSlot < hotbarItemIds.length ? assignSlot : 1;
                         onAssignHotbar(targetIdx, slot.itemId);
@@ -2640,13 +2661,19 @@ export const GameHud: React.FC<GameHudProps> = ({
                           ? 'bg-[#dbeafe]/90 border-[#0284c7]'
                           : isFarmable
                             ? 'bg-[#ecfdf5]/85 border-[#059669] hover:border-[#047857]'
-                            : 'bg-white/75 border-[#4172a3] hover:border-[#0284c7]'
+                            : isMisc
+                              ? 'bg-[#f5f3ff]/85 border-[#7c3aed] hover:border-[#6d28d9]'
+                              : 'bg-white/75 border-[#4172a3] hover:border-[#0284c7]'
                     }`}
                   >
                     <div className="flex items-center justify-between w-full px-0.5">
                       {isFarmable ? (
                         <span className="text-[8px] font-mono-num font-bold text-[#92400e]">
                           T{def.farmableTier ?? 1}
+                        </span>
+                      ) : isMisc ? (
+                        <span className="text-[7px] font-mono-num font-bold uppercase text-[#6d28d9]">
+                          MISC
                         </span>
                       ) : <span />}
                       {!isProtectedTool && !hasDur && (
@@ -3036,10 +3063,9 @@ export const GameHud: React.FC<GameHudProps> = ({
                   wearablesInBag.map((slot, idx) => {
                     const def = getItemDef(slot.itemId);
                     if (!def) return null;
-                    const isEq =
-                      equipped.head === slot.itemId ||
-                      equipped.face === slot.itemId ||
-                      equipped.back === slot.itemId;
+                    const isEq = Boolean(
+                      def.wearableSlot && equipped[def.wearableSlot] === slot.itemId
+                    );
                     return (
                       <div
                         key={slot.rodInstanceId ?? `${slot.itemId}-${idx}`}
@@ -3404,6 +3430,9 @@ export const GameHud: React.FC<GameHudProps> = ({
               onJoinWorld(target);
               setActivePanel('none');
             }}
+            entitiesSnapshot={entitiesSnapshot}
+            onRefreshEntities={onRefreshEntities}
+            onTeleportEntity={onTeleportEntity}
             onClose={() => setActivePanel('none')}
           />
         </div>

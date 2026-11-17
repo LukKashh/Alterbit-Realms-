@@ -28,13 +28,9 @@ import {
 import { DIGIBITS_ICON_SRC } from '../components/DigiBitsIcon.tsx';
 import { openingFrameTick } from './openingFrameTick.ts';
 import {
-  computeModularPlayerRig,
-  drawSubLayerPart,
-  getCharacterPartTextures,
+  drawModularCharacter,
   PLAYER_LOGICAL_H,
   PLAYER_LOGICAL_W,
-  type CharacterPartTextures,
-  type ModularPlayerRigState,
 } from './playerSpriteHD.ts';
 import {
   canBreakTile,
@@ -2235,6 +2231,11 @@ export class BlockgroveEngine {
     const wallNowMs = Date.now();
     this.wrenchIconTargets = [];
 
+    if (this.mode === 'title') {
+      this.drawTitleStarryNightBackdrop(ctx, w, h, nowMs);
+      return;
+    }
+
     // 1. Biome-Aware Sky & Multi-Layer Parallax Backdrop (unscaled full viewport)
     const family = this.world.worldFamily ?? 'temperate';
     if (this.world.name === 'NEXUS') {
@@ -2973,7 +2974,7 @@ export class BlockgroveEngine {
 
     // 7. Local player, nearby Sign banner & targeting reticle (3-block reach check)
     const queuedSignBanners: Array<{ text: string; screenX: number; screenY: number }> = [];
-    if (this.mode !== 'title') {
+    if ((this.mode as string) !== 'title') {
       ctx.fillStyle = 'rgba(6, 12, 20, 0.36)';
       ctx.fillRect(
         Math.round(this.body.x - cx + 6),
@@ -3945,79 +3946,6 @@ export class BlockgroveEngine {
     return c;
   }
 
-  private drawPlayerFeetSubLayer(
-    ctx: CanvasRenderingContext2D,
-    rig: ModularPlayerRigState,
-    parts: CharacterPartTextures
-  ) {
-    drawSubLayerPart(ctx, parts.feetBack[rig.backFootVariant], rig.footBack);
-    drawSubLayerPart(ctx, parts.feetFront[rig.frontFootVariant], rig.footFront);
-  }
-
-  private drawPlayerTorsoSubLayer(
-    ctx: CanvasRenderingContext2D,
-    rig: ModularPlayerRigState,
-    parts: CharacterPartTextures
-  ) {
-    drawSubLayerPart(ctx, parts.torsos[rig.torsoVariant], rig.torso);
-  }
-
-  private drawPlayerHeadSubLayer(
-    ctx: CanvasRenderingContext2D,
-    rig: ModularPlayerRigState,
-    parts: CharacterPartTextures
-  ) {
-    drawSubLayerPart(ctx, parts.head, rig.head);
-  }
-
-  private drawPlayerFaceSubLayer(
-    ctx: CanvasRenderingContext2D,
-    rig: ModularPlayerRigState,
-    parts: CharacterPartTextures
-  ) {
-    ctx.save();
-    ctx.translate(rig.head.x, rig.head.y);
-    if (Math.abs(rig.head.angleRad) > 0.002) {
-      ctx.rotate(rig.head.angleRad);
-    }
-    ctx.drawImage(
-      parts.faces[rig.faceExpr],
-      Math.round(rig.faceOffsetX),
-      Math.round(rig.faceOffsetY)
-    );
-    ctx.restore();
-  }
-
-  private drawPlayerHandsSubLayer(
-    ctx: CanvasRenderingContext2D,
-    rig: ModularPlayerRigState,
-    parts: CharacterPartTextures,
-    layer: 'back' | 'front'
-  ) {
-    if (layer === 'back') {
-      drawSubLayerPart(ctx, parts.handsBack[rig.backHandVariant], rig.handBack);
-      return;
-    }
-    ctx.save();
-    ctx.translate(rig.handFront.x, rig.handFront.y);
-    if (Math.abs(rig.handFront.angleRad) > 0.002) {
-      ctx.rotate(rig.handFront.angleRad);
-    }
-    ctx.drawImage(
-      parts.handsFront[rig.frontHandVariant],
-      Math.round(-rig.handFront.pivotX),
-      Math.round(-rig.handFront.pivotY)
-    );
-    if (rig.activeProp === 'pickaxe') {
-      ctx.drawImage(parts.pickaxe, -2, 16);
-    } else if (rig.activeProp === 'placeCube') {
-      ctx.drawImage(parts.placeCube, -3, 20);
-    } else if (rig.activeProp === 'fishingRod') {
-      ctx.drawImage(parts.fishingRod, -2, 12);
-    }
-    ctx.restore();
-  }
-
   private drawCharacter(
     ctx: CanvasRenderingContext2D,
     screenX: number,
@@ -4043,8 +3971,7 @@ export class BlockgroveEngine {
     const drawX = Math.round(screenX + (PLAYER_WIDTH - PLAYER_LOGICAL_W) * 0.5);
     const drawY = Math.round(screenY + PLAYER_HEIGHT - PLAYER_LOGICAL_H);
 
-    const parts = getCharacterPartTextures(shirtColor);
-    const rig = computeModularPlayerRig(drawX, drawY, {
+    return drawModularCharacter(ctx, drawX, drawY, {
       facing,
       vx,
       vy,
@@ -4063,23 +3990,183 @@ export class BlockgroveEngine {
       fishingState,
       equipped,
     });
+  }
 
-    const prevSmoothing = ctx.imageSmoothingEnabled;
-    ctx.imageSmoothingEnabled = false;
+  private drawTitleStarryNightBackdrop(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    nowMs: number
+  ) {
+    const t = nowMs * 0.001;
+    // 1. Deep Cosmic Midnight-to-Indigo Vertical Gradient
+    const spaceGrad = ctx.createLinearGradient(0, 0, 0, h);
+    spaceGrad.addColorStop(0, '#020410');
+    spaceGrad.addColorStop(0.38, '#08102b');
+    spaceGrad.addColorStop(0.75, '#101d47');
+    spaceGrad.addColorStop(1, '#16295c');
+    ctx.fillStyle = spaceGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // 2. Drifting Galactic Nebula & Milky Way Band
     ctx.save();
-    ctx.translate(rig.centerX, rig.groundBottomY);
-    ctx.scale(rig.facing * rig.scaleX, rig.scaleY);
+    const nebulaDrift = Math.sin(t * 0.14) * 28;
+    const drawNebula = (cx: number, cy: number, r: number, color: string) => {
+      const g = ctx.createRadialGradient(cx, cy, 4, cx, cy, r);
+      g.addColorStop(0, color);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    };
+    drawNebula(w * 0.22 + nebulaDrift, h * 0.3, Math.max(140, w * 0.28), 'rgba(56, 189, 248, 0.14)');
+    drawNebula(w * 0.68 - nebulaDrift, h * 0.25, Math.max(170, w * 0.34), 'rgba(129, 140, 248, 0.16)');
+    drawNebula(w * 0.48 + nebulaDrift * 0.5, h * 0.55, Math.max(160, w * 0.32), 'rgba(192, 132, 252, 0.11)');
 
-    // Modular sub-layer draw order: Back Hand -> Feet -> Torso -> Head -> Face -> Front Hand
-    this.drawPlayerHandsSubLayer(ctx, rig, parts, 'back');
-    this.drawPlayerFeetSubLayer(ctx, rig, parts);
-    this.drawPlayerTorsoSubLayer(ctx, rig, parts);
-    this.drawPlayerHeadSubLayer(ctx, rig, parts);
-    this.drawPlayerFaceSubLayer(ctx, rig, parts);
-    this.drawPlayerHandsSubLayer(ctx, rig, parts, 'front');
+    // 3. Soft Celestial Aurora Arcs across high stratosphere
+    const auroraBands = [
+      { y: h * 0.18, color: 'rgba(56, 189, 248, 0.11)', freq: 0.009, speed: 0.7 },
+      { y: h * 0.25, color: 'rgba(45, 212, 191, 0.09)', freq: 0.012, speed: 0.52 },
+      { y: h * 0.32, color: 'rgba(168, 85, 247, 0.08)', freq: 0.007, speed: 0.61 },
+    ];
+    for (let b = 0; b < auroraBands.length; b++) {
+      const band = auroraBands[b];
+      ctx.fillStyle = band.color;
+      for (let x = 0; x < w; x += 20) {
+        const wave = Math.sin(x * band.freq + t * band.speed + b * 1.9) * 18;
+        ctx.fillRect(x, Math.round(band.y + wave), 21, 14 + b * 4);
+      }
+    }
 
+    // 4. Parallax Multi-Layer Starry Night Pixel Starfield (150 stars + cross flares)
+    for (let i = 0; i < 150; i++) {
+      const layer = i % 3;
+      const speed = layer === 0 ? 4 : layer === 1 ? 9 : 16;
+      const seedX = (i * 197 + 53) % 1000;
+      const seedY = (i * 313 + 97) % 1000;
+      const sx = (((seedX / 1000) * w - t * speed) % (w + 16) + (w + 16)) % (w + 16) - 8;
+      const sy = (seedY / 1000) * (h * 0.86);
+      const pulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * (1.8 + (i % 5) * 0.55) + i * 1.7));
+      const palette =
+        i % 7 === 0
+          ? `rgba(125, 211, 252, ${pulse})`
+          : i % 11 === 0
+            ? `rgba(216, 180, 254, ${pulse})`
+            : i % 13 === 0
+              ? `rgba(254, 240, 138, ${pulse})`
+              : `rgba(241, 245, 249, ${pulse * (layer === 0 ? 0.55 : 0.92)})`;
+      ctx.fillStyle = palette;
+      const pxSize = layer === 2 && i % 6 === 0 ? 3 : 2;
+      const rx = Math.round(sx);
+      const ry = Math.round(sy);
+      ctx.fillRect(rx, ry, pxSize, pxSize);
+      // Cross glint on brighter foreground stars
+      if (layer === 2 && i % 9 === 0 && pulse > 0.72) {
+        ctx.fillStyle = `rgba(224, 242, 254, ${pulse * 0.55})`;
+        ctx.fillRect(rx - 2, ry + 1, 7, 1);
+        ctx.fillRect(rx + 1, ry - 2, 1, 7);
+      }
+    }
+
+    // 5. Periodic Shooting Stars / Orbital Comets
+    const meteorCycle = t % 4.5;
+    if (meteorCycle < 1.15) {
+      const p = meteorCycle / 1.15;
+      const mx = w * 0.18 + p * w * 0.44;
+      const my = h * 0.1 + p * h * 0.24;
+      const alpha = Math.sin(p * Math.PI);
+      const tailGrad = ctx.createLinearGradient(mx - 88, my - 46, mx, my);
+      tailGrad.addColorStop(0, 'rgba(56, 189, 248, 0)');
+      tailGrad.addColorStop(1, `rgba(224, 242, 254, ${0.9 * alpha})`);
+      ctx.strokeStyle = tailGrad;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(mx - 88, my - 46);
+      ctx.lineTo(mx, my);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.fillRect(Math.round(mx - 2), Math.round(my - 2), 4, 4);
+    }
+
+    // 6. Luminous Ringed Exoplanet & Moon on Upper-Right Horizon
+    const planetX = Math.round(w * 0.8);
+    const planetY = Math.round(h * 0.23 + Math.sin(t * 0.5) * 4);
+    const planetR = Math.max(28, Math.min(54, Math.round(Math.min(w, h) * 0.085)));
+    // Planet back ring arc
+    ctx.strokeStyle = 'rgba(165, 180, 252, 0.36)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(planetX, planetY, planetR * 1.9, planetR * 0.48, -0.28, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    // Exoplanet sphere
+    const pGrad = ctx.createRadialGradient(
+      planetX - planetR * 0.35,
+      planetY - planetR * 0.35,
+      4,
+      planetX,
+      planetY,
+      planetR
+    );
+    pGrad.addColorStop(0, '#67e8f9');
+    pGrad.addColorStop(0.55, '#3b82f6');
+    pGrad.addColorStop(1, '#1e1b4b');
+    ctx.fillStyle = pGrad;
+    ctx.beginPath();
+    ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+    ctx.fill();
+    // Front luminous orbital ring
+    ctx.strokeStyle = 'rgba(125, 211, 252, 0.68)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(planetX, planetY, planetR * 1.9, planetR * 0.48, -0.28, 0, Math.PI);
+    ctx.stroke();
+    // Small orbiting icy moon
+    const moonX = planetX + Math.cos(t * 0.35) * (planetR * 2.25);
+    const moonY = planetY + Math.sin(t * 0.35) * (planetR * 0.72);
+    ctx.fillStyle = '#e0f2fe';
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 7. Distant Futuristic Sci-Fi Platformer Citadel Silhouettes & Sky-Islands
+    const horizonBase = Math.round(h * 0.8);
+    ctx.fillStyle = '#070e24';
+    for (let i = 0; i < 8; i++) {
+      const ix = Math.round(((i * (w / 6.5) - t * 6) % (w + 220) + (w + 220)) % (w + 220) - 110);
+      const iw = 96 + (i % 3) * 34;
+      const iy = horizonBase + (i % 2 === 0 ? -18 : 8) + Math.round(Math.sin(t * 0.9 + i) * 3);
+      // Floating cyber-island plateau + inverted tapered rock keel
+      ctx.fillStyle = '#0c1636';
+      ctx.fillRect(ix, iy, iw, 14);
+      ctx.fillRect(ix + 12, iy + 14, iw - 24, 12);
+      ctx.fillRect(ix + 28, iy + 26, iw - 56, 10);
+      // Energy trim along island lip
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(56, 189, 248, 0.45)' : 'rgba(167, 139, 250, 0.42)';
+      ctx.fillRect(ix + 2, iy, iw - 4, 2);
+      // Distant spire tower silhouette on alternate islands
+      if (i % 2 === 0) {
+        const tx = ix + Math.round(iw * 0.38);
+        const th = 28 + (i % 3) * 14;
+        ctx.fillStyle = '#0a132e';
+        ctx.fillRect(tx, iy - th, 16, th);
+        ctx.fillRect(tx + 6, iy - th - 10, 4, 10);
+        // Tiny blinking orbital beacon light
+        const beacon = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(t * 3.5 + i));
+        ctx.fillStyle = `rgba(56, 189, 248, ${beacon})`;
+        ctx.fillRect(tx + 6, iy - th - 12, 4, 3);
+        ctx.fillStyle = 'rgba(192, 132, 252, 0.5)';
+        ctx.fillRect(tx + 4, iy - th + 8, 3, 3);
+        ctx.fillRect(tx + 9, iy - th + 15, 3, 3);
+      }
+    }
+
+    // Bottom deep space atmosphere vignette
+    const floorGrad = ctx.createLinearGradient(0, h * 0.72, 0, h);
+    floorGrad.addColorStop(0, 'rgba(4, 9, 24, 0)');
+    floorGrad.addColorStop(1, 'rgba(3, 6, 18, 0.85)');
+    ctx.fillStyle = floorGrad;
+    ctx.fillRect(0, Math.round(h * 0.72), w, Math.round(h * 0.28) + 2);
     ctx.restore();
-    ctx.imageSmoothingEnabled = prevSmoothing;
-    return rig.topBoxY;
   }
 }

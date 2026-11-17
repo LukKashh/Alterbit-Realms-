@@ -51,8 +51,12 @@ export type PlayerPose =
 
 export interface EquippedWearables {
   head?: number;
+  hair?: number;
   face?: number;
+  torso?: number;
   back?: number;
+  legs?: number;
+  feet?: number;
 }
 
 const TILE_PX = THEME.tileTextureSize; // 60x60 (exact 2x multiple of 30-bit 30x30 textures)

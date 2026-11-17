@@ -792,6 +792,61 @@ async function startServer() {
       return { ok: false, errorMessage: 'Player presence not initialized in world.' };
     }
 
+    if (msg.type === 'admin_list_entities') {
+      if (account.role !== 'admin') {
+        const message = 'Administrator role required.';
+        sendTo(ws, { type: 'world_error', message });
+        return { ok: false, errorMessage: message };
+      }
+      const snapshot = store.listWorldEntities(live, account);
+      sendTo(ws, {
+        type: 'world_entities',
+        ...snapshot,
+      });
+      return { ok: true };
+    }
+
+    if (msg.type === 'admin_teleport_entity') {
+      const res = store.handleAdminTeleportEntity(account, live, {
+        entityKind: msg.entityKind,
+        entityId: msg.entityId,
+        targetTx: msg.targetTx,
+        targetTy: msg.targetTy,
+        summon: msg.summon,
+      });
+      if (!res.ok) {
+        sendTo(ws, { type: 'world_error', message: res.message });
+        return { ok: false, errorMessage: res.message };
+      }
+      if (res.kind === 'player') {
+        let targetWs: WebSocket | undefined;
+        for (const s of sessions) {
+          if (s.account?.id === res.playerId && s.worldName === live.state.name) {
+            s.lastTeleportAt = Date.now();
+            targetWs = s.ws;
+            sendTo(s.ws, {
+              type: 'player_teleported',
+              tx: res.tx,
+              ty: res.ty,
+              notice: res.notice,
+            });
+          }
+        }
+        broadcastWorld(live.state.name, { type: 'player_moved', player: res.remote }, targetWs);
+      } else {
+        if (res.oldTx !== res.tx || res.oldTy !== res.ty) {
+          broadcastTileSnapshot(live, res.oldTx, res.oldTy);
+          broadcastTileSnapshot(live, res.tx, res.ty);
+        }
+      }
+      sendTo(ws, {
+        type: 'world_entities',
+        ...res.snapshot,
+        notice: res.notice,
+      });
+      return { ok: true };
+    }
+
     if (msg.type === 'move') {
       // Ignore stale in-flight move packets sent right before a door or NEXUS teleport
       if (

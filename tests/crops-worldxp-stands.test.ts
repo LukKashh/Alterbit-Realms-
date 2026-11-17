@@ -34,13 +34,17 @@ test('Seed Pruning, Splicing Removal & 12.5% Standard Block Baseline Integrity',
   // 2. Splicing recipes are completely removed
   assert.equal(SPLICE_RECIPES.length, 0, 'SPLICE_RECIPES should be empty');
 
-  // 3. Only Crop Seeds (1000..1005) and Farmable Seeds (950..989) exist in CATALOG
+  // 3. Only Crop Seeds (1000..1005) remain in category 'seed'; Farmable items (950..989) are non-placeable 'misc'
   const allSeeds = Object.values(CATALOG).filter((item) => item.category === 'seed');
-  assert.equal(allSeeds.length, 46, 'Expected exactly 40 Farmable Seeds + 6 Crop Seeds');
+  assert.equal(allSeeds.length, 6, 'Expected exactly 6 Crop Seeds (all Farmablock seeds removed from seed category)');
   for (const seed of allSeeds) {
-    const isAllowed =
-      (seed.id >= 950 && seed.id <= 989) || (seed.id >= 1000 && seed.id <= 1005);
-    assert.equal(isAllowed, true, `Unexpected non-farmable/non-crop seed still in CATALOG: #${seed.id} (${seed.name})`);
+    assert.equal(seed.id >= 1000 && seed.id <= 1005, true, `Unexpected non-crop seed in CATALOG: #${seed.id} (${seed.name})`);
+  }
+  const farmMiscItems = Object.values(CATALOG).filter((item) => item.id >= 950 && item.id <= 989);
+  assert.equal(farmMiscItems.length, 40, 'Expected all 40 Farmable specimen drops in CATALOG');
+  for (const misc of farmMiscItems) {
+    assert.equal(misc.category, 'misc');
+    assert.equal(misc.placeable, false);
   }
 
   // 4. Standard baseline blocks have 12.5% self-drop, 0 Gems, 1 XP, and no seedId

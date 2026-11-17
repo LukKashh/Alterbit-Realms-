@@ -166,6 +166,17 @@ export interface AdminPlayerProfile {
   lastSeenAt: number | null;
 }
 
+export interface WorldEntityDescriptor {
+  entityId: string;
+  kind: 'player' | 'npc';
+  name: string;
+  tx: number;
+  ty: number;
+  itemId?: number;
+  role?: UserRole;
+  level?: number;
+}
+
 export interface FriendEntry {
   id: string;
   name: string;
@@ -395,7 +406,16 @@ export type ClientMessagePayload =
       label?: string;
     }
   | { type: 'use_door'; tx: number; ty: number }
-  | { type: 'nexus_teleport'; targetX: number; targetY: number; label?: string };
+  | { type: 'nexus_teleport'; targetX: number; targetY: number; label?: string }
+  | { type: 'admin_list_entities' }
+  | {
+      type: 'admin_teleport_entity';
+      entityKind: 'player' | 'npc';
+      entityId: string;
+      targetTx?: number;
+      targetTy?: number;
+      summon?: boolean;
+    };
 
 export type ClientMessage = ClientMessagePayload & ClientMessageMeta;
 
@@ -543,7 +563,16 @@ export type ServerMessage =
   | { type: 'fishing_ended'; playerId: string; caughtItemId?: number; caughtName?: string; depthTier?: LiquidPoolInfo['depthTier'] }
   | { type: 'exchange_updated'; exchange: ExchangeSnapshot }
   | { type: 'mine_shaft_expired'; worldName: string; message: string }
-;
+  | {
+      type: 'world_entities';
+      worldName: string;
+      worldWidth: number;
+      worldHeight: number;
+      adminTx: number;
+      adminTy: number;
+      entities: WorldEntityDescriptor[];
+      notice?: string;
+    };
 
 interface QueuedClientMessage {
   msg: ClientMessage;

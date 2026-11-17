@@ -149,6 +149,7 @@ export default function App() {
       : false
   );
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
+  const [worldEntities, setWorldEntities] = useState<import('./components/AdminEntityPanel.tsx').WorldEntitiesSnapshot | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inspectInfo, setInspectInfo] = useState<TileInspectInfo | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -486,6 +487,7 @@ export default function App() {
           if (!isReconnectSameWorld) {
             setInspectInfo(null);
             setPublicProfile(null);
+            setWorldEntities(null);
           }
           setWorldName(msg.world.name);
           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
@@ -648,6 +650,20 @@ export default function App() {
           break;
         case 'worlds_list':
           setWorlds(msg.worlds);
+          break;
+        case 'world_entities':
+          setWorldEntities({
+            worldName: msg.worldName,
+            worldWidth: msg.worldWidth,
+            worldHeight: msg.worldHeight,
+            adminTx: msg.adminTx,
+            adminTy: msg.adminTy,
+            entities: msg.entities,
+            notice: msg.notice,
+          });
+          if (msg.notice) {
+            engine.queuePlayerAnnouncement(msg.notice, 'info');
+          }
           break;
         case 'fishing_started':
                     setFishingProgress(msg.cast.pullProgress ?? 0);
@@ -1183,6 +1199,11 @@ export default function App() {
             }
             socketRef.current?.send({ type: 'nexus_teleport', targetX, targetY, label });
           }}
+          entitiesSnapshot={worldEntities}
+          onRefreshEntities={() => socketRef.current?.send({ type: 'admin_list_entities' })}
+          onTeleportEntity={(opts) =>
+            socketRef.current?.send({ type: 'admin_teleport_entity', ...opts })
+          }
           orientation={orientation}
           viewZoom={viewZoom}
           onChangeViewZoom={(nextZoom) =>

@@ -73,6 +73,8 @@ import {
   sortInventorySlots,
   tileIndexIn,
   validateWorldName,
+  worldHeight,
+  worldWidth,
 } from '../src/game/rules.ts';
 import {
   generateMineShaft,
@@ -103,6 +105,7 @@ import type {
   ResumePosition,
   UserRole,
   WorldDrop,
+  WorldEntityDescriptor,
   WorldSummary,
 } from '../src/game/network.ts';
 import { isCloudSqlConfigured } from '../src/db/index.ts';
@@ -4717,6 +4720,233 @@ export class AuthoritativeWorldStore {
       remote: playerState,
       notice: `Traveled via NEXUS Multi-Way Door to ${rawLabel || `(${tx}, ${ty})`}!`,
     };
+  }
+
+  listWorldEntities(
+    live: LiveWorld,
+    callerAccount?: PlayerAccount | null
+  ): {
+    worldName: string;
+    worldWidth: number;
+    worldHeight: number;
+    adminTx: number;
+    adminTy: number;
+    entities: WorldEntityDescriptor[];
+  } {
+    const w = worldWidth(live.state);
+    const h = worldHeight(live.state);
+    const entities: WorldEntityDescriptor[] = [];
+
+    for (const p of live.players.values()) {
+      const tx = Math.max(0, Math.min(w - 1, Math.floor((p.x + PLAYER_WIDTH * 0.5) / TILE_SIZE)));
+      const ty = Math.max(0, Math.min(h - 1, Math.floor((p.y + PLAYER_HEIGHT - 4) / TILE_SIZE)));
+      entities.push({
+        entityId: p.id,
+        kind: 'player',
+        name: p.name,
+        tx,
+        ty,
+        role: p.role,
+        level: p.level,
+      });
+    }
+
+    for (let ty = 0; ty < h; ty++) {
+      for (let tx = 0; tx < w; tx++) {
+        const fgId = live.state.fg[ty * w + tx];
+        if (fgId === ITEM_IDS.LANDLORD_NPC || fgId === ITEM_IDS.GREENS_VENDOR_NPC) {
+          entities.push({
+            entityId: `npc:${fgId}:${tx},${ty}`,
+            kind: 'npc',
+            name:
+              fgId === ITEM_IDS.LANDLORD_NPC
+                ? 'Landlord · Realm Steward'
+                : 'Fresh Greens Vendor',
+            tx,
+            ty,
+            itemId: fgId,
+          });
+        }
+      }
+    }
+
+    let adminTx = live.state.spawnX;
+    let adminTy = live.state.spawnY;
+    if (callerAccount) {
+      const adminRemote = live.players.get(callerAccount.id);
+      if (adminRemote) {
+        adminTx = Math.max(
+          0,
+          Math.min(w - 1, Math.floor((adminRemote.x + PLAYER_WIDTH * 0.5) / TILE_SIZE))
+        );
+        adminTy = Math.max(
+          0,
+          Math.min(h - 1, Math.floor((adminRemote.y + PLAYER_HEIGHT - 4) / TILE_SIZE))
+        );
+      }
+    }
+
+    return {
+      worldName: live.state.name,
+      worldWidth: w,
+      worldHeight: h,
+      adminTx,
+      adminTy,
+      entities,
+    };
+  }
+
+  handleAdminTeleportEntity(
+    account: PlayerAccount,
+    live: LiveWorld | null,
+    opts: {
+      entityKind: 'player' | 'npc';
+      entityId: string;
+      targetTx?: number;
+      targetTy?: number;
+      summon?: boolean;
+    }
+  ):
+    | {
+        ok: true;
+        kind: 'player';
+        playerId: string;
+        remote: RemotePlayerState;
+        tx: number;
+        ty: number;
+        notice: string;
+        snapshot: ReturnType<AuthoritativeWorldStore['listWorldEntities']>;
+      }
+    | {
+        ok: true;
+        kind: 'npc';
+        itemId: number;
+        npcName: string;
+        oldTx: number;
+        oldTy: number;
+        tx: number;
+        ty: number;
+        notice: string;
+        snapshot: ReturnType<AuthoritativeWorldStore['listWorldEntities']>;
+      }
+    | { ok: false; message: string } {
+    if (account.role !== 'admin') {
+      return { ok: false, message: 'Administrator role required.' };
+    }
+    if (!live) {
+      return { ok: false, message: 'Join a world to manage entities.' };
+    }
+
+    const w = worldWidth(live.state);
+    const h = worldHeight(live.state);
+    const adminRemote = live.players.get(account.id);
+    const adminTx = adminRemote
+      ? Math.max(0, Math.min(w - 1, Math.floor((adminRemote.x + PLAYER_WIDTH * 0.5) / TILE_SIZE)))
+      : live.state.spawnX;
+    const adminTy = adminRemote
+      ? Math.max(0, Math.min(h - 2, Math.floor((adminRemote.y + PLAYER_HEIGHT - 4) / TILE_SIZE)))
+      : live.state.spawnY;
+
+    const rawTx = opts.summon ? adminTx : Number(opts.targetTx);
+    const rawTy = opts.summon ? adminTy : Number(opts.targetTy);
+    if (!Number.isFinite(rawTx) || !Number.isFinite(rawTy)) {
+      return { ok: false, message: 'Valid target coordinates (X, Y) are required.' };
+    }
+
+    if (opts.entityKind === 'player') {
+      const targetRemote = live.players.get(opts.entityId);
+      if (!targetRemote) {
+        return { ok: false, message: 'Selected player is not currently active in this world.' };
+      }
+      const tx = Math.max(0, Math.min(w - 1, Math.floor(rawTx)));
+      const ty = Math.max(0, Math.min(h - 2, Math.floor(rawTy)));
+      targetRemote.x = tx * TILE_SIZE + (TILE_SIZE - PLAYER_WIDTH) * 0.5;
+      targetRemote.y = (ty + 1) * TILE_SIZE - PLAYER_HEIGHT;
+      targetRemote.vx = 0;
+      targetRemote.vy = 0;
+      targetRemote.grounded = true;
+      this.recordPlayerPose(live.state.name, targetRemote.id, {
+        x: targetRemote.x,
+        y: targetRemote.y,
+        vx: 0,
+        vy: 0,
+        facing: targetRemote.facing,
+        grounded: true,
+      });
+      const verb = opts.summon ? 'Summoned' : 'Teleported';
+      const notice = `${verb} player ${targetRemote.name} to (${tx}, ${ty}).`;
+      return {
+        ok: true,
+        kind: 'player',
+        playerId: targetRemote.id,
+        remote: targetRemote,
+        tx,
+        ty,
+        notice,
+        snapshot: this.listWorldEntities(live, account),
+      };
+    }
+
+    if (opts.entityKind === 'npc') {
+      const match = /^npc:(\d+):(\d+),(\d+)$/.exec(opts.entityId);
+      if (!match) {
+        return { ok: false, message: 'Invalid NPC identifier.' };
+      }
+      const itemId = Number(match[1]);
+      const oldTx = Number(match[2]);
+      const oldTy = Number(match[3]);
+      if (
+        (itemId !== ITEM_IDS.LANDLORD_NPC && itemId !== ITEM_IDS.GREENS_VENDOR_NPC) ||
+        !inBoundsWorld(live.state, oldTx, oldTy)
+      ) {
+        return { ok: false, message: 'NPC is out of bounds or unsupported.' };
+      }
+      const oldIdx = tileIndexIn(live.state, oldTx, oldTy);
+      if (live.state.fg[oldIdx] !== itemId) {
+        return { ok: false, message: 'NPC is no longer at that location. Refresh the list.' };
+      }
+
+      // Clamp target coordinates inside valid 3x2 stand bounds [1..w-2, 1..h-2]
+      const tx = Math.max(1, Math.min(w - 2, Math.floor(rawTx)));
+      const ty = Math.max(1, Math.min(h - 2, Math.floor(rawTy)));
+      const npcName =
+        itemId === ITEM_IDS.LANDLORD_NPC
+          ? 'Landlord · Realm Steward'
+          : 'Fresh Greens Vendor';
+
+      if (tx !== oldTx || ty !== oldTy) {
+        const newIdx = tileIndexIn(live.state, tx, ty);
+        const destFg = live.state.fg[newIdx];
+        if (destFg !== ITEM_IDS.AIR) {
+          return {
+            ok: false,
+            message: `Cannot relocate ${npcName} to (${tx}, ${ty}): target tile is occupied.`,
+          };
+        }
+        live.state.fg[oldIdx] = ITEM_IDS.AIR;
+        live.damage.delete(`${oldTx},${oldTy}`);
+        live.state.fg[newIdx] = itemId;
+        live.state.revision += 1;
+        this.saveWorld(live);
+      }
+
+      const verb = opts.summon ? 'Summoned' : 'Teleported';
+      const notice = `${verb} ${npcName} to (${tx}, ${ty}).`;
+      return {
+        ok: true,
+        kind: 'npc',
+        itemId,
+        npcName,
+        oldTx,
+        oldTy,
+        tx,
+        ty,
+        notice,
+        snapshot: this.listWorldEntities(live, account),
+      };
+    }
+
+    return { ok: false, message: 'Unsupported entity kind.' };
   }
 
   tickBfgCollectors(now: number): Array<{

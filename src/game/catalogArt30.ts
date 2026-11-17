@@ -5,6 +5,7 @@ import {
   shadeHex,
 } from './artTheme.ts';
 import { CATALOG, type ItemDefinition as ItemDef } from './catalog.ts';
+import { DRAGON_BONE_WINGS_IMG_CROP, getDragonBoneWingsImage } from './playerSpriteHD.ts';
 
 /**
  * 30-Bit Resolution (30x30 Native Pixel Grid) Artwork Engine for Non-Farmable Catalogue Items.
@@ -1328,6 +1329,228 @@ export function drawCatalogItemRaw30(
       return true;
     }
 
+    case 405: {
+      // Space Helmet (30-bit) — Pressurized white dome, cyan top beacon & comms ear-pods, slightly see-through visor
+      // Outer dark ink silhouette dome
+      rect(ctx, 6, 3, 18, 2, out);
+      rect(ctx, 4, 5, 22, 19, out);
+      rect(ctx, 6, 24, 18, 3, out);
+      // White pearl dome shell shading
+      rect(ctx, 7, 4, 16, 2, '#f8fafc');
+      rect(ctx, 5, 6, 20, 17, '#e2e8f0');
+      rect(ctx, 5, 6, 6, 15, '#ffffff');
+      rect(ctx, 21, 7, 4, 15, '#94a3b8');
+      rect(ctx, 7, 23, 16, 3, '#cbd5e1');
+      rect(ctx, 8, 25, 14, 1, '#64748b');
+      // Top glowing cyan beacon block
+      bevel30(ctx, 11, 2, 8, 5, '#06b6d4', '#cffafe', '#0e7490', out);
+      rect(ctx, 13, 3, 4, 2, '#67e8f9');
+      // Left & Right side comms ear pods with glowing cyan vertical indicators
+      bevel30(ctx, 1, 10, 5, 9, '#64748b', '#cbd5e1', '#334155', out);
+      rect(ctx, 2, 12, 2, 5, '#22d3ee');
+      px(ctx, 2, 12, '#cffafe');
+      bevel30(ctx, 24, 10, 5, 9, '#64748b', '#cbd5e1', '#334155', out);
+      rect(ctx, 26, 12, 2, 5, '#22d3ee');
+      px(ctx, 26, 12, '#cffafe');
+      // Visor bezel & slightly see-through tinted dark-navy viewport glass
+      bevel30(ctx, 7, 8, 16, 14, '#334155', '#64748b', '#0f172a', out);
+      rect(ctx, 8, 9, 14, 12, 'rgba(18, 32, 62, 0.72)');
+      rect(ctx, 9, 10, 12, 10, 'rgba(30, 52, 92, 0.54)');
+      // Subtle translucent visor inner tint gradient & crisp diagonal reflection streaks
+      rect(ctx, 10, 11, 3, 1, '#ffffff');
+      rect(ctx, 9, 12, 2, 2, '#e0f2fe');
+      px(ctx, 12, 10, '#cffafe');
+      px(ctx, 19, 19, '#38bdf8');
+      return true;
+    }
+
+    case 406: {
+      // Astro Suit (30-bit) — Pressurized torso cuirass with chest computer + linked gauntlet sleeves & EVA gloves
+      // Linked left & right suit arm sleeves overlapping torso shoulder sockets
+      for (const side of ['left', 'right'] as const) {
+        const ax = side === 'left' ? 1 : 23;
+        // Curved shoulder pauldron & segmented sleeve
+        bevel30(ctx, ax, 6, 6, 13, '#e2e8f0', '#ffffff', '#94a3b8', out);
+        rect(ctx, ax + 1, 11, 4, 1, '#64748b');
+        // Glowing cyan wrist telemetry ring
+        rect(ctx, ax, 17, 6, 3, out);
+        rect(ctx, ax + 1, 18, 4, 1, '#22d3ee');
+        // Dark charcoal EVA gloved hand
+        bevel30(ctx, ax, 19, 6, 6, '#334155', '#64748b', '#1e293b', out);
+      }
+      // Central pressurized torso plate
+      bevel30(ctx, 7, 3, 16, 23, '#e2e8f0', '#ffffff', '#94a3b8', out);
+      // Raised circular neck seal collar + chin mic light
+      bevel30(ctx, 9, 2, 12, 6, '#cbd5e1', '#ffffff', '#64748b', out);
+      rect(ctx, 11, 3, 8, 3, '#1e293b');
+      rect(ctx, 13, 6, 4, 2, '#06b6d4');
+      px(ctx, 14, 6, '#cffafe');
+      // Dark charcoal shoulder harness straps
+      rect(ctx, 7, 5, 3, 6, '#334155');
+      rect(ctx, 20, 5, 3, 6, '#334155');
+      // Center chest life-support computer box
+      bevel30(ctx, 10, 9, 10, 9, '#cbd5e1', '#ffffff', '#64748b', out);
+      rect(ctx, 12, 11, 6, 2, '#22d3ee');
+      rect(ctx, 12, 11, 3, 1, '#cffafe');
+      rect(ctx, 12, 15, 2, 2, '#06b6d4');
+      rect(ctx, 16, 15, 2, 2, '#06b6d4');
+      // Lower utility waist belt & side pouches
+      rect(ctx, 7, 19, 16, 5, '#334155');
+      bevel30(ctx, 6, 19, 5, 6, '#475569', '#94a3b8', '#1e293b', out);
+      bevel30(ctx, 19, 19, 5, 6, '#475569', '#94a3b8', '#1e293b', out);
+      bevel30(ctx, 12, 20, 6, 4, '#64748b', '#cbd5e1', '#334155', out);
+      px(ctx, 7, 23, '#22d3ee');
+      px(ctx, 22, 23, '#22d3ee');
+      return true;
+    }
+
+    case 407: {
+      // Astro Pants (30-bit) — Utility belt waist, thigh plating, armored kneepads & cyan knee lights
+      // Top utility belt waistband
+      bevel30(ctx, 6, 2, 18, 5, '#334155', '#64748b', '#1e293b', out);
+      bevel30(ctx, 12, 2, 6, 5, '#64748b', '#cbd5e1', '#334155', out);
+      // Pelvic saddle & split trouser legs
+      bevel30(ctx, 6, 6, 18, 8, '#e2e8f0', '#ffffff', '#94a3b8', out);
+      rect(ctx, 14, 13, 2, 14, '#ffffff00');
+      // Left leg
+      bevel30(ctx, 6, 11, 8, 16, '#e2e8f0', '#ffffff', '#94a3b8', out);
+      // Right leg
+      bevel30(ctx, 16, 11, 8, 16, '#cbd5e1', '#f8fafc', '#64748b', out);
+      // Clear inner crotch gap outline cleanly
+      rect(ctx, 14, 14, 2, 13, 'rgba(0,0,0,0)');
+      ctx.clearRect(14, 14, 2, 16);
+      rect(ctx, 13, 13, 1, 14, out);
+      rect(ctx, 16, 13, 1, 14, out);
+      // Cyan hip pocket indicators
+      rect(ctx, 7, 8, 2, 2, '#22d3ee');
+      rect(ctx, 21, 8, 2, 2, '#22d3ee');
+      // Rounded slate armored kneepads + cyan outer joint lights
+      bevel30(ctx, 7, 15, 6, 6, '#94a3b8', '#e2e8f0', '#475569', out);
+      bevel30(ctx, 17, 15, 6, 6, '#94a3b8', '#e2e8f0', '#475569', out);
+      rect(ctx, 6, 17, 1, 2, '#22d3ee');
+      rect(ctx, 23, 17, 1, 2, '#22d3ee');
+      // Lower shin cuff rim
+      rect(ctx, 7, 24, 6, 2, '#cbd5e1');
+      rect(ctx, 17, 24, 6, 2, '#94a3b8');
+      return true;
+    }
+
+    case 408: {
+      // Astro Boots (30-bit) — Paired chunky lunar EVA boots with ankle collars & cyan thruster soles
+      for (const [bx, dir] of [
+        [2, -1],
+        [15, 1],
+      ] as const) {
+        // Cushioned ankle cuff collar
+        bevel30(ctx, bx + 2, 8, 9, 5, '#e2e8f0', '#ffffff', '#94a3b8', out);
+        // Boot shin & stepped toe box
+        bevel30(ctx, bx + 1, 12, 11, 10, '#cbd5e1', '#f8fafc', '#64748b', out);
+        if (dir === -1) {
+          bevel30(ctx, bx, 17, 12, 6, '#e2e8f0', '#ffffff', '#94a3b8', out);
+        } else {
+          bevel30(ctx, bx + 1, 17, 12, 6, '#e2e8f0', '#ffffff', '#94a3b8', out);
+        }
+        // Dark charcoal heavy sole + glowing cyan mag-thruster sole strip
+        rect(ctx, bx, 22, 13, 5, out);
+        rect(ctx, bx + 1, 23, 11, 1, '#334155');
+        rect(ctx, bx + 1, 24, 11, 2, '#06b6d4');
+        rect(ctx, bx + 3, 24, 7, 1, '#cffafe');
+      }
+      return true;
+    }
+
+    case 409: {
+      // Lifesup Backpack (30-bit) — Twin top curved air hoses, glowing cyan core console & side thruster pods
+      // Curved upper twin oxygen conduit pipes
+      bevel30(ctx, 4, 2, 8, 7, '#cbd5e1', '#ffffff', '#64748b', out);
+      bevel30(ctx, 18, 2, 8, 7, '#cbd5e1', '#ffffff', '#64748b', out);
+      // Left & right side pressurized canister pods with glowing cyan status lights
+      bevel30(ctx, 2, 11, 6, 13, '#cbd5e1', '#f8fafc', '#64748b', out);
+      rect(ctx, 3, 15, 3, 5, '#22d3ee');
+      px(ctx, 4, 16, '#cffafe');
+      bevel30(ctx, 22, 11, 6, 13, '#cbd5e1', '#f8fafc', '#64748b', out);
+      rect(ctx, 24, 15, 3, 5, '#22d3ee');
+      px(ctx, 25, 16, '#cffafe');
+      // Main central PLSS backpack housing
+      bevel30(ctx, 6, 6, 18, 19, '#e2e8f0', '#ffffff', '#94a3b8', out);
+      rect(ctx, 9, 6, 12, 2, '#94a3b8');
+      // Central glowing cyan telemetry screen & horizontal cooling louvers
+      bevel30(ctx, 10, 10, 10, 5, '#334155', '#64748b', '#0f172a', out);
+      rect(ctx, 11, 11, 8, 3, '#22d3ee');
+      rect(ctx, 12, 11, 4, 1, '#cffafe');
+      rect(ctx, 11, 17, 8, 1, '#64748b');
+      rect(ctx, 11, 19, 8, 1, '#64748b');
+      // Bottom dual dark exhaust thrusters
+      bevel30(ctx, 7, 24, 6, 4, '#334155', '#64748b', '#0f172a', out);
+      bevel30(ctx, 17, 24, 6, 4, '#334155', '#64748b', '#0f172a', out);
+      return true;
+    }
+
+    case 410: {
+      const imgAsset = getDragonBoneWingsImage();
+      if (imgAsset && imgAsset.complete && imgAsset.naturalWidth > 0) {
+        const c = DRAGON_BONE_WINGS_IMG_CROP.full;
+        ctx.drawImage(imgAsset, c.sx, c.sy, c.sw, c.sh, 1, 7, 28, 15);
+        return true;
+      }
+
+      // Dragon Bone Wings (30-bit procedural fallback) — Paired skeletal drake wings
+      const palette: Record<string, string> = {
+        K: '#151b26', // Crisp dark pixel outline
+        H: '#fff7ea', // Cream bone specular highlight
+        B: '#f3dec0', // Ivory bone midtone
+        S: '#d4b089', // Warm tan bone shadow
+        C: '#a37b56', // Deep socket/joint crevice
+        '1': '#4a3c3c', // Deep smoky umber webbing shadow
+        '2': '#70584e', // Mid smoky taupe webbing
+        '3': '#9c7e6a', // Light dusty taupe webbing
+        '4': '#c3a488', // Pale tattered webbing rim
+      };
+      const leftWingRows = [
+        '.......KKKK...', // y=2:  shoulder ball socket top
+        '......KHHBBK..', // y=3:  shoulder ball cream/ivory
+        '.....KKHBBSK..', // y=4:  shoulder ball + upper wing arm
+        '....KHHBBSBK..', // y=5:  upper arch + inner spur joint
+        '...KHHBSCCBK..', // y=6:  joint crevice + splayed phalanges
+        '..KHHB1KHBBSK.', // y=7:  outer bay 1 + mid bones + inner spur
+        '.KHHBS1KBB1KBK', // y=8:  elbow crest + webbing bays
+        '.KBBC22KB1KBBK', // y=9:  wrist crease + scalloped membrane depth
+        '.KHB22KHB12KBK', // y=10: sweeping outer bone + central phalanges
+        'KKB23KBS2KB1KK', // y=11: upper wing span
+        'KHB34KBS2KB1BK', // y=12: tattered bay 1 + inner spur bone cap
+        'KHB4KKBS3KB2BK', // y=13: bay 1 rim + bay 2/3 mid webbing
+        'KBSK.KBS4KBKKK', // y=14: bay 1 finished + inner spur tip cap
+        'KBSK.KB34KBK..', // y=15: bay 2 pale lower fringe
+        'KBK..KB4KHBK..', // y=16: bay 2 concave edge closing
+        'KBK.KHHKKHHK..', // y=17: protruding lower knuckle spheres
+        'KBK.KHBKKHBK..', // y=18: bulbous knuckle joints
+        'KBK.KBSKKBSK..', // y=19: outer claw & knuckle undersides
+        '.KK.KHBKKHBK..', // y=20: outer wingtip + twin downward claws
+        '.K..KBSKKBSK..', // y=21: outer tip + inner-mid claw tapering
+        '....KBSKKBSK..', // y=22: outer-mid & inner-mid claw shafts
+        '....KBSK.KK...', // y=23: inner-mid claw tip closed
+        '....KBSK......', // y=24: longest outer-mid claw shaft
+        '.....KK.......', // y=25: outer-mid claw tip
+      ];
+      for (let ry = 0; ry < leftWingRows.length; ry++) {
+        const row = leftWingRows[ry];
+        const y = 2 + ry;
+        for (let lx = 0; lx < row.length; lx++) {
+          const ch = row[lx];
+          if (ch === '.') continue;
+          const color = palette[ch];
+          if (!color) continue;
+          // Left wing (x = 0..13)
+          px(ctx, lx, y, color);
+          // Mirrored right wing (x = 16..29), keeping crisp top-left bone lighting on specular pixels
+          const mirrorColor =
+            ch === 'H' && lx >= 8 ? '#f3dec0' : ch === 'S' && lx <= 4 ? '#f3dec0' : color;
+          px(ctx, 29 - lx, y, mirrorColor);
+        }
+      }
+      return true;
+    }
+
     // =========================================================================
     // 6. GROWPIXEL CLASSIC TERRAIN, ARCHITECTURE, FLORA & PROPS (500..541)
     // =========================================================================
@@ -2123,6 +2346,16 @@ export function getCatalogItemTexture30(
   ctx30.imageSmoothingEnabled = false;
 
   if (!drawCatalogItemRaw30(ctx30, itemId, def)) return null;
+
+  if (itemId === 410) {
+    const imgAsset = getDragonBoneWingsImage();
+    if (imgAsset && (!imgAsset.complete || imgAsset.naturalWidth === 0)) {
+      imgAsset.addEventListener('load', () => {
+        tex30Cache.delete(410);
+      }, { once: true });
+      return c30;
+    }
+  }
 
   tex30Cache.set(itemId, c30);
   return c30;

@@ -19,7 +19,7 @@ export function getMaterialForItem(itemId?: number): SoundMaterial {
   if (def.category === 'fluid' || def.fluidKind) {
     return 'fluid';
   }
-  if (def.category === 'seed') {
+  if (def.category === 'seed' || def.category === 'misc') {
     return 'foliage';
   }
   if (def.category === 'lock') {
@@ -1474,27 +1474,144 @@ class SoundEngine {
     this.currentTheme = mode;
     this.themeStep = 0;
 
-    // 32-step (4-bar) rich pastoral progression in E Major / C# Minor:
-    // Bar 1: E Maj9 (E3, B3, F#4, G#4, B4)
-    // Bar 2: C#m7   (C#3, G#3, E4, G#4, B4)
-    // Bar 3: A Maj7 (A2, E3, C#4, E4, G#4)
-    // Bar 4: B6/9   (B2, F#3, D#4, F#4, G#4)
+    if (mode === 'menu') {
+      // Unique 64-step (8-bar) 28-bit Pixelart Adventurous Soundtrack in D Dorian / F Major Cosmos:
+      // Uplifting, heroic synthwave/chiptune frontier exploration progression:
+      // Bar 1: Dm9   | Bar 2: Bbmaj7 | Bar 3: Csus4->C | Bar 4: Am7
+      // Bar 5: Gm7   | Bar 6: C9     | Bar 7: Bbmaj7   | Bar 8: A7sus4->A7
+      const menuBars = [
+        { bass: 73.42, pad: [146.83, 220.0, 261.63, 329.63], arp: [293.66, 349.23, 440.0, 523.25, 659.25, 523.25, 440.0, 349.23] },
+        { bass: 58.27, pad: [116.54, 174.61, 220.0, 293.66], arp: [233.08, 293.66, 349.23, 440.0, 587.33, 440.0, 349.23, 293.66] },
+        { bass: 65.41, pad: [130.81, 196.0, 261.63, 349.23], arp: [261.63, 349.23, 392.0, 523.25, 659.25, 523.25, 392.0, 329.63] },
+        { bass: 55.0, pad: [110.0, 164.81, 220.0, 293.66], arp: [220.0, 261.63, 329.63, 392.0, 523.25, 392.0, 329.63, 261.63] },
+        { bass: 98.0, pad: [196.0, 233.08, 293.66, 349.23], arp: [293.66, 349.23, 466.16, 587.33, 698.46, 587.33, 466.16, 349.23] },
+        { bass: 65.41, pad: [130.81, 196.0, 233.08, 293.66], arp: [261.63, 329.63, 392.0, 466.16, 587.33, 466.16, 392.0, 329.63] },
+        { bass: 58.27, pad: [116.54, 174.61, 220.0, 349.23], arp: [233.08, 293.66, 349.23, 440.0, 587.33, 698.46, 587.33, 440.0] },
+        { bass: 55.0, pad: [110.0, 164.81, 207.65, 293.66], arp: [220.0, 277.18, 329.63, 440.0, 554.37, 440.0, 329.63, 277.18] },
+      ];
+
+      // Crisp 28-bit adventurous hero lead melody (Hz, 0 = sustain/rest)
+      const heroLead = [
+        // Bar 1 (Dm9)
+        587.33, 0, 659.25, 698.46, 0, 880.0, 783.99, 698.46,
+        // Bar 2 (Bbmaj7)
+        698.46, 0, 587.33, 0, 440.0, 523.25, 587.33, 0,
+        // Bar 3 (C)
+        523.25, 0, 587.33, 659.25, 0, 783.99, 659.25, 587.33,
+        // Bar 4 (Am7)
+        523.25, 0, 440.0, 392.0, 440.0, 0, 523.25, 0,
+        // Bar 5 (Gm7)
+        783.99, 0, 698.46, 587.33, 0, 698.46, 783.99, 880.0,
+        // Bar 6 (C9)
+        1046.5, 0, 880.0, 783.99, 0, 659.25, 783.99, 0,
+        // Bar 7 (Bbmaj7)
+        698.46, 0, 783.99, 880.0, 0, 1046.5, 880.0, 783.99,
+        // Bar 8 (A7 turnaround)
+        659.25, 0, 554.37, 440.0, 554.37, 659.25, 880.0, 0,
+      ];
+
+      this.themeTimer = window.setInterval(() => {
+        if (this._muted) return;
+        const step = this.themeStep % 64;
+        const barIdx = Math.floor(step / 8) % menuBars.length;
+        const beatInBar = step % 8;
+        const bar = menuBars[barIdx];
+
+        // 1. Starlight Cosmic Pad on Bar Downbeats
+        if (beatInBar === 0) {
+          this.playWarmPadChord(bar.pad, 1.4, 0.015);
+        }
+
+        // 2. Driving 28-bit Synth Bassline (root + octave hop)
+        const bassMult = beatInBar === 2 || beatInBar === 6 ? 2 : beatInBar === 4 ? 1.5 : 1;
+        if (beatInBar % 2 === 0 || beatInBar === 7) {
+          this.playResonantVoice({
+            type: 'triangle',
+            freq: bar.bass * bassMult,
+            attack: 0.006,
+            duration: 0.24,
+            volume: beatInBar === 0 ? 0.036 : 0.025,
+            cutoff: 680,
+          });
+        }
+
+        // 3. Sparkling 28-bit Chiptune Arpeggio
+        const arpFreq = bar.arp[beatInBar];
+        if (arpFreq) {
+          this.playResonantVoice({
+            type: 'square',
+            freq: arpFreq,
+            attack: 0.004,
+            duration: 0.12,
+            volume: beatInBar % 2 === 0 ? 0.011 : 0.008,
+            cutoff: 2200,
+          });
+        }
+
+        // 4. Adventurous 28-bit Heroic Lead (layered square pulse + crystal overtone)
+        const leadFreq = heroLead[step];
+        if (leadFreq > 0) {
+          this.playResonantVoice({
+            type: 'square',
+            freq: leadFreq,
+            attack: 0.008,
+            duration: 0.28,
+            volume: 0.017,
+            cutoff: 2800,
+          });
+          this.playResonantVoice({
+            type: 'sine',
+            freq: leadFreq * 2,
+            attack: 0.01,
+            duration: 0.2,
+            volume: 0.006,
+          });
+        }
+
+        // 5. Crisp Pixel Percussion (Kick pulse on 0/4, gentle chiptune snare/hat on off-beats)
+        if (beatInBar === 0 || beatInBar === 4) {
+          this.playResonantVoice({
+            type: 'sine',
+            freq: 118,
+            endFreq: 44,
+            attack: 0.003,
+            duration: 0.09,
+            volume: 0.03,
+          });
+        } else if (beatInBar === 2 || beatInBar === 6) {
+          this.playNoiseGrain({
+            noiseType: 'white',
+            filterType: 'bandpass',
+            freq: 2900,
+            q: 1.8,
+            attack: 0.002,
+            duration: 0.055,
+            volume: 0.012,
+          });
+        } else if (beatInBar % 2 === 1) {
+          this.playNoiseGrain({
+            noiseType: 'white',
+            filterType: 'highpass',
+            freq: 6400,
+            q: 1.4,
+            attack: 0.002,
+            duration: 0.024,
+            volume: 0.006,
+          });
+        }
+
+        this.themeStep++;
+      }, 155);
+      return;
+    }
+
+    // 'world' mode: Serene, breathing sandbox atmosphere (leaves space for footsteps & block breaking)
     const chords = [
       { bass: 82.41, pad: [164.81, 246.94, 329.63, 415.3], arp: [329.63, 369.99, 415.3, 493.88, 659.25, 493.88, 415.3, 369.99] },
       { bass: 138.59, pad: [138.59, 207.65, 329.63, 415.3], arp: [277.18, 329.63, 415.3, 493.88, 554.37, 493.88, 415.3, 329.63] },
       { bass: 110.0, pad: [220.0, 277.18, 329.63, 415.3], arp: [220.0, 277.18, 329.63, 415.3, 493.88, 415.3, 329.63, 277.18] },
       { bass: 123.47, pad: [185.0, 246.94, 311.13, 369.99], arp: [246.94, 311.13, 369.99, 415.3, 493.88, 554.37, 493.88, 369.99] },
     ];
-
-    // Expressive flute/bell counter-melody over 32 steps (0 = rest)
-    const leadMelody = [
-      659.25, 0, 739.99, 830.61, 0, 739.99, 659.25, 493.88,
-      554.37, 0, 659.25, 0, 493.88, 0, 415.3, 0,
-      440.0, 493.88, 554.37, 0, 659.25, 0, 830.61, 739.99,
-      659.25, 0, 554.37, 493.88, 0, 0, 0, 0,
-    ];
-
-    const stepMs = mode === 'menu' ? 280 : 420;
 
     this.themeTimer = window.setInterval(() => {
       if (this._muted) return;
@@ -1503,84 +1620,25 @@ class SoundEngine {
       const beatInBar = step % 8;
       const bar = chords[barIdx];
 
-      if (mode === 'menu') {
-        // 1. Warm Horizon Pad + Acoustic Bass on downbeat of each bar
-        if (beatInBar === 0) {
-          this.playWarmPadChord(bar.pad, 2.1, 0.018);
-          this.playResonantVoice({
-            type: 'triangle',
-            freq: bar.bass,
-            endFreq: bar.bass * 0.995,
-            attack: 0.015,
-            duration: 1.25,
-            volume: 0.038,
-            cutoff: 280,
-          });
-        } else if (beatInBar === 4) {
-          // Fifth bass pulse on beat 5
-          this.playResonantVoice({
-            type: 'triangle',
-            freq: bar.bass * 1.5,
-            attack: 0.015,
-            duration: 0.85,
-            volume: 0.026,
-            cutoff: 320,
-          });
-        }
-
-        // 2. Acoustic Harp/Lute Arpeggio
-        const arpFreq = bar.arp[beatInBar];
-        if (arpFreq) {
-          this.playPluckNote(arpFreq, 0.48, beatInBar % 2 === 0 ? 0.026 : 0.018);
-        }
-
-        // 3. Expressive Lead Melody
-        const leadFreq = leadMelody[step];
-        if (leadFreq > 0) {
-          this.playResonantVoice({
-            type: 'sine',
-            freq: leadFreq,
-            attack: 0.025,
-            duration: 0.52,
-            volume: 0.024,
-          });
-        }
-
-        // 4. Subtle wooden shaker rhythm on off-beats
-        if (beatInBar === 2 || beatInBar === 6) {
-          this.playNoiseGrain({
-            noiseType: 'pink',
-            filterType: 'bandpass',
-            freq: 3800,
-            q: 3.2,
-            attack: 0.004,
-            duration: 0.045,
-            volume: 0.01,
-          });
-        }
-      } else {
-        // 'world' mode: Serene, breathing sandbox atmosphere (leaves space for footsteps & block breaking)
-        if (beatInBar === 0) {
-          this.playWarmPadChord(bar.pad, 3.1, 0.012);
-          this.playResonantVoice({
-            type: 'sine',
-            freq: bar.bass,
-            attack: 0.03,
-            duration: 1.6,
-            volume: 0.022,
-          });
-        }
-        // Gentle sparse kalimba/piano notes on select beats
-        if (beatInBar === 0 || beatInBar === 3 || beatInBar === 5) {
-          const noteFreq = bar.arp[beatInBar];
-          if (noteFreq) {
-            this.playPluckNote(noteFreq, 0.72, 0.016);
-          }
+      if (beatInBar === 0) {
+        this.playWarmPadChord(bar.pad, 3.1, 0.012);
+        this.playResonantVoice({
+          type: 'sine',
+          freq: bar.bass,
+          attack: 0.03,
+          duration: 1.6,
+          volume: 0.022,
+        });
+      }
+      if (beatInBar === 0 || beatInBar === 3 || beatInBar === 5) {
+        const noteFreq = bar.arp[beatInBar];
+        if (noteFreq) {
+          this.playPluckNote(noteFreq, 0.72, 0.016);
         }
       }
 
       this.themeStep++;
-    }, stepMs);
+    }, 420);
   }
 }
 

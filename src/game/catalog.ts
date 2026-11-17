@@ -9,13 +9,14 @@ export type ItemCategory =
   | 'wearable'
   | 'fluid'
   | 'material'
-  | 'consumable';
+  | 'consumable'
+  | 'misc';
 
 export type CollisionType = 'none' | 'solid' | 'platform';
 
 export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic';
 
-export type WearableSlot = 'head' | 'face' | 'back';
+export type WearableSlot = 'head' | 'face' | 'back' | 'torso' | 'hair' | 'legs' | 'feet';
 
 export type ToolKind = 'fist' | 'wrench' | 'pickaxe' | 'rod' | 'hoe';
 
@@ -163,11 +164,17 @@ export const ITEM_IDS = {
   BUFF_MINER_CHOWDER: 231,
   BUFF_LUCK_BROTH: 232,
 
-  // Wearables & Cosmetics (401..404)
+  // Wearables & Cosmetics (401..410)
   WEAR_GOLD_CROWN: 401,
   WEAR_EXPLORER_HAT: 402,
   WEAR_CYBER_VISOR: 403,
   WEAR_SKY_WINGS: 404,
+  WEAR_SPACE_HELMET: 405,
+  WEAR_ASTRO_SUIT: 406,
+  WEAR_ASTRO_PANTS: 407,
+  WEAR_ASTRO_BOOTS: 408,
+  WEAR_LIFESUP_BACKPACK: 409,
+  WEAR_DRAGON_BONE_WINGS: 410,
 
   // GrowPixel collection blocks (500..541) and matching seeds (600..641)
   GP_DIRT: 500,
@@ -1475,6 +1482,132 @@ export const CATALOG: Record<number, ItemDefinition> = {
     colorPrimary: '#9ce5ff',
     colorSecondary: '#3b82c4',
     colorAccent: '#ffffff',
+  },
+  [ITEM_IDS.WEAR_SPACE_HELMET]: {
+    id: ITEM_IDS.WEAR_SPACE_HELMET,
+    key: 'wear_space_helmet',
+    name: 'Space Helmet',
+    description: 'Pressurized EVA helmet enclosing the full head module with a lightly tinted see-through visor.',
+    category: 'wearable',
+    rarity: 'epic',
+    stackLimit: 5,
+    collision: 'none',
+    breakable: false,
+    hardness: 0,
+    placeable: false,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: 0,
+    wearableSlot: 'head',
+    storePrice: 110,
+    colorPrimary: '#e2e8f0',
+    colorSecondary: '#334155',
+    colorAccent: '#22d3ee',
+  },
+  [ITEM_IDS.WEAR_ASTRO_SUIT]: {
+    id: ITEM_IDS.WEAR_ASTRO_SUIT,
+    key: 'wear_astro_suit',
+    name: 'Astro Suit',
+    description: 'Orbital torso cuirass with chest telemetry panel and linked gauntlet sleeves & EVA gloves.',
+    category: 'wearable',
+    rarity: 'epic',
+    stackLimit: 5,
+    collision: 'none',
+    breakable: false,
+    hardness: 0,
+    placeable: false,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: 0,
+    wearableSlot: 'torso',
+    storePrice: 120,
+    colorPrimary: '#f1f5f9',
+    colorSecondary: '#475569',
+    colorAccent: '#22d3ee',
+  },
+  [ITEM_IDS.WEAR_ASTRO_PANTS]: {
+    id: ITEM_IDS.WEAR_ASTRO_PANTS,
+    key: 'wear_astro_pants',
+    name: 'Astro Pants',
+    description: 'Padded spacesuit trousers spanning from waist utility belt down to armored knee joints.',
+    category: 'wearable',
+    rarity: 'rare',
+    stackLimit: 5,
+    collision: 'none',
+    breakable: false,
+    hardness: 0,
+    placeable: false,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: 0,
+    wearableSlot: 'legs',
+    storePrice: 85,
+    colorPrimary: '#cbd5e1',
+    colorSecondary: '#334155',
+    colorAccent: '#22d3ee',
+  },
+  [ITEM_IDS.WEAR_ASTRO_BOOTS]: {
+    id: ITEM_IDS.WEAR_ASTRO_BOOTS,
+    key: 'wear_astro_boots',
+    name: 'Astro Boots',
+    description: 'Heavy lunar EVA boots with cushioned ankle collars and glowing cyan thruster soles.',
+    category: 'wearable',
+    rarity: 'rare',
+    stackLimit: 5,
+    collision: 'none',
+    breakable: false,
+    hardness: 0,
+    placeable: false,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: 0,
+    wearableSlot: 'feet',
+    storePrice: 75,
+    colorPrimary: '#e2e8f0',
+    colorSecondary: '#1e293b',
+    colorAccent: '#22d3ee',
+  },
+  [ITEM_IDS.WEAR_LIFESUP_BACKPACK]: {
+    id: ITEM_IDS.WEAR_LIFESUP_BACKPACK,
+    key: 'wear_lifesup_backpack',
+    name: 'Lifesup Backpack',
+    description: 'Twin-hose portable life-support oxygen pack worn mounted behind the torso.',
+    category: 'wearable',
+    rarity: 'epic',
+    stackLimit: 5,
+    collision: 'none',
+    breakable: false,
+    hardness: 0,
+    placeable: false,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: 0,
+    wearableSlot: 'back',
+    storePrice: 105,
+    colorPrimary: '#f8fafc',
+    colorSecondary: '#475569',
+    colorAccent: '#22d3ee',
+  },
+  [ITEM_IDS.WEAR_DRAGON_BONE_WINGS]: {
+    id: ITEM_IDS.WEAR_DRAGON_BONE_WINGS,
+    key: 'wear_dragon_bone_wings',
+    name: 'Dragon Bone Wings',
+    description: 'Articulated skeletal drake wings with clawed phalanges and tattered umber membrane.',
+    category: 'wearable',
+    rarity: 'epic',
+    stackLimit: 5,
+    collision: 'none',
+    breakable: false,
+    hardness: 0,
+    placeable: false,
+    tradeable: true,
+    gemValue: 0,
+    xpValue: 0,
+    wearableSlot: 'back',
+    storePrice: 210,
+    colorPrimary: '#f3dec0',
+    colorSecondary: '#70584e',
+    colorAccent: '#fff7ea',
   },
 
   // --- GrowPixel Collection Blocks (500..541) ---
@@ -3695,61 +3828,61 @@ export interface FarmableSpec {
 }
 
 export const FARMABLE_SPECS: FarmableSpec[] = [
-  // Tier 1 (1..5): Earth & Timber Foundations
-  { id: 900, seedId: 950, key: 'block_t1_clay_soil', name: 'Clay Soil', tier: 1, branch: 'botanical', growthTimeSec: 14, gemValue: 4, xpValue: 2, hardness: 2, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.25, blockDropRate: 0.68, description: 'Fine damp subterranean clay soil with smooth matt texture.', colorPrimary: '#9a6b4c', colorSecondary: '#69452d', colorAccent: '#c49673' },
-  { id: 901, seedId: 951, key: 'block_t1_packed_earth', name: 'Packed Earth', tier: 1, branch: 'botanical', growthTimeSec: 16, gemValue: 5, xpValue: 2, hardness: 2, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.25, blockDropRate: 0.68, description: 'Firmly tamped natural soil crust with fine earthen grain.', colorPrimary: '#8c6239', colorSecondary: '#593c20', colorAccent: '#b88656' },
-  { id: 902, seedId: 952, key: 'block_t1_natural_log', name: 'Natural Log', tier: 1, branch: 'botanical', growthTimeSec: 18, gemValue: 5, xpValue: 2, hardness: 3, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.24, blockDropRate: 0.67, description: 'Unprocessed timber log section with concentric growth rings.', colorPrimary: '#78532f', colorSecondary: '#45301a', colorAccent: '#a67c52' },
-  { id: 903, seedId: 953, key: 'block_t1_wood_plank', name: 'Wood Plank', tier: 1, branch: 'luminescent', growthTimeSec: 20, gemValue: 6, xpValue: 3, hardness: 3, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.25, blockDropRate: 0.68, description: 'Sawn structural lumber plank with clean grain finish.', colorPrimary: '#a37243', colorSecondary: '#6b4929', colorAccent: '#cca174' },
-  { id: 904, seedId: 954, key: 'block_t1_reinforced_timber', name: 'Reinforced Timber', tier: 1, branch: 'botanical', growthTimeSec: 24, gemValue: 8, xpValue: 3, hardness: 3, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.26, blockDropRate: 0.68, description: 'Heavy timber frame bound with iron stud bracing.', colorPrimary: '#8c6238', colorSecondary: '#473019', colorAccent: '#c49b6c' },
+  // Tier 1 (1..5): Earth & Timber Foundations — BlockBack 8.5% / ItsDrop 3.05%
+  { id: 900, seedId: 950, key: 'block_t1_clay_soil', name: 'Clay Soil', tier: 1, branch: 'botanical', growthTimeSec: 14, gemValue: 4, xpValue: 2, hardness: 2, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.0305, blockDropRate: 0.085, description: 'Fine damp subterranean clay soil with smooth matt texture.', colorPrimary: '#9a6b4c', colorSecondary: '#69452d', colorAccent: '#c49673' },
+  { id: 901, seedId: 951, key: 'block_t1_packed_earth', name: 'Packed Earth', tier: 1, branch: 'botanical', growthTimeSec: 16, gemValue: 5, xpValue: 2, hardness: 2, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.0305, blockDropRate: 0.085, description: 'Firmly tamped natural soil crust with fine earthen grain.', colorPrimary: '#8c6239', colorSecondary: '#593c20', colorAccent: '#b88656' },
+  { id: 902, seedId: 952, key: 'block_t1_natural_log', name: 'Natural Log', tier: 1, branch: 'botanical', growthTimeSec: 18, gemValue: 5, xpValue: 2, hardness: 3, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.0305, blockDropRate: 0.085, description: 'Unprocessed timber log section with concentric growth rings.', colorPrimary: '#78532f', colorSecondary: '#45301a', colorAccent: '#a67c52' },
+  { id: 903, seedId: 953, key: 'block_t1_wood_plank', name: 'Wood Plank', tier: 1, branch: 'luminescent', growthTimeSec: 20, gemValue: 6, xpValue: 3, hardness: 3, minBlocks: 2, maxBlocks: 4, seedDropRate: 0.0305, blockDropRate: 0.085, description: 'Sawn structural lumber plank with clean grain finish.', colorPrimary: '#a37243', colorSecondary: '#6b4929', colorAccent: '#cca174' },
+  { id: 904, seedId: 954, key: 'block_t1_reinforced_timber', name: 'Reinforced Timber', tier: 1, branch: 'botanical', growthTimeSec: 24, gemValue: 8, xpValue: 3, hardness: 3, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.0305, blockDropRate: 0.085, description: 'Heavy timber frame bound with iron stud bracing.', colorPrimary: '#8c6238', colorSecondary: '#473019', colorAccent: '#c49b6c' },
 
-  // Tier 2 (6..10): Masonry & Structural Bricks
-  { id: 905, seedId: 955, key: 'block_t2_quarry_stone', name: 'Quarry Stone', tier: 2, branch: 'arcane', growthTimeSec: 28, gemValue: 9, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.26, blockDropRate: 0.68, description: 'Rough-hewn quarried stone block with chiseled edges.', colorPrimary: '#737b86', colorSecondary: '#454b55', colorAccent: '#aab3bf' },
-  { id: 906, seedId: 956, key: 'block_t2_chiseled_stone', name: 'Chiseled Stone', tier: 2, branch: 'arcane', growthTimeSec: 32, gemValue: 10, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.26, blockDropRate: 0.68, description: 'Finely dressed ashlar stone masonry with neat bevel borders.', colorPrimary: '#8c94a0', colorSecondary: '#545c68', colorAccent: '#c4ccd8' },
-  { id: 907, seedId: 957, key: 'block_t2_fired_brick', name: 'Fired Brick', tier: 2, branch: 'botanical', growthTimeSec: 36, gemValue: 12, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.26, blockDropRate: 0.68, description: 'Traditional kiln-fired red clay brick with mortar joints.', colorPrimary: '#b84a39', colorSecondary: '#782b1e', colorAccent: '#e07a68' },
-  { id: 908, seedId: 958, key: 'block_t2_patterned_brick', name: 'Patterned Brick', tier: 2, branch: 'geomineral', growthTimeSec: 42, gemValue: 14, xpValue: 5, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.27, blockDropRate: 0.69, description: 'Decorative geometric brickwork with enhanced relief texture.', colorPrimary: '#c2593b', colorSecondary: '#7a321e', colorAccent: '#e68c73' },
-  { id: 909, seedId: 959, key: 'block_t2_stone_paver', name: 'Stone Paver', tier: 2, branch: 'geomineral', growthTimeSec: 48, gemValue: 16, xpValue: 6, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.27, blockDropRate: 0.69, description: 'Smooth cobblestone pavement slab polished flat by foot traffic.', colorPrimary: '#828c99', colorSecondary: '#4a525e', colorAccent: '#b0b8c4' },
+  // Tier 2 (6..10): Masonry & Structural Bricks — BlockBack 6.825% / ItsDrop 2.825%
+  { id: 905, seedId: 955, key: 'block_t2_quarry_stone', name: 'Quarry Stone', tier: 2, branch: 'arcane', growthTimeSec: 28, gemValue: 9, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02825, blockDropRate: 0.06825, description: 'Rough-hewn quarried stone block with chiseled edges.', colorPrimary: '#737b86', colorSecondary: '#454b55', colorAccent: '#aab3bf' },
+  { id: 906, seedId: 956, key: 'block_t2_chiseled_stone', name: 'Chiseled Stone', tier: 2, branch: 'arcane', growthTimeSec: 32, gemValue: 10, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02825, blockDropRate: 0.06825, description: 'Finely dressed ashlar stone masonry with neat bevel borders.', colorPrimary: '#8c94a0', colorSecondary: '#545c68', colorAccent: '#c4ccd8' },
+  { id: 907, seedId: 957, key: 'block_t2_fired_brick', name: 'Fired Brick', tier: 2, branch: 'botanical', growthTimeSec: 36, gemValue: 12, xpValue: 4, hardness: 4, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02825, blockDropRate: 0.06825, description: 'Traditional kiln-fired red clay brick with mortar joints.', colorPrimary: '#b84a39', colorSecondary: '#782b1e', colorAccent: '#e07a68' },
+  { id: 908, seedId: 958, key: 'block_t2_patterned_brick', name: 'Patterned Brick', tier: 2, branch: 'geomineral', growthTimeSec: 42, gemValue: 14, xpValue: 5, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02825, blockDropRate: 0.06825, description: 'Decorative geometric brickwork with enhanced relief texture.', colorPrimary: '#c2593b', colorSecondary: '#7a321e', colorAccent: '#e68c73' },
+  { id: 909, seedId: 959, key: 'block_t2_stone_paver', name: 'Stone Paver', tier: 2, branch: 'geomineral', growthTimeSec: 48, gemValue: 16, xpValue: 6, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02825, blockDropRate: 0.06825, description: 'Smooth cobblestone pavement slab polished flat by foot traffic.', colorPrimary: '#828c99', colorSecondary: '#4a525e', colorAccent: '#b0b8c4' },
 
-  // Tier 3 (11..15): Polished Stone & Fine Ceramics
-  { id: 910, seedId: 960, key: 'block_t3_smooth_basalt', name: 'Smooth Basalt', tier: 3, branch: 'luminescent', growthTimeSec: 54, gemValue: 18, xpValue: 6, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.27, blockDropRate: 0.69, description: 'Dense volcanic basalt slab polished to a fine matte finish.', colorPrimary: '#334155', colorSecondary: '#1e293b', colorAccent: '#64748b' },
-  { id: 911, seedId: 961, key: 'block_t3_veined_granite', name: 'Veined Granite', tier: 3, branch: 'luminescent', growthTimeSec: 60, gemValue: 19, xpValue: 7, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.27, blockDropRate: 0.69, description: 'Speckled architectural granite with crystalline quartz inclusions.', colorPrimary: '#94a3b8', colorSecondary: '#475569', colorAccent: '#e2e8f0' },
-  { id: 912, seedId: 962, key: 'block_t3_glazed_ceramic', name: 'Glazed Ceramic', tier: 3, branch: 'arcane', growthTimeSec: 68, gemValue: 24, xpValue: 8, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.28, blockDropRate: 0.70, description: 'High-fire ceramic tile coated in protective vitreous turquoise glaze.', colorPrimary: '#0ea5e9', colorSecondary: '#0369a1', colorAccent: '#7dd3fc' },
-  { id: 913, seedId: 963, key: 'block_t3_ceramic_mosaic', name: 'Ceramic Mosaic', tier: 3, branch: 'geomineral', growthTimeSec: 74, gemValue: 26, xpValue: 9, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.28, blockDropRate: 0.70, description: 'Ornate tessellated mosaic grid composed of vibrant glazed tesserae.', colorPrimary: '#06b6d4', colorSecondary: '#0e7490', colorAccent: '#f59e0b' },
-  { id: 914, seedId: 964, key: 'block_t3_polished_terrazzo', name: 'Polished Terrazzo', tier: 3, branch: 'geomineral', growthTimeSec: 80, gemValue: 28, xpValue: 9, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.28, blockDropRate: 0.70, description: 'Composite marble chip flooring ground glass-smooth and sealed.', colorPrimary: '#e2e8f0', colorSecondary: '#94a3b8', colorAccent: '#f43f5e' },
+  // Tier 3 (11..15): Polished Stone & Fine Ceramics — BlockBack 5.375% / ItsDrop 2.205%
+  { id: 910, seedId: 960, key: 'block_t3_smooth_basalt', name: 'Smooth Basalt', tier: 3, branch: 'luminescent', growthTimeSec: 54, gemValue: 18, xpValue: 6, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02205, blockDropRate: 0.05375, description: 'Dense volcanic basalt slab polished to a fine matte finish.', colorPrimary: '#334155', colorSecondary: '#1e293b', colorAccent: '#64748b' },
+  { id: 911, seedId: 961, key: 'block_t3_veined_granite', name: 'Veined Granite', tier: 3, branch: 'luminescent', growthTimeSec: 60, gemValue: 19, xpValue: 7, hardness: 5, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02205, blockDropRate: 0.05375, description: 'Speckled architectural granite with crystalline quartz inclusions.', colorPrimary: '#94a3b8', colorSecondary: '#475569', colorAccent: '#e2e8f0' },
+  { id: 912, seedId: 962, key: 'block_t3_glazed_ceramic', name: 'Glazed Ceramic', tier: 3, branch: 'arcane', growthTimeSec: 68, gemValue: 24, xpValue: 8, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02205, blockDropRate: 0.05375, description: 'High-fire ceramic tile coated in protective vitreous turquoise glaze.', colorPrimary: '#0ea5e9', colorSecondary: '#0369a1', colorAccent: '#7dd3fc' },
+  { id: 913, seedId: 963, key: 'block_t3_ceramic_mosaic', name: 'Ceramic Mosaic', tier: 3, branch: 'geomineral', growthTimeSec: 74, gemValue: 26, xpValue: 9, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02205, blockDropRate: 0.05375, description: 'Ornate tessellated mosaic grid composed of vibrant glazed tesserae.', colorPrimary: '#06b6d4', colorSecondary: '#0e7490', colorAccent: '#f59e0b' },
+  { id: 914, seedId: 964, key: 'block_t3_polished_terrazzo', name: 'Polished Terrazzo', tier: 3, branch: 'geomineral', growthTimeSec: 80, gemValue: 28, xpValue: 9, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.02205, blockDropRate: 0.05375, description: 'Composite marble chip flooring ground glass-smooth and sealed.', colorPrimary: '#e2e8f0', colorSecondary: '#94a3b8', colorAccent: '#f43f5e' },
 
-  // Tier 4 (16..20): Architectural Metals & Alloys
-  { id: 915, seedId: 965, key: 'block_t4_raw_iron', name: 'Raw Iron', tier: 4, branch: 'arcane', growthTimeSec: 86, gemValue: 30, xpValue: 10, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.28, blockDropRate: 0.70, description: 'Heavy cast pig iron ingot block with metallic grey lustre.', colorPrimary: '#64748b', colorSecondary: '#334155', colorAccent: '#94a3b8' },
-  { id: 916, seedId: 966, key: 'block_t4_riveted_iron', name: 'Riveted Iron', tier: 4, branch: 'luminescent', growthTimeSec: 96, gemValue: 36, xpValue: 12, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Industrial boiler plate steel reinforced with raised perimeter rivets.', colorPrimary: '#526070', colorSecondary: '#28323d', colorAccent: '#8292a3' },
-  { id: 917, seedId: 967, key: 'block_t4_stainless_steel', name: 'Stainless Steel', tier: 4, branch: 'geomineral', growthTimeSec: 108, gemValue: 40, xpValue: 13, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Brushed corrosion-resistant chromium-nickel alloy plate.', colorPrimary: '#cbd5e1', colorSecondary: '#64748b', colorAccent: '#ffffff' },
-  { id: 918, seedId: 968, key: 'block_t4_fluted_brass', name: 'Fluted Brass', tier: 4, branch: 'cosmic', growthTimeSec: 120, gemValue: 45, xpValue: 15, hardness: 8, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Warm golden brass panel adorned with parallel architectural fluting.', colorPrimary: '#d99b36', colorSecondary: '#8c5d19', colorAccent: '#ffde8a' },
-  { id: 919, seedId: 969, key: 'block_t4_engraved_bronze', name: 'Engraved Bronze', tier: 4, branch: 'cosmic', growthTimeSec: 140, gemValue: 52, xpValue: 18, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Statuary bronze relief panel etched with intricate classical filigree.', colorPrimary: '#b87333', colorSecondary: '#6e431a', colorAccent: '#e6a86c' },
+  // Tier 4 (16..20): Architectural Metals & Alloys — BlockBack 4.015% / ItsDrop 1.745%
+  { id: 915, seedId: 965, key: 'block_t4_raw_iron', name: 'Raw Iron', tier: 4, branch: 'arcane', growthTimeSec: 86, gemValue: 30, xpValue: 10, hardness: 6, minBlocks: 2, maxBlocks: 5, seedDropRate: 0.01745, blockDropRate: 0.04015, description: 'Heavy cast pig iron ingot block with metallic grey lustre.', colorPrimary: '#64748b', colorSecondary: '#334155', colorAccent: '#94a3b8' },
+  { id: 916, seedId: 966, key: 'block_t4_riveted_iron', name: 'Riveted Iron', tier: 4, branch: 'luminescent', growthTimeSec: 96, gemValue: 36, xpValue: 12, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.01745, blockDropRate: 0.04015, description: 'Industrial boiler plate steel reinforced with raised perimeter rivets.', colorPrimary: '#526070', colorSecondary: '#28323d', colorAccent: '#8292a3' },
+  { id: 917, seedId: 967, key: 'block_t4_stainless_steel', name: 'Stainless Steel', tier: 4, branch: 'geomineral', growthTimeSec: 108, gemValue: 40, xpValue: 13, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.01745, blockDropRate: 0.04015, description: 'Brushed corrosion-resistant chromium-nickel alloy plate.', colorPrimary: '#cbd5e1', colorSecondary: '#64748b', colorAccent: '#ffffff' },
+  { id: 918, seedId: 968, key: 'block_t4_fluted_brass', name: 'Fluted Brass', tier: 4, branch: 'cosmic', growthTimeSec: 120, gemValue: 45, xpValue: 15, hardness: 8, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.01745, blockDropRate: 0.04015, description: 'Warm golden brass panel adorned with parallel architectural fluting.', colorPrimary: '#d99b36', colorSecondary: '#8c5d19', colorAccent: '#ffde8a' },
+  { id: 919, seedId: 969, key: 'block_t4_engraved_bronze', name: 'Engraved Bronze', tier: 4, branch: 'cosmic', growthTimeSec: 140, gemValue: 52, xpValue: 18, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.01745, blockDropRate: 0.04015, description: 'Statuary bronze relief panel etched with intricate classical filigree.', colorPrimary: '#b87333', colorSecondary: '#6e431a', colorAccent: '#e6a86c' },
 
-  // Tier 5 (21..25): Silicates, Vitrified Glass & Fine Crystals
-  { id: 920, seedId: 970, key: 'block_t5_clear_glass', name: 'Clear Glass', tier: 5, branch: 'botanical', growthTimeSec: 110, gemValue: 42, xpValue: 14, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Transparent silicate architectural glass pane with specular gleam.', colorPrimary: '#7dd3fc', colorSecondary: '#1e3a5f', colorAccent: '#ffffff' },
-  { id: 921, seedId: 971, key: 'block_t5_frosted_glass', name: 'Frosted Glass', tier: 5, branch: 'botanical', growthTimeSec: 115, gemValue: 44, xpValue: 14, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Translucent acid-etched privacy glass diffusing soft ambient light.', colorPrimary: '#bae6fd', colorSecondary: '#475569', colorAccent: '#ffffff' },
-  { id: 922, seedId: 972, key: 'block_t5_beveled_crystal', name: 'Beveled Crystal', tier: 5, branch: 'arcane', growthTimeSec: 125, gemValue: 46, xpValue: 15, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.29, blockDropRate: 0.71, description: 'Optically cut lead crystal block refracting brilliant light spectra.', colorPrimary: '#c4b5fd', colorSecondary: '#5b21b6', colorAccent: '#ffffff' },
-  { id: 923, seedId: 973, key: 'block_t5_stained_glass', name: 'Stained Glass', tier: 5, branch: 'luminescent', growthTimeSec: 130, gemValue: 48, xpValue: 16, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Richly colored cathedral art glass held in secure lead cames.', colorPrimary: '#ec4899', colorSecondary: '#831843', colorAccent: '#f472b6' },
-  { id: 924, seedId: 974, key: 'block_t5_prismatic_quartz', name: 'Prismatic Quartz', tier: 5, branch: 'geomineral', growthTimeSec: 150, gemValue: 56, xpValue: 19, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Naturally terminated quartz crystal monolith splitting ambient rays.', colorPrimary: '#a855f7', colorSecondary: '#581c87', colorAccent: '#e9d5ff' },
+  // Tier 5 (21..25): Silicates, Vitrified Glass & Fine Crystals — BlockBack 2.915% / ItsDrop 1.105%
+  { id: 920, seedId: 970, key: 'block_t5_clear_glass', name: 'Clear Glass', tier: 5, branch: 'botanical', growthTimeSec: 110, gemValue: 42, xpValue: 14, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.01105, blockDropRate: 0.02915, description: 'Transparent silicate architectural glass pane with specular gleam.', colorPrimary: '#7dd3fc', colorSecondary: '#1e3a5f', colorAccent: '#ffffff' },
+  { id: 921, seedId: 971, key: 'block_t5_frosted_glass', name: 'Frosted Glass', tier: 5, branch: 'botanical', growthTimeSec: 115, gemValue: 44, xpValue: 14, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.01105, blockDropRate: 0.02915, description: 'Translucent acid-etched privacy glass diffusing soft ambient light.', colorPrimary: '#bae6fd', colorSecondary: '#475569', colorAccent: '#ffffff' },
+  { id: 922, seedId: 972, key: 'block_t5_beveled_crystal', name: 'Beveled Crystal', tier: 5, branch: 'arcane', growthTimeSec: 125, gemValue: 46, xpValue: 15, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.01105, blockDropRate: 0.02915, description: 'Optically cut lead crystal block refracting brilliant light spectra.', colorPrimary: '#c4b5fd', colorSecondary: '#5b21b6', colorAccent: '#ffffff' },
+  { id: 923, seedId: 973, key: 'block_t5_stained_glass', name: 'Stained Glass', tier: 5, branch: 'luminescent', growthTimeSec: 130, gemValue: 48, xpValue: 16, hardness: 7, minBlocks: 3, maxBlocks: 5, seedDropRate: 0.01105, blockDropRate: 0.02915, description: 'Richly colored cathedral art glass held in secure lead cames.', colorPrimary: '#ec4899', colorSecondary: '#831843', colorAccent: '#f472b6' },
+  { id: 924, seedId: 974, key: 'block_t5_prismatic_quartz', name: 'Prismatic Quartz', tier: 5, branch: 'geomineral', growthTimeSec: 150, gemValue: 56, xpValue: 19, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.01105, blockDropRate: 0.02915, description: 'Naturally terminated quartz crystal monolith splitting ambient rays.', colorPrimary: '#a855f7', colorSecondary: '#581c87', colorAccent: '#e9d5ff' },
 
-  // Tier 6 (26..30): Fine Luxury Hardwoods & Amber Resins
-  { id: 925, seedId: 975, key: 'block_t6_polished_pine', name: 'Polished Pine', tier: 6, branch: 'geomineral', growthTimeSec: 165, gemValue: 60, xpValue: 20, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.30, blockDropRate: 0.72, description: 'Fine-sanded golden pine wood treated with clear protective varnish.', colorPrimary: '#d4a373', colorSecondary: '#8c5d30', colorAccent: '#faedcd' },
-  { id: 926, seedId: 976, key: 'block_t6_striped_teak', name: 'Striped Teak', tier: 6, branch: 'arcane', growthTimeSec: 180, gemValue: 64, xpValue: 21, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.31, blockDropRate: 0.73, description: 'Exotic tropical teak wood featuring rich contrasting dark grain lines.', colorPrimary: '#b07d62', colorSecondary: '#66422f', colorAccent: '#d4a287' },
-  { id: 927, seedId: 977, key: 'block_t6_rich_mahogany', name: 'Rich Mahogany', tier: 6, branch: 'luminescent', growthTimeSec: 195, gemValue: 68, xpValue: 22, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.31, blockDropRate: 0.73, description: 'Deep reddish-brown luxury cabinet timber with exquisite lustre.', colorPrimary: '#782f16', colorSecondary: '#421608', colorAccent: '#b55a38' },
-  { id: 928, seedId: 978, key: 'block_t6_ebony_timber', name: 'Ebony Timber', tier: 6, branch: 'luminescent', growthTimeSec: 210, gemValue: 72, xpValue: 24, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.31, blockDropRate: 0.73, description: 'Dense jet-black luxury hardwood prized for bespoke joinery.', colorPrimary: '#1c1917', colorSecondary: '#0c0a09', colorAccent: '#57534e' },
-  { id: 929, seedId: 979, key: 'block_t6_amber_wood', name: 'Amber Wood', tier: 6, branch: 'arcane', growthTimeSec: 225, gemValue: 76, xpValue: 25, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.32, blockDropRate: 0.73, description: 'Resin-infused golden burr wood glowing with warm honey undertones.', colorPrimary: '#d97706', colorSecondary: '#78350f', colorAccent: '#fde68a' },
+  // Tier 6 (26..30): Fine Luxury Hardwoods & Amber Resins — BlockBack 1.785% / ItsDrop 0.505%
+  { id: 925, seedId: 975, key: 'block_t6_polished_pine', name: 'Polished Pine', tier: 6, branch: 'geomineral', growthTimeSec: 165, gemValue: 60, xpValue: 20, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.00505, blockDropRate: 0.01785, description: 'Fine-sanded golden pine wood treated with clear protective varnish.', colorPrimary: '#d4a373', colorSecondary: '#8c5d30', colorAccent: '#faedcd' },
+  { id: 926, seedId: 976, key: 'block_t6_striped_teak', name: 'Striped Teak', tier: 6, branch: 'arcane', growthTimeSec: 180, gemValue: 64, xpValue: 21, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.00505, blockDropRate: 0.01785, description: 'Exotic tropical teak wood featuring rich contrasting dark grain lines.', colorPrimary: '#b07d62', colorSecondary: '#66422f', colorAccent: '#d4a287' },
+  { id: 927, seedId: 977, key: 'block_t6_rich_mahogany', name: 'Rich Mahogany', tier: 6, branch: 'luminescent', growthTimeSec: 195, gemValue: 68, xpValue: 22, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.00505, blockDropRate: 0.01785, description: 'Deep reddish-brown luxury cabinet timber with exquisite lustre.', colorPrimary: '#782f16', colorSecondary: '#421608', colorAccent: '#b55a38' },
+  { id: 928, seedId: 978, key: 'block_t6_ebony_timber', name: 'Ebony Timber', tier: 6, branch: 'luminescent', growthTimeSec: 210, gemValue: 72, xpValue: 24, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.00505, blockDropRate: 0.01785, description: 'Dense jet-black luxury hardwood prized for bespoke joinery.', colorPrimary: '#1c1917', colorSecondary: '#0c0a09', colorAccent: '#57534e' },
+  { id: 929, seedId: 979, key: 'block_t6_amber_wood', name: 'Amber Wood', tier: 6, branch: 'arcane', growthTimeSec: 225, gemValue: 76, xpValue: 25, hardness: 8, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.00505, blockDropRate: 0.01785, description: 'Resin-infused golden burr wood glowing with warm honey undertones.', colorPrimary: '#d97706', colorSecondary: '#78350f', colorAccent: '#fde68a' },
 
-  // Tier 7 (31..35): Palatial Ornamental Marbles & Semi-Precious Minerals
-  { id: 930, seedId: 980, key: 'block_t7_carrara_marble', name: 'Carrara Marble', tier: 7, branch: 'cosmic', growthTimeSec: 250, gemValue: 84, xpValue: 28, hardness: 9, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.32, blockDropRate: 0.74, description: 'Pristine white Italian marble crossed with delicate grey veining.', colorPrimary: '#f1f5f9', colorSecondary: '#64748b', colorAccent: '#ffffff' },
-  { id: 931, seedId: 981, key: 'block_t7_nero_marquina', name: 'Nero Marquina', tier: 7, branch: 'cosmic', growthTimeSec: 275, gemValue: 90, xpValue: 30, hardness: 9, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.32, blockDropRate: 0.74, description: 'Deep black luxury limestone marked with striking white calcite veins.', colorPrimary: '#18181b', colorSecondary: '#09090b', colorAccent: '#d4d4d8' },
-  { id: 932, seedId: 982, key: 'block_t7_malachite_slab', name: 'Malachite Slab', tier: 7, branch: 'luminescent', growthTimeSec: 300, gemValue: 96, xpValue: 32, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.33, blockDropRate: 0.74, description: 'Striking green copper carbonate mineral slab with concentric banding.', colorPrimary: '#059669', colorSecondary: '#064e3b', colorAccent: '#34d399' },
-  { id: 933, seedId: 983, key: 'block_t7_lapis_lazuli', name: 'Lapis Lazuli', tier: 7, branch: 'cosmic', growthTimeSec: 330, gemValue: 104, xpValue: 35, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.33, blockDropRate: 0.75, description: 'Deep royal blue ultramarine stone studded with golden pyrite flecks.', colorPrimary: '#1d4ed8', colorSecondary: '#1e3a8a', colorAccent: '#fbbf24' },
-  { id: 934, seedId: 984, key: 'block_t7_imperial_jade', name: 'Imperial Jade', tier: 7, branch: 'botanical', growthTimeSec: 360, gemValue: 110, xpValue: 37, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.33, blockDropRate: 0.75, description: 'Translucent nephrite jade block carved for imperial palaces.', colorPrimary: '#10b981', colorSecondary: '#047857', colorAccent: '#6ee7b7' },
+  // Tier 7 (31..35): Palatial Ornamental Marbles & Semi-Precious Minerals — BlockBack 1.155% / ItsDrop 0.225%
+  { id: 930, seedId: 980, key: 'block_t7_carrara_marble', name: 'Carrara Marble', tier: 7, branch: 'cosmic', growthTimeSec: 250, gemValue: 84, xpValue: 28, hardness: 9, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.00225, blockDropRate: 0.01155, description: 'Pristine white Italian marble crossed with delicate grey veining.', colorPrimary: '#f1f5f9', colorSecondary: '#64748b', colorAccent: '#ffffff' },
+  { id: 931, seedId: 981, key: 'block_t7_nero_marquina', name: 'Nero Marquina', tier: 7, branch: 'cosmic', growthTimeSec: 275, gemValue: 90, xpValue: 30, hardness: 9, minBlocks: 3, maxBlocks: 6, seedDropRate: 0.00225, blockDropRate: 0.01155, description: 'Deep black luxury limestone marked with striking white calcite veins.', colorPrimary: '#18181b', colorSecondary: '#09090b', colorAccent: '#d4d4d8' },
+  { id: 932, seedId: 982, key: 'block_t7_malachite_slab', name: 'Malachite Slab', tier: 7, branch: 'luminescent', growthTimeSec: 300, gemValue: 96, xpValue: 32, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.00225, blockDropRate: 0.01155, description: 'Striking green copper carbonate mineral slab with concentric banding.', colorPrimary: '#059669', colorSecondary: '#064e3b', colorAccent: '#34d399' },
+  { id: 933, seedId: 983, key: 'block_t7_lapis_lazuli', name: 'Lapis Lazuli', tier: 7, branch: 'cosmic', growthTimeSec: 330, gemValue: 104, xpValue: 35, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.00225, blockDropRate: 0.01155, description: 'Deep royal blue ultramarine stone studded with golden pyrite flecks.', colorPrimary: '#1d4ed8', colorSecondary: '#1e3a8a', colorAccent: '#fbbf24' },
+  { id: 934, seedId: 984, key: 'block_t7_imperial_jade', name: 'Imperial Jade', tier: 7, branch: 'botanical', growthTimeSec: 360, gemValue: 110, xpValue: 37, hardness: 9, minBlocks: 3, maxBlocks: 7, seedDropRate: 0.00225, blockDropRate: 0.01155, description: 'Translucent nephrite jade block carved for imperial palaces.', colorPrimary: '#10b981', colorSecondary: '#047857', colorAccent: '#6ee7b7' },
 
-  // Tier 8 (36..40): Apex Sovereign Monoliths & Gem-Embedded Bullion
-  { id: 935, seedId: 985, key: 'block_t8_14k_gold', name: '14K Gold Block', tier: 8, branch: 'botanical', growthTimeSec: 400, gemValue: 120, xpValue: 40, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.34, blockDropRate: 0.75, description: 'Solid minted 14-karat gold alloy block shining with warm wealth.', colorPrimary: '#f59e0b', colorSecondary: '#b45309', colorAccent: '#fef08a' },
-  { id: 936, seedId: 986, key: 'block_t8_24k_gold', name: '24K Gold Monolith', tier: 8, branch: 'arcane', growthTimeSec: 450, gemValue: 130, xpValue: 43, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.34, blockDropRate: 0.75, description: 'Pure 24-karat bullion block reflecting supreme monarch prestige.', colorPrimary: '#fbbf24', colorSecondary: '#d97706', colorAccent: '#ffffff' },
-  { id: 937, seedId: 987, key: 'block_t8_platinum_lattice', name: 'Platinum Lattice', tier: 8, branch: 'botanical', growthTimeSec: 500, gemValue: 140, xpValue: 46, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.35, blockDropRate: 0.76, description: 'Intricately woven precious platinum structural cage matrix.', colorPrimary: '#e2e8f0', colorSecondary: '#64748b', colorAccent: '#ffffff' },
-  { id: 938, seedId: 988, key: 'block_t8_diamond_obsidian', name: 'Diamond Obsidian', tier: 8, branch: 'cosmic', growthTimeSec: 550, gemValue: 155, xpValue: 50, hardness: 10, minBlocks: 4, maxBlocks: 8, seedDropRate: 0.35, blockDropRate: 0.76, description: 'Abyssal volcanic glass matrix encrusted with flawless cut diamonds.', colorPrimary: '#38bdf8', colorSecondary: '#090d16', colorAccent: '#ffffff' },
-  { id: 939, seedId: 989, key: 'block_t8_imperial_monolith', name: 'Imperial Monolith', tier: 8, branch: 'cosmic', growthTimeSec: 600, gemValue: 175, xpValue: 60, hardness: 10, minBlocks: 4, maxBlocks: 8, seedDropRate: 0.36, blockDropRate: 0.77, description: 'The ultimate manifestation of agricultural mastery.', colorPrimary: '#e11d48', colorSecondary: '#4c0519', colorAccent: '#fbbf24' },
+  // Tier 8 (36..40): Apex Sovereign Monoliths & Gem-Embedded Bullion — BlockBack 0.575% / ItsDrop 0.075%
+  { id: 935, seedId: 985, key: 'block_t8_14k_gold', name: '14K Gold Block', tier: 8, branch: 'botanical', growthTimeSec: 400, gemValue: 120, xpValue: 40, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.00075, blockDropRate: 0.00575, description: 'Solid minted 14-karat gold alloy block shining with warm wealth.', colorPrimary: '#f59e0b', colorSecondary: '#b45309', colorAccent: '#fef08a' },
+  { id: 936, seedId: 986, key: 'block_t8_24k_gold', name: '24K Gold Monolith', tier: 8, branch: 'arcane', growthTimeSec: 450, gemValue: 130, xpValue: 43, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.00075, blockDropRate: 0.00575, description: 'Pure 24-karat bullion block reflecting supreme monarch prestige.', colorPrimary: '#fbbf24', colorSecondary: '#d97706', colorAccent: '#ffffff' },
+  { id: 937, seedId: 987, key: 'block_t8_platinum_lattice', name: 'Platinum Lattice', tier: 8, branch: 'botanical', growthTimeSec: 500, gemValue: 140, xpValue: 46, hardness: 10, minBlocks: 4, maxBlocks: 7, seedDropRate: 0.00075, blockDropRate: 0.00575, description: 'Intricately woven precious platinum structural cage matrix.', colorPrimary: '#e2e8f0', colorSecondary: '#64748b', colorAccent: '#ffffff' },
+  { id: 938, seedId: 988, key: 'block_t8_diamond_obsidian', name: 'Diamond Obsidian', tier: 8, branch: 'cosmic', growthTimeSec: 550, gemValue: 155, xpValue: 50, hardness: 10, minBlocks: 4, maxBlocks: 8, seedDropRate: 0.00075, blockDropRate: 0.00575, description: 'Abyssal volcanic glass matrix encrusted with flawless cut diamonds.', colorPrimary: '#38bdf8', colorSecondary: '#090d16', colorAccent: '#ffffff' },
+  { id: 939, seedId: 989, key: 'block_t8_imperial_monolith', name: 'Imperial Monolith', tier: 8, branch: 'cosmic', growthTimeSec: 600, gemValue: 175, xpValue: 60, hardness: 10, minBlocks: 4, maxBlocks: 8, seedDropRate: 0.00075, blockDropRate: 0.00575, description: 'The ultimate manifestation of agricultural mastery.', colorPrimary: '#e11d48', colorSecondary: '#4c0519', colorAccent: '#fbbf24' },
 ];
 
 export function getFarmableSpec(idOrSeedId: number): FarmableSpec | undefined {
@@ -3760,8 +3893,12 @@ export function getFarmablesByBranch(branch: FarmableBranch): FarmableSpec[] {
   return FARMABLE_SPECS.filter(s => s.branch === branch);
 }
 
-export function isFarmableSeed(seedId: number): boolean {
-  return seedId >= 950 && seedId <= 989;
+export function isFarmableMiscItem(itemId: number): boolean {
+  return itemId >= 950 && itemId <= 989;
+}
+
+export function isFarmableSeed(_seedId: number): boolean {
+  return false;
 }
 
 export interface CropSpec {
@@ -4228,7 +4365,7 @@ for (const sf of SCIFI_INFUSION_SPECS) {
 export function isStandardBaselineBlock(def: ItemDefinition): boolean {
   if (!def || !def.breakable) return false;
   if (def.category === 'farmable' || (def.id >= 900 && def.id <= 939)) return false;
-  if (isCropBlock(def.id) || isCropSeed(def.id) || isFarmableSeed(def.id)) return false;
+  if (isCropBlock(def.id) || isCropSeed(def.id) || isFarmableMiscItem(def.id)) return false;
   if (def.id === ITEM_IDS.PLOWED_DIRT_SOIL) return false;
   if (
     def.id === ITEM_IDS.COAL_VEIN ||
@@ -4248,30 +4385,9 @@ export function isStandardBaselineBlock(def: ItemDefinition): boolean {
   );
 }
 
-// Prune all non-Farmable, non-Crop seeds from CATALOG, enforce 500 max stack cap
-// on all stackable items, and apply uniform 12.5% single-block return on standard blocks.
-for (const def of Object.values(CATALOG)) {
-  delete def.spliceIngredients;
-  if (def.stackLimit > 1) {
-    def.stackLimit = 500;
-  }
-  if (def.category === 'seed' && !isFarmableSeed(def.id) && !isCropSeed(def.id)) {
-    delete CATALOG[def.id];
-    continue;
-  }
-  if (def.category !== 'farmable') {
-    if (def.seedId && !isFarmableSeed(def.seedId) && !isCropSeed(def.seedId)) {
-      delete def.seedId;
-    }
-  }
-  if (isStandardBaselineBlock(def)) {
-    delete def.seedId;
-    def.gemValue = 0;
-    def.xpValue = 1;
-    def.drops = [{ itemId: def.id, chance: 0.125, minQty: 1, maxQty: 1 }];
-  }
-}
-
+// Hydrate Farmablock tier drops and convert 950..989 into Miscellaneous non-placeable drops,
+// prune all non-Crop legacy seeds from CATALOG, enforce 500 max stack cap,
+// and apply uniform 12.5% single-block return on standard blocks.
 for (const spec of FARMABLE_SPECS) {
   const blockDef = CATALOG[spec.id];
   if (blockDef) {
@@ -4279,32 +4395,50 @@ for (const spec of FARMABLE_SPECS) {
     blockDef.gemValue = spec.gemValue;
     blockDef.xpValue = spec.xpValue;
     blockDef.farmableTier = spec.tier;
-    blockDef.seedId = spec.seedId;
-    blockDef.treeHarvestYield = {
-      minBlocks: spec.minBlocks,
-      maxBlocks: spec.maxBlocks,
-      seedChance: spec.seedDropRate,
-    };
+    delete blockDef.seedId;
+    delete blockDef.treeHarvestYield;
     blockDef.drops = [
       { itemId: spec.id, chance: spec.blockDropRate, minQty: 1, maxQty: 1 },
       { itemId: spec.seedId, chance: spec.seedDropRate, minQty: 1, maxQty: 1 },
     ];
   }
-  const seedDef = CATALOG[spec.seedId];
-  if (seedDef) {
-    delete seedDef.spliceIngredients;
-    seedDef.description = `Tier ${spec.tier} Farmable Seed (${spec.branch}). Plant inside a Seed Pot to grow ${spec.name}.`;
-    seedDef.farmableTier = spec.tier;
-    seedDef.growthTimeMs = spec.growthTimeSec * 1000;
-    seedDef.gemValue = Math.max(1, Math.round(spec.gemValue * 0.5));
-    seedDef.xpValue = spec.xpValue;
-    seedDef.placeable = true;
-    seedDef.producesTileId = spec.id;
-    seedDef.treeHarvestYield = {
-      minBlocks: spec.minBlocks,
-      maxBlocks: spec.maxBlocks,
-      seedChance: spec.seedDropRate,
-    };
+  const miscDef = CATALOG[spec.seedId];
+  if (miscDef) {
+    delete miscDef.spliceIngredients;
+    delete miscDef.producesTileId;
+    delete miscDef.growthTimeMs;
+    delete miscDef.treeHarvestYield;
+    delete miscDef.wearableSlot;
+    miscDef.category = 'misc';
+    miscDef.name = miscDef.name.replace(/\s+Seed$/i, ' Specimen');
+    miscDef.description = `Tier ${spec.tier} Farmablock Miscellaneous item (${spec.branch}). Not wearable, consumable, or placeable — reserved for future use.`;
+    miscDef.farmableTier = spec.tier;
+    miscDef.gemValue = Math.max(1, Math.round(spec.gemValue * 0.5));
+    miscDef.xpValue = spec.xpValue;
+    miscDef.collision = 'none';
+    miscDef.breakable = false;
+    miscDef.hardness = 0;
+    miscDef.placeable = false;
+  }
+}
+
+for (const def of Object.values(CATALOG)) {
+  delete def.spliceIngredients;
+  if (def.stackLimit > 1) {
+    def.stackLimit = 500;
+  }
+  if (def.category === 'seed' && !isCropSeed(def.id)) {
+    delete CATALOG[def.id];
+    continue;
+  }
+  if (def.seedId && !isCropSeed(def.seedId)) {
+    delete def.seedId;
+  }
+  if (isStandardBaselineBlock(def)) {
+    delete def.seedId;
+    def.gemValue = 0;
+    def.xpValue = 1;
+    def.drops = [{ itemId: def.id, chance: 0.125, minQty: 1, maxQty: 1 }];
   }
 }
 
@@ -5000,6 +5134,32 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     grants: [
       { itemId: ITEM_IDS.WEAR_GOLD_CROWN, qty: 1 },
       { itemId: ITEM_IDS.WEAR_SKY_WINGS, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_astro_set',
+    section: 'wearables',
+    name: 'Full Astronaut EVA Suit Set',
+    description: 'Complete 5-piece Spacesuit wardrobe: Space Helmet, Astro Suit, Astro Pants, Astro Boots & Lifesup Backpack.',
+    iconItemId: ITEM_IDS.WEAR_SPACE_HELMET,
+    gemPrice: 380,
+    grants: [
+      { itemId: ITEM_IDS.WEAR_SPACE_HELMET, qty: 1 },
+      { itemId: ITEM_IDS.WEAR_ASTRO_SUIT, qty: 1 },
+      { itemId: ITEM_IDS.WEAR_ASTRO_PANTS, qty: 1 },
+      { itemId: ITEM_IDS.WEAR_ASTRO_BOOTS, qty: 1 },
+      { itemId: ITEM_IDS.WEAR_LIFESUP_BACKPACK, qty: 1 },
+    ],
+  },
+  {
+    id: 'store_dragon_bone_wings',
+    section: 'wearables',
+    name: 'Dragon Bone Wings',
+    description: 'Skeletal drake back wings that flap rhythmically behind your torso in flight and rest.',
+    iconItemId: ITEM_IDS.WEAR_DRAGON_BONE_WINGS,
+    gemPrice: 210,
+    grants: [
+      { itemId: ITEM_IDS.WEAR_DRAGON_BONE_WINGS, qty: 1 },
     ],
   },
 ];

@@ -9,6 +9,7 @@ import {
   getMatteragenBranch,
   getMatteragenGenerationPool,
   getMatteragenIntervalMs,
+  isFarmableMiscItem,
   isFarmableSeed,
   ITEM_IDS,
   MATTERAGEN_UPGRADE_COSTS,
@@ -18,40 +19,44 @@ import { canPlaceTile, tileIndexIn } from '../src/game/rules.ts';
 import { generateWorld } from '../src/game/worldGen.ts';
 import { AuthoritativeWorldStore } from '../server/worldStore.ts';
 
-test('40 Farmable Crops registry synced with catalog and general block seeds retired', () => {
+test('40 Farmablocks registry synced with exact tier drops and 950..989 converted to Miscellaneous', () => {
   assert.equal(FARMABLE_SPECS.length, 40);
 
   const ids = new Set<number>();
-  const seedIds = new Set<number>();
+  const miscIds = new Set<number>();
   const branches = new Set<string>();
   const tiers = new Set<number>();
 
   for (const spec of FARMABLE_SPECS) {
     assert.ok(spec.id >= 900 && spec.id <= 939, `Unexpected farmable block ID ${spec.id}`);
-    assert.ok(spec.seedId >= 950 && spec.seedId <= 989, `Unexpected farmable seed ID ${spec.seedId}`);
+    assert.ok(spec.seedId >= 950 && spec.seedId <= 989, `Unexpected farmable misc ID ${spec.seedId}`);
     assert.equal(ids.has(spec.id), false);
-    assert.equal(seedIds.has(spec.seedId), false);
+    assert.equal(miscIds.has(spec.seedId), false);
     ids.add(spec.id);
-    seedIds.add(spec.seedId);
+    miscIds.add(spec.seedId);
     branches.add(spec.branch);
     tiers.add(spec.tier);
 
     const blockDef = CATALOG[spec.id];
-    const seedDef = CATALOG[spec.seedId];
+    const miscDef = CATALOG[spec.seedId];
     assert.ok(blockDef, `Missing catalog block for ${spec.name}`);
-    assert.ok(seedDef, `Missing catalog seed for ${spec.name}`);
+    assert.ok(miscDef, `Missing catalog misc item for ${spec.name}`);
     assert.equal(blockDef.category, 'farmable');
-    assert.equal(seedDef.category, 'seed');
-    assert.equal(seedDef.placeable, true);
-    assert.equal(seedDef.producesTileId, spec.id);
-    assert.equal(seedDef.growthTimeMs, spec.growthTimeSec * 1000);
+    assert.equal(blockDef.seedId, undefined);
+    assert.equal(blockDef.treeHarvestYield, undefined);
+    assert.equal(miscDef.category, 'misc');
+    assert.equal(miscDef.placeable, false);
+    assert.equal(miscDef.producesTileId, undefined);
+    assert.equal(miscDef.wearableSlot, undefined);
     assert.equal(blockDef.hardness, spec.hardness);
     assert.equal(blockDef.gemValue, spec.gemValue);
     assert.equal(blockDef.xpValue, spec.xpValue);
-    assert.equal(blockDef.treeHarvestYield?.minBlocks, spec.minBlocks);
-    assert.equal(blockDef.treeHarvestYield?.maxBlocks, spec.maxBlocks);
-    assert.equal(blockDef.treeHarvestYield?.seedChance, spec.seedDropRate);
-    assert.equal(isFarmableSeed(spec.seedId), true);
+    assert.deepEqual(blockDef.drops, [
+      { itemId: spec.id, chance: spec.blockDropRate, minQty: 1, maxQty: 1 },
+      { itemId: spec.seedId, chance: spec.seedDropRate, minQty: 1, maxQty: 1 },
+    ]);
+    assert.equal(isFarmableSeed(spec.seedId), false);
+    assert.equal(isFarmableMiscItem(spec.seedId), true);
   }
 
   assert.deepEqual(
@@ -134,7 +139,7 @@ test('personal world generation is 50x40 plain dirt preset, WorldCore lock, and 
   store.leaveWorld(firstRealmName, reg.account.id, true);
 });
 
-test('Seed Pots cost 500 Gems with no crafting recipe and strictly hold 1 farmable seed at a time', () => {
+test('Seed Pots cost 500 Gems with no crafting recipe and 950..989 Miscellaneous items cannot be planted or placed', () => {
   const seedPotListing = GEM_STORE_LISTINGS.find((l) => l.id === 'store_seed_pot');
   assert.ok(seedPotListing, 'Seed Pot must exist in GEM_STORE_LISTINGS');
   assert.equal(seedPotListing?.gemPrice, 500);
@@ -159,14 +164,14 @@ test('Seed Pots cost 500 Gems with no crafting recipe and strictly hold 1 farmab
   acct.gems = 600;
   // Seed legacy inventory with a retired general seed & verify hydration purges it
   acct.inventory.push({ itemId: ITEM_IDS.GP_SEED_DIRT, qty: 12 });
-  // Re-login hydrates defaults and strips non-farmable seeds
+  // Re-login hydrates defaults and strips non-crop legacy seeds while keeping misc specimens
   const relogin = store.loginAccount({ identifier: acct.email, password: 'password123' });
   assert.equal(relogin.ok, true);
   if (!relogin.ok) return;
   assert.equal(
     relogin.account.inventory.some((s) => s.itemId === ITEM_IDS.GP_SEED_DIRT),
     false,
-    'Non-farmable seeds must be cleared from player inventory'
+    'Non-crop seeds must be cleared from player inventory'
   );
 
   const buyPot = store.handleBuyGemStore(relogin.account, 'store_seed_pot', `pot_${suffix}`);
@@ -188,57 +193,33 @@ test('Seed Pots cost 500 Gems with no crafting recipe and strictly hold 1 farmab
   joined.world.state.fg[tileIndexIn(joined.world.state, tx, ty + 1)] = ITEM_IDS.GP_DIRT;
 
   store.addInventory(relogin.account, ITEM_IDS.SEED_FARM_SUGAR_CANE, 3);
-  store.addInventory(relogin.account, ITEM_IDS.SEED_FARM_PEPPER_BUSH, 2);
+  store.addInventory(relogin.account, ITEM_IDS.FARM_SUGAR_CANE, 2);
 
-  // Cannot plant without a Seed Pot
-  const plantNoPot = store.handlePlaceTile(
-    joined.world,
-    relogin.account,
-    ITEM_IDS.SEED_FARM_SUGAR_CANE,
-    tx,
-    ty
-  );
-  assert.equal(plantNoPot.ok, false);
-  assert.match(plantNoPot.reason ?? '', /Seed Pot/i);
-
-  // Place Seed Pot, then plant first Farmable Seed
+  // Place Seed Pot cleanly
   const placePot = store.handlePlaceTile(joined.world, relogin.account, ITEM_IDS.SEED_POT, tx, ty);
   assert.equal(placePot.ok, true);
+  assert.equal(joined.world.state.fg[tileIndexIn(joined.world.state, tx, ty)], ITEM_IDS.SEED_POT);
 
-  const plantFirst = store.handlePlaceTile(
+  // Converted Farmablock specimen (#950) is Miscellaneous (non-placeable) even on a Seed Pot
+  const tryMiscPlace = store.handlePlaceTile(
     joined.world,
     relogin.account,
     ITEM_IDS.SEED_FARM_SUGAR_CANE,
     tx,
     ty
   );
-  assert.equal(plantFirst.ok, true);
-  assert.equal(joined.world.state.seedPots?.[`${tx},${ty}`]?.hasPlant, true);
+  assert.equal(tryMiscPlace.ok, false);
+  assert.match(tryMiscPlace.reason ?? '', /cannot be placed/i);
 
-  // Reject planting a second seed into an occupied Seed Pot (no splicing allowed)
-  const plantSecond = store.handlePlaceTile(
+  // Farmablock itself (#900) remains placeable beside the pot
+  const placeBlock = store.handlePlaceTile(
     joined.world,
     relogin.account,
-    ITEM_IDS.SEED_FARM_PEPPER_BUSH,
-    tx,
+    ITEM_IDS.FARM_SUGAR_CANE,
+    tx + 1,
     ty
   );
-  assert.equal(plantSecond.ok, false);
-
-  // Mature the tree & punch to harvest -> drops farmables while Seed Pot remains empty
-  joined.world.state.plants[`${tx},${ty}`].plantedAt = Date.now() - 20000;
-  joined.world.state.plants[`${tx},${ty}`].maturityAt = Date.now() - 1000;
-  store['lastPunchAt'].delete(relogin.account.id);
-  const harvest = store.handlePunchTile(joined.world, relogin.account, tx, ty);
-  assert.equal(harvest.ok, true);
-  if (harvest.ok) {
-    assert.equal(harvest.broken, true);
-    assert.equal(harvest.layer, 'plant');
-    assert.ok(harvest.drops.length >= 1);
-  }
-  assert.equal(joined.world.state.plants[`${tx},${ty}`], undefined);
-  assert.equal(joined.world.state.fg[tileIndexIn(joined.world.state, tx, ty)], ITEM_IDS.SEED_POT);
-  assert.equal(joined.world.state.seedPots?.[`${tx},${ty}`]?.hasPlant, false);
+  assert.equal(placeBlock.ok, true);
 
   store.leaveWorld(realmName, relogin.account.id, true);
 });

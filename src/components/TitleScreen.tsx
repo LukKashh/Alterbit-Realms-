@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Volume2, VolumeX } from 'lucide-react';
+import { soundEngine } from '../game/audio.ts';
 
 interface TitleScreenProps {
   onLogin: (identifier: string, password: string) => Promise<void>;
@@ -20,9 +22,26 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const [muted, setMuted] = useState<boolean>(() => soundEngine.muted);
+
+  const ensureMenuAudioPlaying = () => {
+    soundEngine.unlock();
+    soundEngine.startMenuTheme();
+  };
+
+  const handleToggleSound = () => {
+    soundEngine.unlock();
+    const nextMuted = !soundEngine.muted;
+    soundEngine.muted = nextMuted;
+    setMuted(nextMuted);
+    if (!nextMuted) {
+      soundEngine.startMenuTheme();
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    ensureMenuAudioPlaying();
     setLocalError(null);
     if (authTab === 'login') {
       if (!identifier.trim() || !password) {
@@ -46,69 +65,128 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   const displayError = localError || errorMessage;
 
   return (
-    <div className="fixed inset-0 z-20 flex flex-col justify-between px-3 sm:px-6 py-3 pointer-events-none overflow-y-auto">
-      <div className="flex flex-col items-center gap-3 pt-1 sm:pt-2 my-auto w-full">
+    <div
+      onPointerDown={ensureMenuAudioPlaying}
+      onKeyDown={ensureMenuAudioPlaying}
+      className="fixed inset-0 z-20 flex flex-col justify-center px-3 sm:px-6 py-4 pointer-events-none overflow-y-auto"
+    >
+      <div className="flex flex-col items-center gap-3.5 my-auto w-full">
+        {/* Futuristic Sci-Fi Alteria Header & Pixel Cosmic Crest */}
         <svg
-          viewBox="0 0 520 100"
-          className="w-full max-w-[420px] h-auto drop-shadow-[0_4px_0_rgba(12,24,38,0.85)]"
+          viewBox="0 0 560 112"
+          className="w-full max-w-[470px] h-auto drop-shadow-[0_6px_18px_rgba(56,189,248,0.32)]"
           role="img"
-          aria-label="Blockgrove"
+          aria-label="Alteria"
         >
-          <g transform="translate(18, 12)">
-            <rect x="4" y="8" width="56" height="56" fill="#23374d" stroke="#0d1824" strokeWidth="4" />
-            <rect x="8" y="12" width="48" height="16" fill="#4aa64d" />
-            <rect x="8" y="12" width="48" height="6" fill="#82e068" />
-            <rect x="8" y="28" width="48" height="32" fill="#7d5133" />
-            <rect x="24" y="34" width="16" height="20" fill="#f2b738" />
-            <rect x="28" y="38" width="8" height="6" fill="#fff0a8" />
-            <rect x="30" y="46" width="4" height="6" fill="#4f3206" />
+          <defs>
+            <linearGradient id="alteriaCoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#67e8f9" />
+              <stop offset="50%" stopColor="#38bdf8" />
+              <stop offset="100%" stopColor="#818cf8" />
+            </linearGradient>
+            <linearGradient id="alteriaTextGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#f8fafc" />
+              <stop offset="55%" stopColor="#bae6fd" />
+              <stop offset="100%" stopColor="#7dd3fc" />
+            </linearGradient>
+          </defs>
+
+          {/* Cosmic Hex/Orbital Emblem */}
+          <g transform="translate(16, 14)">
+            {/* Outer Orbital Halo */}
+            <ellipse
+              cx="40"
+              cy="40"
+              rx="35"
+              ry="13"
+              transform="rotate(-22 40 40)"
+              fill="none"
+              stroke="#38bdf8"
+              strokeWidth="3"
+              strokeOpacity="0.72"
+            />
+            {/* Hexagonal Dark Space Chassis */}
+            <polygon
+              points="40,8 66,23 66,57 40,72 14,57 14,23"
+              fill="#0b1330"
+              stroke="#7dd3fc"
+              strokeWidth="3.5"
+            />
+            {/* Inner Geometric Crystal 'A' Spire */}
+            <polygon
+              points="40,18 55,54 46,54 40,39 34,54 25,54"
+              fill="url(#alteriaCoreGrad)"
+            />
+            <rect x="33" y="45" width="14" height="5" fill="#e0f2fe" />
+            {/* Pixel Star Sparks */}
+            <rect x="6" y="16" width="4" height="4" fill="#a5f3fc" />
+            <rect x="70" y="18" width="5" height="5" fill="#c084fc" />
+            <rect x="64" y="64" width="4" height="4" fill="#fde047" />
           </g>
+
           <text
-            x="96"
-            y="55"
-            fill="#fff8e8"
-            stroke="#0e1b29"
-            strokeWidth="8"
+            x="108"
+            y="61"
+            fill="url(#alteriaTextGrad)"
+            stroke="#060c22"
+            strokeWidth="9"
             paintOrder="stroke fill"
-            fontFamily="'Silkscreen', monospace"
+            fontFamily="'Silkscreen', 'Pixelify Sans', monospace"
             fontWeight="700"
-            fontSize="44"
-            letterSpacing="2"
+            fontSize="50"
+            letterSpacing="4"
           >
-            BLOCKGROVE
+            ALTERIA
           </text>
           <text
-            x="98"
-            y="82"
-            fill="#ffe18c"
-            stroke="#0e1b29"
+            x="110"
+            y="88"
+            fill="#a5f3fc"
+            stroke="#060c22"
             strokeWidth="5"
             paintOrder="stroke fill"
             fontFamily="'Plus Jakarta Sans', sans-serif"
-            fontWeight="700"
-            fontSize="14"
-            letterSpacing="3"
+            fontWeight="800"
+            fontSize="12.5"
+            letterSpacing="2.4"
           >
-            PERSISTENT 2D SANDBOX WORLDS
+            2D-MMO SANDBOX PLATFORMER CONCEPT
           </text>
         </svg>
 
         <form
           onSubmit={handleSubmit}
-          className="pointer-events-auto w-full max-w-[440px] pixel-wood-box p-4 flex flex-col gap-3"
+          className="pointer-events-auto w-full max-w-[440px] alteria-login-box p-4 sm:p-5 flex flex-col gap-3.5"
         >
+          {/* Card Header Strip + Sound Toggle */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-pixel uppercase tracking-[0.18em] text-[#7dd3fc]">
+              Orbital Uplink Access
+            </span>
+            <button
+              type="button"
+              onClick={handleToggleSound}
+              title={muted ? 'Unmute Login Soundtrack' : 'Mute Login Soundtrack'}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-[7px] text-[10px] font-semibold bg-[#0f1c42]/90 border border-[#38bdf8]/45 text-[#bae6fd] hover:text-white hover:border-[#7dd3fc] cursor-pointer transition-colors"
+            >
+              {muted ? <VolumeX className="w-3.5 h-3.5 text-[#f87171]" /> : <Volume2 className="w-3.5 h-3.5 text-[#38bdf8]" />}
+              <span>{muted ? 'Muted' : '28-bit OST'}</span>
+            </button>
+          </div>
+
           {/* Existing User Login vs New Profile Creation Tabs */}
-          <div className="hud-subpanel grid grid-cols-2 gap-1.5 p-1">
+          <div className="alteria-subpanel grid grid-cols-2 gap-1.5 p-1">
             <button
               type="button"
               onClick={() => {
+                ensureMenuAudioPlaying();
                 setAuthTab('login');
                 setLocalError(null);
               }}
-              className={`py-1.5 rounded-[7px] text-[11px] font-pixel cursor-pointer transition-colors border-2 ${
+              className={`py-1.5 rounded-[7px] text-[11px] font-pixel cursor-pointer transition-all border ${
                 authTab === 'login'
-                  ? 'bg-white/90 border-[#0284c7] text-[#091e3a]'
-                  : 'border-transparent text-[#23476d] hover:text-[#091e3a]'
+                  ? 'bg-[#0284c7]/35 border-[#38bdf8] text-[#f0f9ff] shadow-[0_0_12px_rgba(56,189,248,0.28)]'
+                  : 'border-transparent text-[#94a3b8] hover:text-[#e0f2fe]'
               }`}
             >
               User Login
@@ -116,13 +194,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             <button
               type="button"
               onClick={() => {
+                ensureMenuAudioPlaying();
                 setAuthTab('register');
                 setLocalError(null);
               }}
-              className={`py-1.5 rounded-[7px] text-[11px] font-pixel cursor-pointer transition-colors border-2 ${
+              className={`py-1.5 rounded-[7px] text-[11px] font-pixel cursor-pointer transition-all border ${
                 authTab === 'register'
-                  ? 'bg-white/90 border-[#047857] text-[#091e3a]'
-                  : 'border-transparent text-[#23476d] hover:text-[#091e3a]'
+                  ? 'bg-[#4f46e5]/40 border-[#818cf8] text-[#f0f9ff] shadow-[0_0_12px_rgba(129,140,248,0.28)]'
+                  : 'border-transparent text-[#94a3b8] hover:text-[#e0f2fe]'
               }`}
             >
               New Profile
@@ -131,7 +210,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
           {authTab === 'login' ? (
             <div className="flex flex-col gap-2.5">
-              <label className="flex flex-col gap-1 text-xs font-semibold text-[#091e3a]">
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[#bae6fd]">
                 <span>Email or Username</span>
                 <input
                   type="text"
@@ -139,10 +218,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   placeholder="Enter email or username"
-                  className="hud-input px-2.5 py-2 text-sm font-semibold"
+                  className="alteria-input px-3 py-2 text-sm font-semibold"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs font-semibold text-[#091e3a]">
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[#bae6fd]">
                 <span>Password</span>
                 <input
                   type="password"
@@ -150,14 +229,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter password"
-                  className="hud-input px-2.5 py-2 text-sm font-semibold"
+                  className="alteria-input px-3 py-2 text-sm font-semibold"
                 />
               </label>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2.5">
               <div className="grid grid-cols-2 gap-2.5">
-                <label className="flex flex-col gap-1 text-xs font-semibold text-[#091e3a]">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-[#bae6fd]">
                   <span>Email</span>
                   <input
                     type="email"
@@ -165,10 +244,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="hud-input px-2.5 py-1.5 text-sm font-semibold focus:!border-[#047857]"
+                    className="alteria-input px-2.5 py-1.5 text-sm font-semibold"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold text-[#091e3a]">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-[#bae6fd]">
                   <span>Username</span>
                   <input
                     type="text"
@@ -177,12 +256,12 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="Explorer"
-                    className="hud-input px-2.5 py-1.5 text-sm font-semibold focus:!border-[#047857]"
+                    className="alteria-input px-2.5 py-1.5 text-sm font-semibold"
                   />
                 </label>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
-                <label className="flex flex-col gap-1 text-xs font-semibold text-[#091e3a]">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-[#bae6fd]">
                   <span>Password</span>
                   <input
                     type="password"
@@ -190,10 +269,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Min 6 chars"
-                    className="hud-input px-2.5 py-1.5 text-sm font-semibold focus:!border-[#047857]"
+                    className="alteria-input px-2.5 py-1.5 text-sm font-semibold"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold text-[#091e3a]">
+                <label className="flex flex-col gap-1 text-xs font-semibold text-[#bae6fd]">
                   <span>Confirm Password</span>
                   <input
                     type="password"
@@ -201,12 +280,12 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repeat password"
-                    className="hud-input px-2.5 py-1.5 text-sm font-semibold focus:!border-[#047857]"
+                    className="alteria-input px-2.5 py-1.5 text-sm font-semibold"
                   />
                 </label>
               </div>
-              <p className="text-[11px] text-[#23476d]">
-                New explorers begin with Builder Fist &amp; Tinker Wrench in their backpack.
+              <p className="text-[11px] text-[#94a3b8]">
+                New explorers deploy with Builder Fist &amp; Tinker Wrench in their backpack.
               </p>
             </div>
           )}
@@ -214,7 +293,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           {displayError && (
             <div
               role="alert"
-              className="rounded-[8px] text-xs font-semibold text-[#991b1b] bg-[#fee2e2]/90 border-2 border-[#dc2626] px-2.5 py-1.5"
+              className="rounded-[8px] text-xs font-semibold text-[#fecaca] bg-[#7f1d1d]/75 border border-[#f87171]/75 px-2.5 py-1.5"
             >
               {displayError}
             </div>
@@ -224,22 +303,17 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             type="submit"
             disabled={submitting}
             data-start="true"
-            className="pixel-btn pixel-btn-emerald w-full !py-2.5 !text-sm disabled:opacity-50 whitespace-nowrap"
+            className="alteria-cta-btn w-full py-2.5 text-sm disabled:opacity-50 whitespace-nowrap"
           >
             {submitting
-              ? 'Authenticating...'
+              ? 'Connecting to Alteria...'
               : authTab === 'login'
-                ? 'Log In to World Hub'
-                : 'Create Profile & Enter Hub'}
+                ? 'Log In to Alteria'
+                : 'Create Profile & Launch'}
           </button>
         </form>
-      </div>
-
-      <div className="flex justify-center pt-2">
-        <p className="pixel-box !rounded-[9px] text-[11px] sm:text-xs font-semibold text-[#091e3a] px-3 py-1 text-center max-w-full">
-          A/D or Arrows Move · W/Space Jump · Tap &amp; Hold Drag to Break/Place · 1–5 Hotbar
-        </p>
       </div>
     </div>
   );
 };
+

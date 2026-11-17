@@ -774,6 +774,7 @@ export function getInventorySortRank(itemId: number): number {
   if (def.category === 'foreground') return 50;
   if (def.category === 'background') return 60;
   if (def.category === 'material') return 70;
+  if (def.category === 'misc') return 72;
   if (def.category === 'fluid') return 75;
   if (def.category === 'consumable') return 80;
   if (def.category === 'wearable') return 90;

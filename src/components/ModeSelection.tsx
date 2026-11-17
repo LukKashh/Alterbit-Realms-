@@ -73,7 +73,7 @@ export const ModeSelection: React.FC<ModeSelectionProps> = ({
     <main className="my-auto mx-auto w-full max-w-4xl pixel-box p-4 sm:p-6">
       <header className="pixel-box-header -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 px-4 sm:px-6 py-4 mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="font-pixel text-[10px] tracking-widest text-[#0369a1]">BLOCKGROVE REALMS</p>
+          <p className="font-pixel text-[10px] tracking-widest text-[#0369a1]">ALTERIA REALMS</p>
           <h1 className="mt-1 ui-pixel-heading text-lg text-[#091e3a]">Choose Your Realm</h1>
           <p className="mt-1 text-xs font-mono-num text-[#23476d] flex flex-wrap items-center gap-1.5">
             <span>{playerName} · Level {formatHudNumber(level)} ·</span>

@@ -18,6 +18,7 @@ import {
 import { getItemIconUrl } from '../game/pixelArt.ts';
 import { AdminWorldsBrowser } from './AdminWorldsBrowser.tsx';
 import { AdminDatasetPanel } from './AdminDatasetPanel.tsx';
+import { AdminEntityPanel, type WorldEntitiesSnapshot } from './AdminEntityPanel.tsx';
 import { RedGemIcon } from './RedGemIcon.tsx';
 import { isOpeningFrameTickLocked, openingFrameTick } from '../game/openingFrameTick.ts';
 import type { WorldSummary } from '../game/network.ts';
@@ -37,6 +38,7 @@ import {
   ArrowLeft,
   Layers,
   ChevronRight,
+  Users,
 } from 'lucide-react';
 
 export interface AdminActionPayload {
@@ -78,7 +80,16 @@ export interface AdminPanelProps {
   worlds?: WorldSummary[];
   onRefreshWorlds?: () => void;
   onWarpWorld?: (worldName: string) => void;
-  initialView?: 'selection' | 'catalog' | 'worlds' | 'datasets';
+  entitiesSnapshot?: WorldEntitiesSnapshot | null;
+  onRefreshEntities?: () => void;
+  onTeleportEntity?: (opts: {
+    entityKind: 'player' | 'npc';
+    entityId: string;
+    targetTx?: number;
+    targetTy?: number;
+    summon?: boolean;
+  }) => void;
+  initialView?: 'selection' | 'catalog' | 'worlds' | 'datasets' | 'entities';
   onClose: () => void;
 }
 
@@ -88,6 +99,7 @@ type FilterCategory =
   | 'farmable'
   | 'crop'
   | 'seed'
+  | 'misc'
   | 'background'
   | 'interactive'
   | 'wearable'
@@ -106,19 +118,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onSaveConfig,
   onAdminAction,
   worldName,
+  coords,
   adminWorldEdit = false,
   adminBrushItemId = null,
   onToggleAdminWorldEdit,
   worlds = [],
   onRefreshWorlds,
   onWarpWorld,
+  entitiesSnapshot = null,
+  onRefreshEntities,
+  onTeleportEntity,
   initialView = 'selection',
   onClose,
 }) => {
-  const [adminView, setAdminView] = useState<'selection' | 'catalog' | 'worlds' | 'datasets'>(
+  const [adminView, setAdminView] = useState<'selection' | 'catalog' | 'worlds' | 'datasets' | 'entities'>(
     initialView
   );
-  const switchAdminView = (nextView: 'selection' | 'catalog' | 'worlds' | 'datasets') => {
+  const switchAdminView = (nextView: 'selection' | 'catalog' | 'worlds' | 'datasets' | 'entities') => {
     if (isOpeningFrameTickLocked()) return;
     openingFrameTick();
     setAdminView(nextView);
@@ -204,11 +220,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         case 'foreground':
           return item.category === 'foreground' && !item.farmableTier && !isCropBlock(item.id);
         case 'farmable':
-          return item.category === 'farmable' || Boolean(item.farmableTier);
+          return item.category === 'farmable';
         case 'crop':
           return isCropBlock(item.id) || isCropItem(item.id) || isCropSeed(item.id);
         case 'seed':
           return item.category === 'seed';
+        case 'misc':
+          return item.category === 'misc';
         case 'background':
           return item.category === 'background';
         case 'interactive':
@@ -450,6 +468,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     );
   }
 
+  // View 1C: Entity Management Window
+  if (adminView === 'entities') {
+    return (
+      <AdminEntityPanel
+        worldName={worldName}
+        coords={coords}
+        entitiesSnapshot={entitiesSnapshot}
+        onRefreshEntities={onRefreshEntities}
+        onTeleportEntity={onTeleportEntity}
+        onBackToMenu={() => switchAdminView('selection')}
+        onClose={onClose}
+      />
+    );
+  }
+
   // View 2: Admin Tools Selection Menu (Hub)
   if (adminView === 'selection') {
     return (
@@ -672,6 +705,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
               <ChevronRight size={20} className="text-[#2563eb] shrink-0 group-hover:translate-x-1 transition-transform" />
             </button>
+
+            {/* TOOL 4: Entity Management */}
+            <button
+              type="button"
+              data-testid="admin-select-entities-btn"
+              onClick={() => switchAdminView('entities')}
+              className="w-full text-left p-3.5 bg-white hover:bg-[#ecfeff] border-2 border-[#0891b2] hover:border-[#0e7490] rounded-[10px] shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 group"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-[9px] bg-gradient-to-br from-[#06b6d4] to-[#0e7490] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                  <Users size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-sm text-[#0f172a] group-hover:text-[#0e7490] transition-colors">
+                      Entity Management
+                    </h3>
+                    <span className="px-1.5 py-0.5 rounded-[5px] text-[9px] font-bold uppercase bg-[#cffafe] text-[#155e75] border border-[#67e8f9]">
+                      Players & NPCs · Teleport · Summon
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#475569] mt-1 leading-relaxed">
+                    Select any active player or NPC in the current world, inspect their live tile coordinates,
+                    teleport them to chosen coordinates, or summon them directly to your location.
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 text-[10px] text-[#0891b2] font-semibold flex-wrap">
+                    <span>• Active Players & World NPCs</span>
+                    <span>• Coordinate Teleportation</span>
+                    <span>• Summon to Admin</span>
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={20} className="text-[#0891b2] shrink-0 group-hover:translate-x-1 transition-transform" />
+            </button>
           </div>
         </div>
       </div>
@@ -728,6 +795,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             <Globe size={11} />
             Server Worlds
+          </button>
+          {/* Switch to Entity Management */}
+          <button
+            type="button"
+            data-testid="admin-switch-to-entities-btn"
+            onClick={() => switchAdminView('entities')}
+            className="px-2 py-1 rounded-[7px] text-[10px] font-bold uppercase tracking-wider bg-white/90 text-[#0e7490] border border-[#06b6d4] hover:bg-[#cffafe] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+            title="Switch to Entity Management"
+          >
+            <Users size={11} />
+            Entities
           </button>
           {/* SysEdit Admin World Restriction Bypass Toggle */}
           <button
@@ -895,6 +973,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               { id: 'farmable', label: 'Farmables' },
               { id: 'crop', label: 'Crops' },
               { id: 'seed', label: 'Seeds' },
+              { id: 'misc', label: 'Misc' },
               { id: 'background', label: 'Walls' },
               { id: 'interactive', label: 'Interactive' },
               { id: 'wearable', label: 'Gear' },
