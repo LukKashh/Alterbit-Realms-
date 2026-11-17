@@ -2,42 +2,90 @@ import { BLOCKGROVE_ART_THEME as THEME } from './artTheme.ts';
 import { PLAYER_HEIGHT, PLAYER_WIDTH } from './constants.ts';
 
 export const DRAGON_BONE_WINGS_IMG_SRC =
-  '/assets/aistudio/file_0000000043c08246a1af2ecf8c765682_61b8c150.png';
+  '/assets/aistudio/file_000000004b548246aa191527fbd08976_acc22d5c.png';
 
-export const DRAGON_BONE_WINGS_IMG_CROP = {
-  left: { sx: 73, sy: 143, sw: 685, sh: 730, shoulderRatioX: 398 / 685, shoulderRatioY: 85 / 730 },
-  right: { sx: 778, sy: 143, sw: 685, sh: 730, shoulderRatioX: 276 / 685, shoulderRatioY: 85 / 730 },
-  full: { sx: 73, sy: 143, sw: 1390, sh: 730 },
-} as const;
-
-export interface DragonWingFlapFrame {
-  upAngleRad: number;
-  scaleX: number;
-  scaleY: number;
-  dy: number;
+export interface DragonBoneWingFrameCoords {
+  left: { sx: number; sy: number; sw: number; sh: number; ballX: number; ballY: number };
+  right: { sx: number; sy: number; sw: number; sh: number; ballX: number; ballY: number };
 }
 
-export const DRAGON_WING_FLAP_FRAMES_GROUNDED: readonly DragonWingFlapFrame[] = [
-  { upAngleRad: 0.02, scaleX: 1.0, scaleY: 1.0, dy: 0 },
-  { upAngleRad: 0.07, scaleX: 1.02, scaleY: 0.98, dy: -0.5 },
-  { upAngleRad: 0.12, scaleX: 1.04, scaleY: 0.96, dy: -1 },
-  { upAngleRad: 0.07, scaleX: 1.02, scaleY: 0.98, dy: -0.5 },
+/**
+ * 6-Frame Dragon Bone Wings Sprite Sheet (1024x1536)
+ * Row 0: Frame 0 (Tightly folded / tucked)
+ * Row 1: Frame 1 (Semi-folded / resting)
+ * Row 2: Frame 2 (Neutral ready / semi-spread)
+ * Row 3: Frame 3 (Extending / spreading)
+ * Row 4: Frame 4 (Wide extended spread)
+ * Row 5: Frame 5 (Fully extended wide wings / peak jump)
+ */
+export const DRAGON_BONE_WINGS_SPRITE_FRAMES: readonly DragonBoneWingFrameCoords[] = [
+  // Frame 0: Tightly folded / tucked
+  {
+    left: { sx: 324, sy: 8, sw: 175, sh: 255, ballX: 101, ballY: 24 },
+    right: { sx: 525, sy: 8, sw: 175, sh: 255, ballX: 72, ballY: 24 },
+  },
+  // Frame 1: Semi-folded / resting
+  {
+    left: { sx: 269, sy: 280, sw: 229, sh: 230, ballX: 138, ballY: 24 },
+    right: { sx: 526, sy: 280, sw: 228, sh: 230, ballX: 91, ballY: 24 },
+  },
+  // Frame 2: Neutral ready / semi-spread
+  {
+    left: { sx: 223, sy: 527, sw: 275, sh: 231, ballX: 170, ballY: 24 },
+    right: { sx: 526, sy: 527, sw: 274, sh: 231, ballX: 105, ballY: 24 },
+  },
+  // Frame 3: Extending / spreading
+  {
+    left: { sx: 164, sy: 774, sw: 334, sh: 224, ballX: 222, ballY: 24 },
+    right: { sx: 526, sy: 774, sw: 334, sh: 224, ballX: 112, ballY: 24 },
+  },
+  // Frame 4: Wide extended spread
+  {
+    left: { sx: 102, sy: 1016, sw: 396, sh: 223, ballX: 284, ballY: 24 },
+    right: { sx: 526, sy: 1016, sw: 396, sh: 223, ballX: 112, ballY: 24 },
+  },
+  // Frame 5: Fully extended wide wings (peak jump / glide)
+  {
+    left: { sx: 58, sy: 1273, sw: 440, sh: 234, ballX: 328, ballY: 24 },
+    right: { sx: 526, sy: 1273, sw: 440, sh: 234, ballX: 112, ballY: 24 },
+  },
 ];
 
-export const DRAGON_WING_FLAP_FRAMES_AIRBORNE: readonly DragonWingFlapFrame[] = [
-  { upAngleRad: 0.03, scaleX: 1.0, scaleY: 1.0, dy: 0 },
-  { upAngleRad: 0.16, scaleX: 1.05, scaleY: 0.95, dy: -1 },
-  { upAngleRad: 0.29, scaleX: 1.1, scaleY: 0.9, dy: -2 },
-  { upAngleRad: 0.14, scaleX: 1.04, scaleY: 0.96, dy: -1 },
-];
+export const DRAGON_BONE_WINGS_IMG_CROP = {
+  left: DRAGON_BONE_WINGS_SPRITE_FRAMES[2].left,
+  right: DRAGON_BONE_WINGS_SPRITE_FRAMES[2].right,
+  full: { sx: 223, sy: 527, sw: 577, sh: 231 },
+} as const;
 
-export function getDragonBoneWingFlapFrame(nowMs: number, grounded: boolean): DragonWingFlapFrame {
-  if (grounded) {
-    const idx = Math.floor(Math.max(0, nowMs) / 240) % DRAGON_WING_FLAP_FRAMES_GROUNDED.length;
-    return DRAGON_WING_FLAP_FRAMES_GROUNDED[idx];
+export function getDragonBoneWingFrameIndex(
+  nowMs: number,
+  grounded: boolean,
+  vy = 0,
+  landing = false
+): number {
+  if (landing) {
+    return 1;
   }
-  const idx = Math.floor(Math.max(0, nowMs) / 90) % DRAGON_WING_FLAP_FRAMES_AIRBORNE.length;
-  return DRAGON_WING_FLAP_FRAMES_AIRBORNE[idx];
+  if (grounded) {
+    // Gentle idle breathing between frame 1 (semi-folded) and frame 2 (relaxed spread)
+    const breath = Math.sin(Math.max(0, nowMs) * 0.0035);
+    return breath > 0.2 ? 2 : 1;
+  }
+  // Airborne: extending and flapping through the wide jumping frames!
+  if (vy < -100) {
+    // Upward launch impulse: fast extension sequence from semi-spread (2) to spreading (3) to wide (4) to fully extended (5)
+    const step = Math.floor((Math.max(0, nowMs) / 75) % 4);
+    return [2, 3, 4, 5][step];
+  } else if (vy < 0) {
+    // Approaching jump apex: holding wide extended wings
+    const step = Math.floor((Math.max(0, nowMs) / 90) % 3);
+    return [4, 5, 5][step];
+  } else {
+    // Descending or gliding: majestic flapping loop through extended frames: 2 -> 3 -> 4 -> 5 -> 4 -> 3
+    const flapSeq = [2, 3, 4, 5, 4, 3];
+    const flapIdx = Math.floor((Math.max(0, nowMs) / 85) % flapSeq.length);
+    return flapSeq[flapIdx];
+  }
 }
 
 let cachedDragonWingsImg: HTMLImageElement | null = null;
@@ -1647,7 +1695,9 @@ export function drawModularWearableSubLayer(
   equipped: EquippedWearables | undefined,
   layer: WearableRenderLayer,
   nowMs = 0,
-  grounded = true
+  grounded = true,
+  vy = 0,
+  landing = false
 ): void {
   if (!equipped) return;
 
@@ -1683,44 +1733,55 @@ export function drawModularWearableSubLayer(
 
     if (itemId === 410) {
       // Draw Left & Right Dragon Bone Wing halves independently behind left & right torso shoulders,
-      // flanking the character symmetrically with non-downward upward/outward flapping frames.
-      const frame = getDragonBoneWingFlapFrame(nowMs, grounded);
-      const wingW = 36;
-      const wingH = 38;
+      // dynamically selecting frames 0..5 from the 6-row sprite sheet as wings extend during jump/flight!
+      const frameIdx = getDragonBoneWingFrameIndex(nowMs, grounded, vy, landing);
+      const frame = DRAGON_BONE_WINGS_SPRITE_FRAMES[frameIdx];
+      const scale = 38 / 230;
       const shoulderOffsetX = 15;
-      const shoulderOffsetY = spec.offsetY + frame.dy;
+      const shoulderOffsetY = spec.offsetY;
       const imgAsset = getDragonBoneWingsImage();
       const useAsset = Boolean(imgAsset && imgAsset.complete && imgAsset.naturalWidth > 0);
 
+      // Flapping rotation lifts the outer wing tips upward & outward (never pointing downwards)
+      const upAngleRad = grounded
+        ? 0.02 + Math.max(0, Math.sin(nowMs * 0.0035)) * 0.05
+        : 0.04 + (frameIdx - 1) * 0.045;
+      const scaleX = grounded ? 1.0 : (1 + (frameIdx >= 4 ? 0.04 : 0.02));
+      const scaleY = 1.0;
+
       // Left wing (pivoted around left shoulder socket; +upAngleRad lifts outer wing UP & LEFT)
-      const leftBallX = Math.round(wingW * DRAGON_BONE_WINGS_IMG_CROP.left.shoulderRatioX);
-      const leftBallY = Math.round(wingH * DRAGON_BONE_WINGS_IMG_CROP.left.shoulderRatioY);
+      const lW = Math.round(frame.left.sw * scale);
+      const lH = Math.round(frame.left.sh * scale);
+      const lBallX = Math.round(frame.left.ballX * scale);
+      const lBallY = Math.round(frame.left.ballY * scale);
+
       ctx.save();
       ctx.translate(-shoulderOffsetX, shoulderOffsetY);
-      ctx.rotate(frame.upAngleRad);
-      ctx.scale(frame.scaleX, frame.scaleY);
+      ctx.rotate(upAngleRad);
+      ctx.scale(scaleX, scaleY);
       if (useAsset && imgAsset) {
-        const c = DRAGON_BONE_WINGS_IMG_CROP.left;
-        ctx.drawImage(imgAsset, c.sx, c.sy, c.sw, c.sh, -leftBallX, -leftBallY, wingW, wingH);
+        ctx.drawImage(imgAsset, frame.left.sx, frame.left.sy, frame.left.sw, frame.left.sh, -lBallX, -lBallY, lW, lH);
       } else {
         const halfW = Math.floor(img.width / 2);
-        ctx.drawImage(img, 0, 0, halfW, img.height, -leftBallX, -leftBallY, wingW, wingH);
+        ctx.drawImage(img, 0, 0, halfW, img.height, -lBallX, -lBallY, lW, lH);
       }
       ctx.restore();
 
       // Right wing (pivoted around right shoulder socket; -upAngleRad lifts outer wing UP & RIGHT)
-      const rightBallX = Math.round(wingW * DRAGON_BONE_WINGS_IMG_CROP.right.shoulderRatioX);
-      const rightBallY = Math.round(wingH * DRAGON_BONE_WINGS_IMG_CROP.right.shoulderRatioY);
+      const rW = Math.round(frame.right.sw * scale);
+      const rH = Math.round(frame.right.sh * scale);
+      const rBallX = Math.round(frame.right.ballX * scale);
+      const rBallY = Math.round(frame.right.ballY * scale);
+
       ctx.save();
       ctx.translate(shoulderOffsetX, shoulderOffsetY);
-      ctx.rotate(-frame.upAngleRad);
-      ctx.scale(frame.scaleX, frame.scaleY);
+      ctx.rotate(-upAngleRad);
+      ctx.scale(scaleX, scaleY);
       if (useAsset && imgAsset) {
-        const c = DRAGON_BONE_WINGS_IMG_CROP.right;
-        ctx.drawImage(imgAsset, c.sx, c.sy, c.sw, c.sh, -rightBallX, -rightBallY, wingW, wingH);
+        ctx.drawImage(imgAsset, frame.right.sx, frame.right.sy, frame.right.sw, frame.right.sh, -rBallX, -rBallY, rW, rH);
       } else {
         const halfW = Math.floor(img.width / 2);
-        ctx.drawImage(img, halfW, 0, img.width - halfW, img.height, -rightBallX, -rightBallY, wingW, wingH);
+        ctx.drawImage(img, halfW, 0, img.width - halfW, img.height, -rBallX, -rBallY, rW, rH);
       }
       ctx.restore();
     } else if (itemId === 404) {
@@ -1776,7 +1837,16 @@ export function drawModularCharacter(
   drawSubLayerPart(ctx, backHandImg, rig.handBack);
 
   // 2. Back Wearables Sub-Layer (Lifesup Backpack or wings anchored behind torso spine)
-  drawModularWearableSubLayer(ctx, rig, equipped, 'behind_torso', params.nowMs, params.grounded);
+  drawModularWearableSubLayer(
+    ctx,
+    rig,
+    equipped,
+    'behind_torso',
+    params.nowMs,
+    params.grounded,
+    params.vy,
+    params.landing
+  );
 
   // 3. Feet & Legs Sub-Layer (Back then Front leg/foot composed cleanly with Astro Pants & Astro Boots)
   const backFootImg = getComposedLegFootCanvas(
@@ -1798,7 +1868,16 @@ export function drawModularCharacter(
 
   // 4. Torso Sub-Layer & Torso Armor/Pants Waist Girdle
   drawSubLayerPart(ctx, parts.torsos[rig.torsoVariant], rig.torso);
-  drawModularWearableSubLayer(ctx, rig, equipped, 'on_torso', params.nowMs, params.grounded);
+  drawModularWearableSubLayer(
+    ctx,
+    rig,
+    equipped,
+    'on_torso',
+    params.nowMs,
+    params.grounded,
+    params.vy,
+    params.landing
+  );
 
   // 5. Head Sub-Layer
   drawSubLayerPart(ctx, parts.head, rig.head);
@@ -1817,8 +1896,26 @@ export function drawModularCharacter(
   ctx.restore();
 
   // 7. Face & Head Wearables Sub-Layers (visors, hats, crowns, and translucent Space Helmet over head/face)
-  drawModularWearableSubLayer(ctx, rig, equipped, 'on_face', params.nowMs, params.grounded);
-  drawModularWearableSubLayer(ctx, rig, equipped, 'on_head', params.nowMs, params.grounded);
+  drawModularWearableSubLayer(
+    ctx,
+    rig,
+    equipped,
+    'on_face',
+    params.nowMs,
+    params.grounded,
+    params.vy,
+    params.landing
+  );
+  drawModularWearableSubLayer(
+    ctx,
+    rig,
+    equipped,
+    'on_head',
+    params.nowMs,
+    params.grounded,
+    params.vy,
+    params.landing
+  );
 
   // 8. Front Hand Sub-Layer (bare or linked Astro Suit sleeve/glove overlapping shoulder socket + Held Action Prop)
   const frontHandImg = wearingAstroSuit

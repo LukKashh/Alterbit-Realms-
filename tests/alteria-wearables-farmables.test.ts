@@ -21,6 +21,9 @@ import {
 import {
   computeModularPlayerRig,
   drawModularCharacter,
+  DRAGON_BONE_WINGS_IMG_SRC,
+  DRAGON_BONE_WINGS_SPRITE_FRAMES,
+  getDragonBoneWingFrameIndex,
   getWearableExtraTopClearance,
   getWearableLocalization,
   WEARABLE_LOCALIZATION,
@@ -636,6 +639,27 @@ test('Dragon Bone Wings (410) render in 30-bit pixel art, localize behind torso,
       air2.leftWingScale && (air2.leftWingScale[0] !== 1 || air2.leftWingScale[1] !== 1),
       'Airborne peak flap frame must apply subtle spread scaling'
     );
+
+    // Verify 6-frame sprite sheet and jump extension state sequence
+    assert.equal(DRAGON_BONE_WINGS_SPRITE_FRAMES.length, 6, 'Sprite sheet must contain exactly 6 frame tiers (rows 0..5)');
+    assert.match(DRAGON_BONE_WINGS_IMG_SRC, /file_000000004b548246aa191527fbd08976_acc22d5c\.png$/);
+
+    // Grounded: resting/breathing between frame 1 and 2
+    const gFrame1 = getDragonBoneWingFrameIndex(0, true, 0, false);
+    const gFrame2 = getDragonBoneWingFrameIndex(500, true, 0, false);
+    assert.ok(gFrame1 === 1 || gFrame1 === 2);
+    assert.ok(gFrame2 === 1 || gFrame2 === 2);
+
+    // Jumping upward (vy < -100): extends rapidly through wide frames up to Frame 5 (fully extended)
+    const jumpFrames = new Set<number>();
+    for (let t = 0; t <= 300; t += 75) {
+      jumpFrames.add(getDragonBoneWingFrameIndex(t, false, -180, false));
+    }
+    assert.ok(jumpFrames.has(5), 'Jumping must extend wings into fully extended Frame 5');
+    assert.ok(jumpFrames.has(4) || jumpFrames.has(3), 'Jumping must transition through extending frames');
+
+    // Landing: tucks back to frame 1
+    assert.equal(getDragonBoneWingFrameIndex(100, true, 0, true), 1);
   } finally {
     if (origDoc === undefined) {
       delete (globalThis as { document?: unknown }).document;
