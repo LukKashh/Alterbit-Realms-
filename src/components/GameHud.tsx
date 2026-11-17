@@ -44,6 +44,8 @@ import {
 import { getItemIconUrl, type EquippedWearables } from '../game/pixelArt.ts';
 import {
   masteryXpForNextLevel,
+  VAULTBOX_UPGRADE_DIGIBITS_COST,
+  VAULTBOX_UPGRADE_MIN_LEVEL,
   worldXpForNextLevel,
   xpForNextLevel,
 } from '../game/rules.ts';
@@ -85,10 +87,13 @@ interface GameHudProps {
   onToggleAdminWorldEdit?: (enabled: boolean, brushItemId?: number | null) => void;
   worldName: string;
   worldOwner: string | null;
+  worldOwnerId?: string | null;
   worldXp?: number;
   worldLevel?: number;
   worldCoreTokens?: number;
   worldHasFurnaceExpansion?: boolean;
+  worldHasVaultboxExpansion?: boolean;
+  vaultboxPlacementActive?: boolean;
   playerCount: number;
   coords: { tx: number; ty: number };
   gems: number;
@@ -201,6 +206,8 @@ interface GameHudProps {
   onUpgradeMatteragen?: (tx: number, ty: number) => void;
   onClaimMatteragen?: (tx: number, ty: number) => void;
   onUnlockWorldCoreFurnace?: () => void;
+  onStartWorldCoreVaultboxPlacement?: () => void;
+  onCancelWorldCoreVaultboxPlacement?: () => void;
   onTrashInventoryItem?: (opts: { itemId: number; qty?: number; rodInstanceId?: string }) => void;
   onConfigureVaultbox?: (
     tx: number,
@@ -332,28 +339,28 @@ const PunchJoystick: React.FC<PunchJoystickProps> = ({ selectedItemId, isPortrai
       }}
       className={`relative ${
         isPortrait ? 'w-14 h-14' : 'w-[68px] h-[68px]'
-      } rounded-[12px] border-[2.5px] flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing backdrop-blur-md shadow-[0_3px_0_rgba(15,42,74,0.3)] transition-colors ${
+      } rounded-[12px] border-[2.5px] flex items-center justify-center touch-none select-none cursor-grab active:cursor-grabbing backdrop-blur-[4px] shadow-[0_3px_0_rgba(2,132,199,0.28)] transition-colors ${
         active
-          ? 'bg-[#cfe7fc]/85 border-[#0284c7]'
-          : 'bg-[#d8ecfc]/75 border-[#2c5885]'
+          ? 'bg-[#0ea5e9]/[0.28] border-[#0284c7]'
+          : 'bg-[#daecfc]/[0.22] border-[#0284c7]'
       }`}
     >
       {/* Directional ring crosshair guides */}
-      <div className="pointer-events-none absolute inset-2 rounded-[9px] border border-dashed border-[#2c5885]/45" />
-      <span className="pointer-events-none absolute top-1 text-[8px] font-bold text-[#091e3a] leading-none">▲</span>
-      <span className="pointer-events-none absolute bottom-1 text-[8px] font-bold text-[#091e3a] leading-none">▼</span>
-      <span className="pointer-events-none absolute left-1.5 text-[8px] font-bold text-[#091e3a] leading-none">◀</span>
-      <span className="pointer-events-none absolute right-1.5 text-[8px] font-bold text-[#091e3a] leading-none">▶</span>
+      <div className="pointer-events-none absolute inset-2 rounded-[9px] border border-dashed border-[#0284c7]/55" />
+      <span className="pointer-events-none absolute top-1 text-[8px] font-bold text-[#0284c7] leading-none">▲</span>
+      <span className="pointer-events-none absolute bottom-1 text-[8px] font-bold text-[#0284c7] leading-none">▼</span>
+      <span className="pointer-events-none absolute left-1.5 text-[8px] font-bold text-[#0284c7] leading-none">◀</span>
+      <span className="pointer-events-none absolute right-1.5 text-[8px] font-bold text-[#0284c7] leading-none">▶</span>
 
       {/* Movable thumb knob */}
       <div
         ref={knobElRef}
         className={`pointer-events-none ${
           isPortrait ? 'w-8 h-8' : 'w-10 h-10'
-        } rounded-xl border-2 flex flex-col items-center justify-center shadow-[0_2px_0_rgba(15,23,42,0.45)] will-change-transform ${
+        } rounded-xl border-2 flex flex-col items-center justify-center shadow-[0_2px_0_rgba(2,132,199,0.45)] will-change-transform ${
           active
-            ? 'bg-[#b91c1c] border-[#fecaca]'
-            : 'bg-[#dc2626] border-[#7f1d1d]'
+            ? 'bg-[#0ea5e9] border-[#bae6fd]'
+            : 'bg-[#0284c7] border-[#075985]'
         }`}
         style={{
           transform: 'translate3d(0px, 0px, 0)',
@@ -429,6 +436,43 @@ const RoleBadgeIcon: React.FC<{
   );
 };
 
+const PixelArrowIcon: React.FC<{
+  direction: 'left' | 'right' | 'up';
+  className?: string;
+}> = ({ direction, className = 'w-8 h-8' }) => {
+  if (direction === 'up') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} shapeRendering="crispEdges" aria-hidden="true">
+        <rect x="7" y="2" width="2" height="2" fill="currentColor" />
+        <rect x="5" y="4" width="6" height="2" fill="currentColor" />
+        <rect x="3" y="6" width="10" height="2" fill="currentColor" />
+        <rect x="2" y="8" width="12" height="2" fill="currentColor" />
+        <rect x="6" y="10" width="4" height="4" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (direction === 'left') {
+    return (
+      <svg viewBox="0 0 16 16" className={className} shapeRendering="crispEdges" aria-hidden="true">
+        <rect x="2" y="7" width="2" height="2" fill="currentColor" />
+        <rect x="4" y="5" width="2" height="6" fill="currentColor" />
+        <rect x="6" y="3" width="2" height="10" fill="currentColor" />
+        <rect x="8" y="2" width="2" height="12" fill="currentColor" />
+        <rect x="10" y="6" width="4" height="4" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 16 16" className={className} shapeRendering="crispEdges" aria-hidden="true">
+      <rect x="12" y="7" width="2" height="2" fill="currentColor" />
+      <rect x="10" y="5" width="2" height="6" fill="currentColor" />
+      <rect x="8" y="3" width="2" height="10" fill="currentColor" />
+      <rect x="6" y="2" width="2" height="12" fill="currentColor" />
+      <rect x="2" y="6" width="4" height="4" fill="currentColor" />
+    </svg>
+  );
+};
+
 export const GameHud: React.FC<GameHudProps> = ({
   mode,
   playerId,
@@ -442,10 +486,13 @@ export const GameHud: React.FC<GameHudProps> = ({
   onToggleAdminWorldEdit,
   worldName,
   worldOwner,
+  worldOwnerId = null,
   worldXp = 0,
   worldLevel = 1,
   worldCoreTokens = 0,
   worldHasFurnaceExpansion = false,
+  worldHasVaultboxExpansion = false,
+  vaultboxPlacementActive = false,
   playerCount,
   coords,
   gems,
@@ -525,6 +572,8 @@ export const GameHud: React.FC<GameHudProps> = ({
   onUpgradeMatteragen,
   onClaimMatteragen,
   onUnlockWorldCoreFurnace,
+  onStartWorldCoreVaultboxPlacement,
+  onCancelWorldCoreVaultboxPlacement,
   onTrashInventoryItem,
   onConfigureVaultbox,
   hasClaimedStarterLootbox: _hasClaimedStarterLootbox = false,
@@ -737,7 +786,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               data-testid="hud-panel-view"
               className="pointer-events-auto flex items-center gap-1.5 max-w-full"
             >
-              {/* Player Profile Box (Icon + Nameplate expanded to fill Profile box inside subtle rounded frames) */}
+              {/* Player Profile Box (Role-themed Outer Frame & Shared Metallic Nameplate Styling) */}
               <button
                 type="button"
                 tabIndex={-1}
@@ -749,16 +798,22 @@ export const GameHud: React.FC<GameHudProps> = ({
                   togglePanel('profile');
                 }}
                 className={`pixel-box relative flex flex-col justify-between gap-1 text-left animate-hud-slide-down ${
+                  role === 'admin' ? 'hud-admin-frame' : ''
+                } ${
                   isPortrait ? 'min-w-[168px] min-h-[54px]' : 'min-w-[196px] min-h-[56px]'
                 } p-1.5 transition-all cursor-pointer ${
                   activePanel === 'profile'
-                    ? '!border-[#0284c7] ring-2 ring-[#38bdf8]/45'
+                    ? role === 'admin'
+                      ? '!border-[#9a3412] ring-2 ring-[#f59e0b]/55'
+                      : '!border-[#0284c7] ring-2 ring-[#38bdf8]/45'
                     : 'hover:brightness-[1.03]'
                 }`}
               >
                 <div
                   data-testid="hud-profile-identity-row"
-                  className="flex items-center gap-1.5 w-full flex-1 min-w-0 rounded-[9px] bg-white/35 backdrop-blur-md border-2 border-[#1e3a5f] shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_2px_6_rgba(15,42,74,0.18)] px-2 py-0.5 my-0.5"
+                  className={`flex items-center gap-1.5 w-full flex-1 min-w-0 rounded-[9px] backdrop-blur-md px-2 py-0.5 my-0.5 ${
+                    role === 'admin' ? 'hud-admin-namebox' : 'hud-metallic-player'
+                  }`}
                 >
                   <div
                     data-testid="hud-profile-icon-box"
@@ -774,25 +829,35 @@ export const GameHud: React.FC<GameHudProps> = ({
                     className="flex-1 min-w-0 flex items-center justify-center"
                   >
                     <span
-                      className={`font-pixel ${
+                      className={`hud-nameplate-text ${
                         isPortrait ? 'text-[19px]' : 'text-[22px]'
-                      } font-extrabold tracking-wide text-[#0b1622] whitespace-nowrap truncate leading-none text-center w-full`}
-                      style={{
-                        textShadow: '0 1px 0 rgba(255,255,255,0.9), 0 0 4px rgba(255,255,255,0.8), 0 1px 2px rgba(11,22,34,0.35)',
-                      }}
+                      } font-extrabold tracking-wide ${
+                        role === 'admin' ? 'text-[#fde047]' : 'text-[#ffffff]'
+                      } whitespace-nowrap truncate leading-none text-center w-full`}
                     >
                       {playerName}
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 w-full px-0.5">
-                  <div className="flex-1 h-2 rounded-[6px] bg-white/75 border border-[#4172a3] overflow-hidden">
+                  <div
+                    data-testid="hud-profile-xp-bar"
+                    className={`flex-1 h-1.5 rounded-[5px] bg-white/75 border ${
+                      role === 'admin' ? 'border-[#9a3412]/75' : 'border-[#4172a3]/75'
+                    } overflow-hidden`}
+                  >
                     <div
-                      className="h-full rounded-[4px] bg-[#0284c7] transition-[width] duration-150"
+                      className={`h-full rounded-[4px] transition-[width] duration-150 ${
+                        role === 'admin' ? 'bg-[#d97706]' : 'bg-[#0284c7]'
+                      }`}
                       style={{ width: `${xpPct}%` }}
                     />
                   </div>
-                  <span className="text-[10px] font-mono-num font-bold text-[#091e3a] whitespace-nowrap leading-none">
+                  <span
+                    className={`text-[10px] font-mono-num font-bold whitespace-nowrap leading-none ${
+                      role === 'admin' ? 'text-[#7c2d12]' : 'text-[#091e3a]'
+                    }`}
+                  >
                     Lv.{formatHudNumber(level)}
                   </span>
                 </div>
@@ -1382,6 +1447,29 @@ export const GameHud: React.FC<GameHudProps> = ({
                       <span>· 3 Core Tokens)</span>
                     </button>
                   )}
+
+                  {/* Second Hidden WorldCore Expansion: Lv.7 Vaultbox Upgrade (1,750 Digibits) */}
+                  {worldLevel >= VAULTBOX_UPGRADE_MIN_LEVEL && !worldHasVaultboxExpansion && (() => {
+                    const canUnlockVaultbox = isOwner && alterbits >= VAULTBOX_UPGRADE_DIGIBITS_COST;
+                    return (
+                      <button
+                        type="button"
+                        data-testid="worldcore-vaultbox-upgrade-btn"
+                        disabled={!canUnlockVaultbox}
+                        onClick={() => {
+                          onStartWorldCoreVaultboxPlacement?.();
+                          onDismissInspect();
+                        }}
+                        className="pixel-btn pixel-btn-gold w-full disabled:opacity-45 !py-1.5 !text-[10px] gap-1"
+                      >
+                        <span>
+                          WorldCore Expansion: Vaultbox ({formatHudNumber(VAULTBOX_UPGRADE_DIGIBITS_COST)}
+                        </span>
+                        <DigiBitsIcon className="w-3.5 h-3.5 shrink-0" />
+                        <span>)</span>
+                      </button>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -2117,10 +2205,11 @@ export const GameHud: React.FC<GameHudProps> = ({
               <AtmPanel atm={inspectInfo.atmMachine} nowMs={nowMs} />
             )}
 
-            {/* Vaultbox Player Storage Panel (10 Tiles) */}
+            {/* Vaultbox Player Storage Panel (Lv.7 WorldCore Background Upgrade, max 6 slots) */}
             {inspectInfo.vaultbox && (
               <VaultboxPanel
                 vaultbox={inspectInfo.vaultbox}
+                worldOwnerId={worldOwnerId ?? inspectInfo.worldLock?.ownerId ?? null}
                 playerId={playerId}
                 isAdminBypass={isAdminBypass}
                 inventory={inventory}
@@ -2335,11 +2424,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchMove('left', false)}
                   onPointerCancel={() => onTouchMove('left', false)}
-                  className={`pixel-slot ${
-                    isPortrait ? 'w-14 h-14 text-lg' : 'w-[68px] h-[68px] text-xl'
-                  } active:!bg-[#dbeafe] active:!border-[#0284c7] text-[#091e3a] font-bold flex items-center justify-center touch-none select-none cursor-pointer`}
+                  className={`hud-touch-arrow-btn ${
+                    isPortrait ? 'w-14 h-14' : 'w-[68px] h-[68px]'
+                  } flex items-center justify-center touch-none select-none cursor-pointer`}
                 >
-                  ◀
+                  <PixelArrowIcon
+                    direction="left"
+                    className={isPortrait ? 'w-9 h-9' : 'w-11 h-11'}
+                  />
                 </button>
                 <button
                   type="button"
@@ -2354,11 +2446,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchMove('right', false)}
                   onPointerCancel={() => onTouchMove('right', false)}
-                  className={`pixel-slot ${
-                    isPortrait ? 'w-14 h-14 text-lg' : 'w-[68px] h-[68px] text-xl'
-                  } active:!bg-[#dbeafe] active:!border-[#0284c7] text-[#091e3a] font-bold flex items-center justify-center touch-none select-none cursor-pointer`}
+                  className={`hud-touch-arrow-btn ${
+                    isPortrait ? 'w-14 h-14' : 'w-[68px] h-[68px]'
+                  } flex items-center justify-center touch-none select-none cursor-pointer`}
                 >
-                  ▶
+                  <PixelArrowIcon
+                    direction="right"
+                    className={isPortrait ? 'w-9 h-9' : 'w-11 h-11'}
+                  />
                 </button>
               </div>
             )}
@@ -2391,18 +2486,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                   }}
                   onPointerUp={() => onTouchJump(false)}
                   onPointerCancel={() => onTouchJump(false)}
-                  className={`pixel-btn pixel-btn-emerald ${
+                  className={`hud-touch-arrow-btn ${
                     isPortrait ? 'w-14 h-14' : 'w-[68px] h-[68px]'
-                  } !rounded-[11px] flex flex-col items-center justify-center gap-0.5 touch-none select-none`}
+                  } flex items-center justify-center touch-none select-none cursor-pointer`}
                 >
-                  <span className={`${isPortrait ? 'text-lg' : 'text-xl'} leading-none`}>▲</span>
-                  <span
-                    className={`${
-                      isPortrait ? 'text-[8px]' : 'text-[9px]'
-                    } uppercase tracking-wider leading-none`}
-                  >
-                    Jump
-                  </span>
+                  <PixelArrowIcon
+                    direction="up"
+                    className={isPortrait ? 'w-9 h-9' : 'w-11 h-11'}
+                  />
                 </button>
               </div>
             )}
@@ -2872,30 +2963,60 @@ export const GameHud: React.FC<GameHudProps> = ({
               isPortrait
                 ? 'top-[98px] max-h-[calc(100dvh-13.5rem)]'
                 : 'top-[106px] max-h-[calc(100dvh-10.5rem)]'
-            } z-20 w-[min(22rem,calc(100vw-1rem))] pixel-box p-3 flex flex-col gap-2.5`}
+            } z-20 w-[min(22rem,calc(100vw-1rem))] pixel-box ${
+              role === 'admin' ? 'hud-admin-frame' : ''
+            } p-3 flex flex-col gap-2.5`}
           >
-            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2">
+            <div
+              className={`-mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2 rounded-t-[8px] border-b-2 ${
+                role === 'admin'
+                  ? 'border-[#9a3412] bg-[#fef3c7]/35'
+                  : 'pixel-box-header'
+              }`}
+            >
               <div className="flex flex-col gap-1 flex-1 min-w-0">
-                <h2 className="ui-pixel-heading text-[#091e3a] flex items-stretch gap-1 w-full min-w-0">
-                  <span className="rounded-[7px] bg-white/55 border border-[#4172a3]/55 p-1 flex items-center justify-center shrink-0">
-                    <RoleBadgeIcon
-                      kind={role === 'admin' ? 'admin' : worldOwner === playerId ? 'owner' : 'guest'}
-                      className="w-6 h-6 shrink-0"
-                    />
-                  </span>
-                  <span className="rounded-[7px] bg-white/55 border border-[#4172a3]/55 px-2.5 py-1 flex-1 min-w-0 flex items-center justify-between gap-2">
-                    <span className="text-[19px] font-bold tracking-tight leading-none truncate">{playerName}</span>
-                    <span className="text-xs font-mono-num font-bold leading-none shrink-0">Lv.{formatHudNumber(level)}</span>
+                <h2 className="flex items-stretch gap-1 w-full min-w-0">
+                  <span
+                    className={`rounded-[7px] px-2 py-1 flex-1 min-w-0 flex items-center justify-between gap-2 ${
+                      role === 'admin' ? 'hud-admin-namebox' : 'hud-metallic-player'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <RoleBadgeIcon
+                        kind={role === 'admin' ? 'admin' : worldOwner === playerId ? 'owner' : 'guest'}
+                        className="w-6 h-6 shrink-0"
+                      />
+                      <span
+                        className={`hud-nameplate-text text-[19px] font-bold tracking-tight leading-none truncate ${
+                          role === 'admin' ? 'text-[#fde047]' : 'text-[#ffffff]'
+                        }`}
+                      >
+                        {playerName}
+                      </span>
+                    </span>
+                    <span
+                      className={`text-xs font-mono-num font-bold leading-none shrink-0 ${
+                        role === 'admin' ? 'text-[#7c2d12]' : 'text-[#091e3a]'
+                      }`}
+                    >
+                      Lv.{formatHudNumber(level)}
+                    </span>
                   </span>
                 </h2>
-                <p className="text-[11px] font-mono-num text-[#23476d] px-0.5">
+                <p
+                  className={`text-[11px] font-mono-num px-0.5 ${
+                    role === 'admin' ? 'text-[#7c2d12]' : 'text-[#23476d]'
+                  }`}
+                >
                   XP {formatHudNumber(xp)}/{formatHudNumber(nextXp)} · {claimedAchievements.length}/{ACHIEVEMENTS.length} Ach
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setActivePanel('none')}
-                className="text-[11px] font-pixel text-[#23476d] hover:text-[#091e3a] cursor-pointer shrink-0"
+                className={`text-[11px] font-pixel cursor-pointer shrink-0 ${
+                  role === 'admin' ? 'text-[#7c2d12] hover:text-[#431407]' : 'text-[#23476d] hover:text-[#091e3a]'
+                }`}
               >
                 [X]
               </button>
@@ -3110,23 +3231,39 @@ export const GameHud: React.FC<GameHudProps> = ({
           data-testid="public-profile-modal"
           className="pointer-events-auto fixed inset-0 z-30 bg-[#091e3a]/45 backdrop-blur-[2px] flex items-center justify-center p-3"
         >
-          <div className="w-full max-w-xs pixel-box p-3 flex flex-col gap-2.5">
-            <div className="pixel-box-header -mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2">
-              <div className="flex items-stretch gap-1 flex-1 min-w-0">
-                <span className="rounded-[7px] bg-white/55 border border-[#4172a3]/55 p-1 flex items-center justify-center shrink-0">
+          <div
+            className={`w-full max-w-xs pixel-box p-3 flex flex-col gap-2.5 ${
+              publicProfile.role === 'admin' ? 'hud-admin-frame' : ''
+            }`}
+          >
+            <div
+              className={`-mx-3 -mt-3 px-3 py-2 flex items-center justify-between gap-2 rounded-t-[8px] border-b-2 ${
+                publicProfile.role === 'admin'
+                  ? 'border-[#9a3412] bg-[#fef3c7]/35'
+                  : 'pixel-box-header'
+              }`}
+            >
+              <div
+                className={`rounded-[7px] px-2.5 py-1 flex-1 min-w-0 flex items-center justify-between gap-1.5 ${
+                  publicProfile.role === 'admin' ? 'hud-admin-namebox' : 'hud-metallic-player'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
                   <RoleBadgeIcon
                     kind={publicProfile.role === 'admin' ? 'admin' : 'guest'}
                     className="w-6 h-6 shrink-0"
                   />
-                </span>
-                <div className="rounded-[7px] bg-white/55 border border-[#4172a3]/55 px-2.5 py-1 flex-1 min-w-0 flex items-center justify-between gap-1.5">
-                  <h2 className="font-pixel text-[18px] font-bold tracking-tight leading-none text-[#091e3a] truncate">
+                  <h2
+                    className={`hud-nameplate-text text-[18px] font-bold tracking-tight leading-none truncate ${
+                      publicProfile.role === 'admin' ? 'text-[#fde047]' : 'text-[#ffffff]'
+                    }`}
+                  >
                     {publicProfile.playerName}
                   </h2>
-                  <span className="px-1.5 py-0.5 rounded-[5px] bg-white/80 border border-[#4172a3] text-[9px] font-bold text-[#091e3a] shrink-0">
-                    {publicProfile.role === 'admin' ? 'ADMIN' : 'EXPLORER'}
-                  </span>
                 </div>
+                <span className="px-1.5 py-0.5 rounded-[5px] bg-white/80 border border-[#4172a3] text-[9px] font-bold text-[#091e3a] shrink-0">
+                  {publicProfile.role === 'admin' ? 'ADMIN' : 'EXPLORER'}
+                </span>
               </div>
               <button
                 type="button"
@@ -3600,6 +3737,26 @@ export const GameHud: React.FC<GameHudProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* WorldCore Lv.7 Vaultbox Interactive Placement Prompt */}
+      {vaultboxPlacementActive && (
+        <div
+          data-testid="vaultbox-placement-banner"
+          className="pointer-events-auto fixed top-16 left-1/2 -translate-x-1/2 z-30 pixel-box px-3.5 py-2 flex items-center gap-3 border-[#16a34a] shadow-lg"
+        >
+          <span className="text-xs font-bold text-[#091e3a]">
+            Tap any highlighted green tile within 5 tiles of WorldCore to place Vaultbox
+          </span>
+          <button
+            type="button"
+            data-testid="vaultbox-placement-cancel"
+            onClick={() => onCancelWorldCoreVaultboxPlacement?.()}
+            className="pixel-btn pixel-btn-danger !py-1 !px-2.5 !text-[10px] shrink-0"
+          >
+            Cancel
+          </button>
         </div>
       )}
     </div>

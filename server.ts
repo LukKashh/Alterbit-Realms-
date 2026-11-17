@@ -1133,6 +1133,25 @@ async function startServer() {
       return { ok: true };
     }
 
+    if (msg.type === 'unlock_worldcore_vaultbox') {
+      const res = store.unlockWorldCoreVaultbox(account, live.state.name, msg.tx, msg.ty);
+      if (!res.ok) {
+        sendTo(ws, { type: 'world_error', message: res.message });
+        return { ok: false, errorMessage: res.message };
+      }
+      broadcastTileSnapshot(live, res.tx, res.ty);
+      broadcastWorld(live.state.name, {
+        type: 'world_xp_updated',
+        worldName: live.state.name,
+        worldXp: live.state.worldXp ?? 0,
+        worldLevel: live.state.worldLevel ?? 1,
+        coreTokens: live.state.coreTokens ?? 0,
+        hasVaultboxExpansion: true,
+      });
+      sendProfileUpdate(ws, account, res.notice);
+      return { ok: true };
+    }
+
     if (msg.type === 'configure_door') {
       const res = store.handleConfigureDoor(
         live,

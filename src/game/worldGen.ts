@@ -103,7 +103,7 @@ export interface AtmMachineRecord {
   storedGems: number; // 5 - 125 Gems when ready
 }
 
-export const VAULTBOX_SLOT_COUNT = 10;
+export const VAULTBOX_SLOT_COUNT = 6;
 
 export interface VaultboxSlot {
   itemId: number;
@@ -119,7 +119,7 @@ export interface VaultboxRecord {
   y: number;
   ownerId: string;
   ownerName: string;
-  slots: (VaultboxSlot | null)[]; // Fixed 10-tile player storage
+  slots: (VaultboxSlot | null)[]; // Fixed 6-tile compacted world-linked storage
 }
 
 export interface WorldState {
@@ -157,6 +157,7 @@ export interface WorldState {
   worldLevel?: number;
   coreTokens?: number;
   hasFurnaceExpansion?: boolean;
+  hasVaultboxExpansion?: boolean;
   nexusLayoutVersion?: number;
   revision: number;
 }

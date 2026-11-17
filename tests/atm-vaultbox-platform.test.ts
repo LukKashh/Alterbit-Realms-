@@ -129,13 +129,13 @@ test('ATM Machine store price (10,000 G), single type, 30m-1.5h random interval,
   store.leaveWorld(worldName, acct.id, true);
 });
 
-test('Vaultbox costs 1,750 G, provides 10 empty owner-only storage tiles, and blocks breaking when non-empty', () => {
+test('Vaultbox is removed from Gem Store, acquired at World Level 7 for 1,750 Digibits within 5 tiles of WorldCore, stores 6 compacted owner-only tiles, and is indestructible', () => {
   const listing = GEM_STORE_LISTINGS.find((l) => l.id === 'store_vaultbox');
-  assert.ok(listing, 'Vaultbox listing must exist in GEM_STORE_LISTINGS');
-  assert.equal(listing?.gemPrice, 1750);
-  assert.equal(listing?.grants[0]?.itemId, ITEM_IDS.VAULTBOX);
-  assert.equal(CATALOG[ITEM_IDS.VAULTBOX]?.storePrice, 1750);
-  assert.equal(VAULTBOX_SLOT_COUNT, 10);
+  assert.equal(listing, undefined, 'Vaultbox listing must be removed from GEM_STORE_LISTINGS');
+  assert.equal(CATALOG[ITEM_IDS.VAULTBOX]?.storePrice, undefined);
+  assert.equal(CATALOG[ITEM_IDS.VAULTBOX]?.category, 'background');
+  assert.equal(CATALOG[ITEM_IDS.VAULTBOX]?.breakable, false);
+  assert.equal(VAULTBOX_SLOT_COUNT, 6);
 
   const store = new AuthoritativeWorldStore();
   const { acct: owner, live, worldName } = registerAndEnterPersonalWorld(store, 'vowner');
@@ -151,26 +151,33 @@ test('Vaultbox costs 1,750 G, provides 10 empty owner-only storage tiles, and bl
   if (!visReg.ok) return;
   const visitor = visReg.account;
 
-  owner.gems = 3000;
-  const buyRes = store.handleBuyGemStore(owner, 'store_vaultbox', `tx_vb_${Date.now()}`);
-  assert.equal(buyRes.ok, true);
-  assert.equal(owner.gems, 1250);
-
-  const op = live.players.get(owner.id)!;
-  const tx = Math.max(2, Math.floor(op.x / TILE_SIZE) + 1);
-  const ty = Math.floor(op.y / TILE_SIZE);
+  const core = live.state.worldLock!;
+  assert.ok(core, 'Personal world must have a WorldCore');
+  const tx = core.x + 2;
+  const ty = core.y - 1;
   live.state.fg[tileIndexIn(live.state, tx, ty)] = ITEM_IDS.AIR;
-  live.state.fg[tileIndexIn(live.state, tx, ty + 1)] = ITEM_IDS.GP_DIRT;
+  live.state.bg[tileIndexIn(live.state, tx, ty)] = ITEM_IDS.BG_SKY;
 
-  const placed = store.handlePlaceTile(live, owner, ITEM_IDS.VAULTBOX, tx, ty);
-  assert.equal(placed.ok, true);
+  // Cannot unlock before World Level 7
+  owner.alterbits = 5000;
+  live.state.worldLevel = 6;
+  const tooEarly = store.unlockWorldCoreVaultbox(owner, worldName, tx, ty);
+  assert.equal(tooEarly.ok, false);
+
+  // Unlock at World Level 7 for 1,750 Digibits on a valid tile within 5 tiles of WorldCore
+  live.state.worldLevel = 7;
+  const unlocked = store.unlockWorldCoreVaultbox(owner, worldName, tx, ty);
+  assert.equal(unlocked.ok, true);
+  assert.equal(owner.alterbits, 5000 - 1750);
+  assert.equal(live.state.hasVaultboxExpansion, true);
+  assert.equal(live.state.bg[tileIndexIn(live.state, tx, ty)], ITEM_IDS.VAULTBOX);
 
   const key = `${tx},${ty}`;
   const vb = live.state.vaultboxes?.[key];
   assert.ok(vb, 'VaultboxRecord must be created');
   assert.equal(vb.ownerId, owner.id);
-  assert.equal(vb.slots.length, 10);
-  assert.equal(vb.slots.every((s) => s === null), true, 'New Vaultbox must start with 10 empty tiles');
+  assert.equal(vb.slots.length, 6);
+  assert.equal(vb.slots.every((s) => s === null), true, 'New Vaultbox must start with 6 empty slots');
 
   // Cannot store Fist or Wrench
   const fistRes = store.handleConfigureVaultbox(live, owner, tx, ty, {
@@ -180,12 +187,12 @@ test('Vaultbox costs 1,750 G, provides 10 empty owner-only storage tiles, and bl
   });
   assert.equal(fistRes.ok, false);
 
-  // Give owner 10 distinct items (using farmable item IDs 900..909) + 1 extra (910) to test 10-slot limit
-  for (let i = 0; i < 11; i++) {
+  // Give owner 6 distinct items (900..905) + 1 extra (906) to test 6-slot limit
+  for (let i = 0; i < 7; i++) {
     store.addInventory(owner, 900 + i, 5);
   }
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 6; i++) {
     const dep = store.handleConfigureVaultbox(live, owner, tx, ty, {
       action: 'deposit',
       itemId: 900 + i,
@@ -197,14 +204,14 @@ test('Vaultbox costs 1,750 G, provides 10 empty owner-only storage tiles, and bl
     assert.equal(vb.slots[i]?.qty, 3);
   }
 
-  // 11th distinct item fails because all 10 Vaultbox storage tiles are occupied
+  // 7th distinct item fails because all 6 Vaultbox storage tiles are occupied
   const overfill = store.handleConfigureVaultbox(live, owner, tx, ty, {
     action: 'deposit',
-    itemId: 910,
+    itemId: 906,
     qty: 1,
   });
   assert.equal(overfill.ok, false);
-  assert.equal(owner.inventory.find((s) => s.itemId === 910)?.qty, 5);
+  assert.equal(owner.inventory.find((s) => s.itemId === 906)?.qty, 5);
 
   // Non-owner cannot deposit or withdraw from Vaultbox
   store.addInventory(visitor, 900, 2);
@@ -221,37 +228,36 @@ test('Vaultbox costs 1,750 G, provides 10 empty owner-only storage tiles, and bl
   });
   assert.equal(visWithdraw.ok, false);
 
-  // Cannot break non-empty Vaultbox
+  // Vaultbox is an indestructible WorldCore-linked tile even when empty
   const punchBlocked = store.handlePunchTile(live, owner, tx, ty, ITEM_IDS.FIST);
   assert.equal(punchBlocked.ok, false);
 
-  // Withdraw all 10 slots back to owner inventory
-  for (let i = 0; i < 10; i++) {
+  // Withdraw first slot and verify remaining slots compact cleanly without empty middle gaps
+  const wdFirst = store.handleConfigureVaultbox(live, owner, tx, ty, {
+    action: 'withdraw',
+    slotIndex: 0,
+  });
+  assert.equal(wdFirst.ok, true);
+  assert.equal(vb.slots[0]?.itemId, 901);
+  assert.equal(vb.slots[5], null);
+
+  // Withdraw remaining 5 slots back to owner inventory
+  for (let i = 0; i < 5; i++) {
     const wd = store.handleConfigureVaultbox(live, owner, tx, ty, {
       action: 'withdraw',
-      slotIndex: i,
+      slotIndex: 0,
     });
     assert.equal(wd.ok, true);
+  }
+  assert.equal(vb.slots.every((s) => s === null), true);
+  for (let i = 0; i < 6; i++) {
     assert.equal(owner.inventory.find((s) => s.itemId === 900 + i)?.qty, 5);
-    assert.equal(vb.slots[i], null);
   }
 
-  // Empty Vaultbox can be broken and drops 1x VAULTBOX
-  const hardness = CATALOG[ITEM_IDS.VAULTBOX].hardness;
-  const punchTracker = (store as unknown as { lastPunchAt: Map<string, number> }).lastPunchAt;
-  let broke = false;
-  for (let hit = 0; hit < hardness + 2; hit++) {
-    punchTracker.delete(owner.id);
-    const res = store.handlePunchTile(live, owner, tx, ty, ITEM_IDS.FIST);
-    assert.equal(res.ok, true);
-    if (res.ok && res.broken) {
-      broke = true;
-      assert.equal(res.drops.some((d) => d.itemId === ITEM_IDS.VAULTBOX && d.qty === 1), true);
-      break;
-    }
-  }
-  assert.equal(broke, true);
-  assert.equal(live.state.vaultboxes?.[key], undefined);
+  // Even empty, Vaultbox stays permanently indestructible
+  const punchEmptyBlocked = store.handlePunchTile(live, owner, tx, ty, ITEM_IDS.FIST);
+  assert.equal(punchEmptyBlocked.ok, false);
+  assert.equal(live.state.bg[tileIndexIn(live.state, tx, ty)], ITEM_IDS.VAULTBOX);
 
   store.leaveWorld(worldName, owner.id, true);
 });

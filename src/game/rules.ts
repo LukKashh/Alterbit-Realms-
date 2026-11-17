@@ -217,6 +217,83 @@ export function getPixobyteDigichangeAt(
   return { anchorX: tx, topY, bottomY: ty };
 }
 
+export const VAULTBOX_UPGRADE_MIN_LEVEL = 7;
+export const VAULTBOX_UPGRADE_DIGIBITS_COST = 1750;
+export const VAULTBOX_PLACEMENT_RADIUS = 5;
+
+export function getEntrancePortalAt(
+  world: WorldState,
+  tx: number,
+  ty: number
+): { anchorX: number; topY: number; bottomY: number } | null {
+  if (!inBoundsWorld(world, tx, ty)) return null;
+  if (world.name === 'NEXUS') return null;
+  const idx = tileIndexIn(world, tx, ty);
+  if (world.fg[idx] === ITEM_IDS.ENTRANCE_PORTAL) {
+    return { anchorX: tx, topY: Math.max(0, ty - 1), bottomY: ty };
+  }
+  if (inBoundsWorld(world, tx, ty + 1)) {
+    const belowIdx = tileIndexIn(world, tx, ty + 1);
+    if (world.fg[belowIdx] === ITEM_IDS.ENTRANCE_PORTAL) {
+      return { anchorX: tx, topY: ty, bottomY: ty + 1 };
+    }
+  }
+  return null;
+}
+
+export function isWithinWorldCoreRadius(
+  world: WorldState,
+  tx: number,
+  ty: number,
+  radius = VAULTBOX_PLACEMENT_RADIUS
+): boolean {
+  const core = world.worldLock;
+  if (!core || core.lockItemId !== ITEM_IDS.WORLD_CORE) return false;
+  const dx = tx - core.x;
+  const dy = ty - core.y;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+export function canPlaceWorldCoreVaultbox(
+  world: WorldState,
+  tx: number,
+  ty: number
+): { ok: boolean; reason?: string } {
+  if (!inBoundsWorld(world, tx, ty)) {
+    return { ok: false, reason: 'Target tile is out of world bounds.' };
+  }
+  if (isBedrockRowWorld(world, ty)) {
+    return { ok: false, reason: 'Cannot place Vaultbox on bedrock.' };
+  }
+  const core = world.worldLock;
+  if (!core || core.lockItemId !== ITEM_IDS.WORLD_CORE) {
+    return { ok: false, reason: 'WorldCore is required in this world.' };
+  }
+  if (tx === core.x && ty === core.y) {
+    return { ok: false, reason: 'Cannot place Vaultbox directly on top of the WorldCore.' };
+  }
+  if (!isWithinWorldCoreRadius(world, tx, ty, VAULTBOX_PLACEMENT_RADIUS)) {
+    return {
+      ok: false,
+      reason: `Vaultbox must be placed within a ${VAULTBOX_PLACEMENT_RADIUS}-tile radius of the WorldCore.`,
+    };
+  }
+  if (getEntrancePortalAt(world, tx, ty) || getMarketStandAt(world, tx, ty) || getPixobyteDigichangeAt(world, tx, ty)) {
+    return { ok: false, reason: 'Cannot place Vaultbox over a Portal or special world structure.' };
+  }
+  if (isIndestructiblePregenTile(world, tx, ty)) {
+    return { ok: false, reason: 'Pregenerated foundation space is protected.' };
+  }
+  const idx = tileIndexIn(world, tx, ty);
+  if (world.fg[idx] !== ITEM_IDS.AIR || world.plants[`${tx},${ty}`]) {
+    return { ok: false, reason: 'Choose an open tile with no foreground block or plant.' };
+  }
+  if (world.bg[idx] !== ITEM_IDS.BG_SKY) {
+    return { ok: false, reason: 'Choose a free tile with an empty background slot.' };
+  }
+  return { ok: true };
+}
+
 export function isIndestructiblePregenTile(world: WorldState, tx: number, ty: number): boolean {
   if (!world.isPersonalRealm) return false;
   const sx = world.spawnX;
@@ -290,6 +367,9 @@ export function canBreakTile(
   }
   if (!adminEdit && isIndestructiblePregenTile(world, tx, ty)) {
     return { ok: false, reason: 'Pregenerated foundation is indestructible.' };
+  }
+  if (!adminEdit && getEntrancePortalAt(world, tx, ty)) {
+    return { ok: false, reason: '1×2 Entrance Portal is indestructible.' };
   }
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
   if (!adminEdit && !hasEditPermission(world, player.id, tx, ty, 'break')) {
@@ -377,6 +457,9 @@ export function canBreakTile(
     if (!adminEdit && bgId === ITEM_IDS.STONE_FURNACE) {
       return { ok: false, reason: 'WorldCore Furnace is permanently fused to the WorldCore.' };
     }
+    if (!adminEdit && bgId === ITEM_IDS.VAULTBOX) {
+      return { ok: false, reason: 'WorldCore Vaultbox is permanently fused and indestructible.' };
+    }
     const bgDef = getItemDef(bgId);
     if (!adminEdit && (!bgDef || !bgDef.breakable)) {
       return { ok: false, reason: 'Background cannot be broken.' };
@@ -422,6 +505,9 @@ export function canPlaceTile(
   }
   if (!adminEdit && isIndestructiblePregenTile(world, tx, ty)) {
     return { ok: false, reason: 'Pregenerated foundation space is protected.' };
+  }
+  if (!adminEdit && getEntrancePortalAt(world, tx, ty)) {
+    return { ok: false, reason: '1×2 Entrance Portal space is protected.' };
   }
   if (!isWithinReach(player, tx, ty, reachTiles)) return { ok: false, reason: 'Target out of reach.' };
   if (!adminEdit && !hasEditPermission(world, player.id, tx, ty, 'build')) {
@@ -527,6 +613,9 @@ export function canPlaceTile(
   }
   if (!adminEdit && world.bg[idx] === ITEM_IDS.STONE_FURNACE) {
     return { ok: false, reason: 'Space in front of WorldCore Furnace must remain clear.' };
+  }
+  if (!adminEdit && world.bg[idx] === ITEM_IDS.VAULTBOX) {
+    return { ok: false, reason: 'Space in front of WorldCore Vaultbox must remain clear.' };
   }
 
   if (!adminEdit && def.collision === 'solid' && playerOverlapsTile(player, tx, ty)) {

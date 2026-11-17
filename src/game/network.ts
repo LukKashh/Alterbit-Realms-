@@ -358,6 +358,7 @@ export type ClientMessagePayload =
   | { type: 'upgrade_matteragen'; tx: number; ty: number }
   | { type: 'claim_matteragen'; tx: number; ty: number }
   | { type: 'unlock_worldcore_furnace' }
+  | { type: 'unlock_worldcore_vaultbox'; tx: number; ty: number }
   | { type: 'inspect_player'; targetPlayerId: string }
   | { type: 'trash_inventory_item'; itemId: number; qty?: number; rodInstanceId?: string }
   | {
@@ -553,7 +554,7 @@ export type ServerMessage =
       notice?: string;
     }
   | { type: 'player_profile'; profile: PublicPlayerProfile }
-  | { type: 'world_xp_updated'; worldName: string; worldXp: number; worldLevel: number; coreTokens?: number; hasFurnaceExpansion?: boolean }
+  | { type: 'world_xp_updated'; worldName: string; worldXp: number; worldLevel: number; coreTokens?: number; hasFurnaceExpansion?: boolean; hasVaultboxExpansion?: boolean }
   | { type: 'player_teleported'; tx: number; ty: number; notice?: string }
   | { type: 'chat_message'; message: ChatMessage }
   | { type: 'worlds_list'; worlds: WorldSummary[] }

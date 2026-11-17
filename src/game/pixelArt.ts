@@ -663,3 +663,103 @@ export function getPixobyteDigichangeSprite(): HTMLCanvasElement {
   return c;
 }
 
+let entrancePortalFrameSpriteCache: HTMLCanvasElement | null = null;
+
+/**
+ * Renders the dedicated 1×2 tile (60×120px = 30×60 2px texels) Entrance Portal archway frame.
+ * Interior cavity [5..24, 9..55] stays transparent so engine.ts draws the live swirling portal vortex behind players!
+ */
+export function getEntrancePortalFrameSprite(): HTMLCanvasElement {
+  if (entrancePortalFrameSpriteCache) return entrancePortalFrameSpriteCache;
+  const width = TILE_PX;
+  const height = TILE_PX * 2;
+  const [c, ctx] = makeCanvas(width, height);
+
+  const b = (gx: number, gy: number, color: string, gw = 1, gh = 1) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(gx * 2, gy * 2, gw * 2, gh * 2);
+  };
+
+  const out = '#090e17';
+  const stoneDeep = '#3b4252';
+  const stoneMid = '#586278';
+  const stoneLit = '#8894ad';
+  const trimGold = '#eab308';
+  const trimHighlight = '#fef08a';
+  const runeGlow = '#38bdf8';
+  const runeCore = '#e0f2fe';
+
+  // Stepped Arch Crown Keystone (gy = 0..10)
+  b(7, 0, out, 16, 4);
+  b(8, 1, stoneMid, 14, 3);
+  b(9, 1, stoneLit, 12, 1);
+
+  b(4, 3, out, 22, 6);
+  b(5, 4, stoneMid, 20, 4);
+  b(6, 4, stoneLit, 18, 1);
+
+  // Sculpted Arch Rim Brackets
+  b(2, 6, out, 26, 6);
+  b(3, 7, stoneMid, 24, 4);
+  b(4, 7, stoneLit, 22, 1);
+
+  // Carve hollow interior portal cavity for the upper rounded archway (leaving stone arch shoulder corners)
+  ctx.clearRect(10, 20, 40, 88);
+  b(5, 9, out, 20, 2);
+  b(6, 9, trimGold, 18, 1);
+  b(8, 10, stoneDeep, 14, 1);
+
+  // Ornate Keystone Emblem at Arch Crown Center (gx = 12..17, gy = 2..7)
+  b(12, 2, out, 6, 6);
+  b(13, 3, trimGold, 4, 4);
+  b(13, 3, trimHighlight, 2, 1);
+  b(14, 4, runeGlow, 2, 2);
+  b(14, 4, runeCore, 1, 1);
+
+  // Left Stone Pillar (gx = 0..5, gy = 10..56)
+  b(0, 10, out, 6, 46);
+  b(1, 11, stoneMid, 4, 44);
+  b(1, 11, stoneLit, 1, 44);
+  b(4, 11, stoneDeep, 1, 44);
+  // Carved horizontal stone block seams & glowing Aether runes on left pillar
+  for (let ry = 15; ry <= 48; ry += 8) {
+    b(1, ry, stoneDeep, 4, 1);
+    b(2, ry + 3, runeGlow, 2, 2);
+    b(2, ry + 3, runeCore, 1, 1);
+  }
+  b(5, 11, trimGold, 1, 44);
+
+  // Right Stone Pillar (gx = 24..29, gy = 10..56)
+  b(24, 10, out, 6, 46);
+  b(25, 11, stoneMid, 4, 44);
+  b(25, 11, stoneLit, 1, 44);
+  b(28, 11, stoneDeep, 1, 44);
+  for (let ry = 15; ry <= 48; ry += 8) {
+    b(25, ry, stoneDeep, 4, 1);
+    b(26, ry + 3, runeGlow, 2, 2);
+    b(26, ry + 3, runeCore, 1, 1);
+  }
+  b(24, 11, trimGold, 1, 44);
+
+  // Carved Corner Arch Voussoirs inside top opening corners
+  b(6, 11, out, 3, 4);
+  b(6, 11, stoneMid, 2, 3);
+  b(6, 11, trimGold, 1, 2);
+  b(21, 11, out, 3, 4);
+  b(22, 11, stoneMid, 2, 3);
+  b(23, 11, trimGold, 1, 2);
+
+  // Grounded Portal Threshold Step & Runic Sill Plinth (gy = 55..59, flush with floor)
+  b(0, 55, out, 30, 5);
+  b(1, 56, stoneMid, 28, 3);
+  b(1, 56, stoneLit, 28, 1);
+  b(5, 56, trimGold, 20, 1);
+  b(10, 57, runeGlow, 10, 1);
+  b(13, 57, runeCore, 4, 1);
+  b(0, 59, out, 30, 1);
+
+  entrancePortalFrameSpriteCache = c;
+  return c;
+}
+
+

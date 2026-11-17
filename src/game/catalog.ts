@@ -1237,7 +1237,7 @@ export const CATALOG: Record<number, ItemDefinition> = {
     id: ITEM_IDS.ENTRANCE_PORTAL,
     key: 'entrance_portal',
     name: 'World Gate',
-    description: 'Arrival archway marking this world’s spawn point.',
+    description: '1×2 Arrival & Exit archway marking this world’s spawn portal.',
     category: 'interactive',
     rarity: 'epic',
     stackLimit: 1,
@@ -2888,12 +2888,10 @@ export const CATALOG: Record<number, ItemDefinition> = {
   },
   [ITEM_IDS.VAULTBOX]: {
     id: ITEM_IDS.VAULTBOX, key: 'vaultbox', name: 'Vaultbox',
-    description: 'Player-owned secure storage block with 10 empty item storage tiles. Only the owner can access or withdraw stored items.',
-    category: 'interactive', rarity: 'rare', stackLimit: 50,
-    collision: 'solid', breakable: true, hardness: 6,
-    placeable: true, tradeable: true, gemValue: 400, xpValue: 15,
-    storePrice: 1750,
-    drops: [{ itemId: ITEM_IDS.VAULTBOX, chance: 1.0, minQty: 1, maxQty: 1 }],
+    description: 'WorldCore-linked indestructible background vault with 6 item storage tiles. Unlocked at World Level 7; use Tinker Wrench to open.',
+    category: 'background', rarity: 'epic', stackLimit: 1,
+    collision: 'none', breakable: false, hardness: 999,
+    placeable: false, tradeable: false, gemValue: 0, xpValue: 0,
     colorPrimary: '#64748b', colorSecondary: '#1e293b', colorAccent: '#fbbf24',
   },
 
@@ -5012,17 +5010,6 @@ export const GEM_STORE_LISTINGS: GemStoreListing[] = [
     gemPrice: 10000,
     grants: [
       { itemId: ITEM_IDS.ATM_MACHINE, qty: 1 },
-    ],
-  },
-  {
-    id: 'store_vaultbox',
-    section: 'blocks',
-    name: 'Vaultbox (10-Slot Storage)',
-    description: 'Player-owned secure storage chest block with 10 empty item storage tiles.',
-    iconItemId: ITEM_IDS.VAULTBOX,
-    gemPrice: 1750,
-    grants: [
-      { itemId: ITEM_IDS.VAULTBOX, qty: 1 },
     ],
   },
   {

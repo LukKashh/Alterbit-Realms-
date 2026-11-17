@@ -295,6 +295,7 @@ export const AtmPanel: React.FC<AtmPanelProps> = ({ atm, nowMs }) => {
 
 interface VaultboxPanelProps {
   vaultbox: VaultboxRecord;
+  worldOwnerId?: string | null;
   playerId: string;
   isAdminBypass?: boolean;
   inventory: InventorySlot[];
@@ -304,15 +305,21 @@ interface VaultboxPanelProps {
 
 export const VaultboxPanel: React.FC<VaultboxPanelProps> = ({
   vaultbox,
+  worldOwnerId = null,
   playerId,
   isAdminBypass = false,
   inventory,
   onDeposit,
   onWithdraw,
 }) => {
-  const isOwner = vaultbox.ownerId === playerId || isAdminBypass;
-  const slots = Array.from({ length: VAULTBOX_SLOT_COUNT }, (_, idx) => vaultbox.slots?.[idx] ?? null);
-  const usedCount = slots.filter(Boolean).length;
+  const effectiveOwnerId = worldOwnerId ?? vaultbox.ownerId;
+  const isOwner = effectiveOwnerId === playerId || isAdminBypass;
+  const occupiedSlots = (vaultbox.slots ?? []).filter(
+    (s): s is NonNullable<typeof s> => Boolean(s && s.qty > 0)
+  );
+  const usedCount = occupiedSlots.length;
+  const canAddMore = usedCount < VAULTBOX_SLOT_COUNT;
+
   const depositable = inventory
     .map((slot, invIndex) => ({ slot, invIndex }))
     .filter(
@@ -320,13 +327,172 @@ export const VaultboxPanel: React.FC<VaultboxPanelProps> = ({
         slot.qty > 0 && slot.itemId !== ITEM_IDS.FIST && slot.itemId !== ITEM_IDS.WRENCH
     );
 
-  const [selectedInvKey, setSelectedInvKey] = useState<string>('');
-  const [selectedTargetTile, setSelectedTargetTile] = useState<number | null>(null);
+  const [view, setView] = useState<'vault' | 'inventory'>('vault');
+  const [selectedWithdrawIdx, setSelectedWithdrawIdx] = useState<number | null>(null);
+  const [withdrawCustomQty, setWithdrawCustomQty] = useState<string>('1');
+  const [selectedInvKey, setSelectedInvKey] = useState<string | null>(null);
+  const [depositCustomQty, setDepositCustomQty] = useState<string>('1');
 
-  const resolvedInvEntry =
-    depositable.find(
-      ({ slot, invIndex }) => (slot.rodInstanceId ?? `${slot.itemId}-${invIndex}`) === selectedInvKey
-    ) ?? depositable[0];
+  const selectedWithdrawSlot =
+    selectedWithdrawIdx !== null ? occupiedSlots[selectedWithdrawIdx] ?? null : null;
+
+  const selectedDepositEntry =
+    selectedInvKey !== null
+      ? depositable.find(
+          ({ slot, invIndex }) =>
+            (slot.rodInstanceId ?? `${slot.itemId}-${invIndex}`) === selectedInvKey
+        ) ?? null
+      : null;
+
+  useEffect(() => {
+    if (selectedWithdrawIdx !== null && !occupiedSlots[selectedWithdrawIdx]) {
+      setSelectedWithdrawIdx(null);
+    }
+  }, [occupiedSlots, selectedWithdrawIdx]);
+
+  if (view === 'inventory' && isOwner) {
+    return (
+      <div
+        data-testid="vaultbox-inventory-view"
+        className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-pixel text-[10px] text-[#0369a1]">
+            Store Item From Backpack
+          </span>
+          <button
+            type="button"
+            data-testid="vaultbox-inventory-back"
+            onClick={() => {
+              setSelectedInvKey(null);
+              setView('vault');
+            }}
+            className="pixel-btn !py-0.5 !px-2 !text-[10px]"
+          >
+            Back
+          </button>
+        </div>
+
+        {depositable.length === 0 ? (
+          <div className="pixel-slot p-3 text-center text-[11px] text-[#23476d]">
+            No items available in Backpack to store.
+          </div>
+        ) : (
+          <div
+            data-testid="vaultbox-inventory-grid"
+            className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-0.5"
+          >
+            {depositable.map(({ slot, invIndex }) => {
+              const key = slot.rodInstanceId ?? `${slot.itemId}-${invIndex}`;
+              const def = getItemDef(slot.itemId);
+              const hasDur = typeof slot.maxDurability === 'number' && slot.maxDurability > 0;
+              const isSelected = selectedInvKey === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  data-testid={`vaultbox-inv-item-${slot.itemId}`}
+                  title={`${def?.name ?? `#${slot.itemId}`} ×${formatHudNumber(slot.qty)}`}
+                  onClick={() => {
+                    if (isSelected) {
+                      setSelectedInvKey(null);
+                    } else {
+                      setSelectedInvKey(key);
+                      setDepositCustomQty(String(Math.min(slot.qty, 1)));
+                    }
+                  }}
+                  className={`pixel-slot relative h-12 flex flex-col items-center justify-center p-1 cursor-pointer ${
+                    isSelected ? '!border-[#0284c7] !bg-[#dbeafe] ring-2 ring-[#38bdf8]/60' : ''
+                  }`}
+                >
+                  <img
+                    src={getItemIconUrl(slot.itemId)}
+                    alt={def?.name ?? 'Item'}
+                    className="w-6 h-6 pixelated"
+                    referrerPolicy="no-referrer"
+                  />
+                  {!hasDur && (
+                    <span className="absolute bottom-0.5 right-1 text-[8px] font-mono-num font-bold text-[#091e3a] leading-none">
+                      {formatHudNumber(slot.qty)}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedDepositEntry && (
+          <div
+            data-testid="vaultbox-deposit-controls"
+            className="hud-subpanel p-2 flex flex-col gap-1.5"
+          >
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="font-bold text-[#091e3a] truncate">
+                {getItemDef(selectedDepositEntry.slot.itemId)?.name ?? 'Item'}
+              </span>
+              <span className="font-mono-num font-bold text-[#0369a1]">
+                Owned: ×{formatHudNumber(selectedDepositEntry.slot.qty)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                data-testid="vaultbox-deposit-all"
+                onClick={() => {
+                  onDeposit(
+                    selectedDepositEntry.slot.itemId,
+                    selectedDepositEntry.slot.qty,
+                    undefined,
+                    selectedDepositEntry.invIndex
+                  );
+                  setSelectedInvKey(null);
+                  setView('vault');
+                }}
+                className="pixel-btn pixel-btn-emerald !py-1 !px-2.5 !text-[10px] shrink-0"
+              >
+                All Stack
+              </button>
+              <input
+                type="number"
+                data-testid="vaultbox-deposit-qty"
+                min={1}
+                max={selectedDepositEntry.slot.qty}
+                value={depositCustomQty}
+                onChange={(e) => setDepositCustomQty(e.target.value)}
+                aria-label="Custom Amount to Store"
+                className="hud-input w-16 px-1.5 py-1 text-[11px] font-mono-num text-center"
+              />
+              <button
+                type="button"
+                data-testid="vaultbox-deposit-confirm"
+                onClick={() => {
+                  const parsed = Math.max(
+                    1,
+                    Math.min(
+                      selectedDepositEntry.slot.qty,
+                      Math.floor(Number(depositCustomQty) || 1)
+                    )
+                  );
+                  onDeposit(
+                    selectedDepositEntry.slot.itemId,
+                    parsed,
+                    undefined,
+                    selectedDepositEntry.invIndex
+                  );
+                  setSelectedInvKey(null);
+                  setView('vault');
+                }}
+                className="pixel-btn pixel-btn-primary flex-1 !py-1 !px-2 !text-[10px]"
+              >
+                Custom Amount
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div data-testid="vaultbox-panel" className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-2">
@@ -341,9 +507,11 @@ export const VaultboxPanel: React.FC<VaultboxPanelProps> = ({
       </div>
 
       <div className="flex items-center justify-between text-[10px] text-[#23476d]">
-        <span>Owner: <strong className="text-[#091e3a]">{vaultbox.ownerName}</strong></span>
+        <span>
+          Owner: <strong className="text-[#091e3a]">{vaultbox.ownerName}</strong>
+        </span>
         {isOwner ? (
-          <span className="text-[#047857] font-semibold">Tap filled tile to withdraw</span>
+          <span className="text-[#047857] font-semibold">Tap item to take or + to add</span>
         ) : (
           <span className="flex items-center gap-1 text-[#b91c1c] font-semibold">
             <Lock className="w-3 h-3" />
@@ -352,167 +520,137 @@ export const VaultboxPanel: React.FC<VaultboxPanelProps> = ({
         )}
       </div>
 
-      {/* 10 Storage Tiles (5x2 grid) */}
-      <div data-testid="vaultbox-grid" className="grid grid-cols-5 gap-1.5">
-        {slots.map((slot, idx) => {
-          const def = slot ? getItemDef(slot.itemId) : undefined;
-          const hasDur = slot && typeof slot.maxDurability === 'number' && slot.maxDurability > 0;
-          const isSelectedEmpty = !slot && selectedTargetTile === idx;
+      {/* Compact Storage Tiles: Occupied slots + single trailing + add tile (up to cap 6) */}
+      <div data-testid="vaultbox-grid" className="grid grid-cols-3 gap-1.5">
+        {occupiedSlots.map((slot, idx) => {
+          const def = getItemDef(slot.itemId);
+          const hasDur = typeof slot.maxDurability === 'number' && slot.maxDurability > 0;
+          const isSelected = selectedWithdrawIdx === idx;
           return (
             <button
-              key={`vb-slot-${idx}`}
+              key={`vb-slot-${idx}-${slot.itemId}`}
               type="button"
               data-testid={`vaultbox-tile-${idx}`}
               disabled={!isOwner}
-              title={
-                slot
-                  ? `${def?.name ?? 'Item'} ×${formatHudNumber(slot.qty)}${isOwner ? ' (Click to withdraw)' : ''}`
-                  : `Empty Storage Tile ${idx + 1}`
-              }
+              title={`${def?.name ?? 'Item'} ×${formatHudNumber(slot.qty)}${
+                isOwner ? ' (Tap to withdraw)' : ''
+              }`}
               onClick={() => {
                 if (!isOwner) return;
-                if (slot) {
-                  onWithdraw(idx);
+                if (isSelected) {
+                  setSelectedWithdrawIdx(null);
                 } else {
-                  setSelectedTargetTile((cur) => (cur === idx ? null : idx));
+                  setSelectedWithdrawIdx(idx);
+                  setWithdrawCustomQty(String(Math.min(slot.qty, 1)));
                 }
               }}
               className={`pixel-slot relative h-12 flex flex-col items-center justify-center p-1 ${
-                slot
-                  ? isOwner
-                    ? 'cursor-pointer hover:!border-[#b45309]'
-                    : 'cursor-default'
-                  : isSelectedEmpty
-                    ? '!border-[#0284c7] !bg-[#dbeafe] cursor-pointer'
-                    : isOwner
-                      ? 'opacity-85 cursor-pointer hover:opacity-100'
-                      : 'opacity-70 cursor-default'
-              }`}
+                isOwner ? 'cursor-pointer hover:!border-[#b45309]' : 'cursor-default'
+              } ${isSelected ? '!border-[#b45309] !bg-[#fef3c7] ring-2 ring-[#fbbf24]/60' : ''}`}
             >
-              {slot ? (
-                <>
-                  <img
-                    src={getItemIconUrl(slot.itemId)}
-                    alt={def?.name ?? 'Stored'}
-                    className="w-6 h-6 pixelated"
-                    referrerPolicy="no-referrer"
-                  />
-                  {!hasDur && (
-                    <span className="absolute bottom-0.5 right-1 text-[8px] font-mono-num font-bold text-[#92400e] leading-none">
-                      {formatHudNumber(slot.qty)}
-                    </span>
-                  )}
-                  {hasDur && (
-                    <div className="absolute inset-x-1 bottom-0.5 h-1 rounded-full bg-[#b8d4ee]">
-                      <div
-                        className="h-full rounded-full bg-[#16a34a]"
-                        style={{
-                          width: `${Math.round(
-                            ((slot.durability ?? slot.maxDurability!) / slot.maxDurability!) * 100
-                          )}%`,
-                        }}
-                      />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <span className="text-[8px] font-mono-num text-[#23476d] font-semibold">
-                  {isSelectedEmpty ? 'TARGET' : idx + 1}
+              <img
+                src={getItemIconUrl(slot.itemId)}
+                alt={def?.name ?? 'Stored'}
+                className="w-6 h-6 pixelated"
+                referrerPolicy="no-referrer"
+              />
+              {!hasDur && (
+                <span className="absolute bottom-0.5 right-1 text-[8px] font-mono-num font-bold text-[#92400e] leading-none">
+                  {formatHudNumber(slot.qty)}
                 </span>
+              )}
+              {hasDur && (
+                <div className="absolute inset-x-1 bottom-0.5 h-1 rounded-full bg-[#b8d4ee]">
+                  <div
+                    className="h-full rounded-full bg-[#16a34a]"
+                    style={{
+                      width: `${Math.round(
+                        ((slot.durability ?? slot.maxDurability!) / slot.maxDurability!) * 100
+                      )}%`,
+                    }}
+                  />
+                </div>
               )}
             </button>
           );
         })}
+
+        {isOwner && canAddMore && (
+          <button
+            type="button"
+            data-testid="vaultbox-add-tile"
+            aria-label="Add item to Vaultbox"
+            title="Store item from Backpack"
+            onClick={() => {
+              setSelectedWithdrawIdx(null);
+              setSelectedInvKey(null);
+              setView('inventory');
+            }}
+            className="pixel-slot h-12 flex items-center justify-center border-dashed !border-[#0284c7] text-[#0284c7] hover:!bg-[#dbeafe]/80 cursor-pointer"
+          >
+            <span className="font-pixel text-xl leading-none font-bold">+</span>
+          </button>
+        )}
       </div>
 
-      {/* Owner Deposit Controls */}
-      {isOwner && (
-        <div className="border-t-2 border-[#4172a3]/35 pt-2 flex flex-col gap-1.5">
-          {depositable.length === 0 ? (
-            <span className="text-[10px] text-[#23476d]">No items in Backpack available to store.</span>
-          ) : (
-            <>
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="font-bold text-[#92400e]">Deposit Item</span>
-                {selectedTargetTile !== null && (
-                  <span className="text-[#0369a1] font-mono-num font-semibold">
-                    Into Tile #{selectedTargetTile + 1}
-                  </span>
-                )}
-              </div>
-              <select
-                aria-label="Select item to deposit into Vaultbox"
-                value={
-                  resolvedInvEntry
-                    ? resolvedInvEntry.slot.rodInstanceId ??
-                      `${resolvedInvEntry.slot.itemId}-${resolvedInvEntry.invIndex}`
-                    : ''
-                }
-                onChange={(e) => setSelectedInvKey(e.target.value)}
-                className="hud-input w-full px-2 py-1 text-[11px] font-semibold"
-              >
-                {depositable.map(({ slot, invIndex }) => {
-                  const key = slot.rodInstanceId ?? `${slot.itemId}-${invIndex}`;
-                  const def = getItemDef(slot.itemId);
-                  return (
-                    <option key={key} value={key}>
-                      {def?.name ?? `#${slot.itemId}`} (×{formatHudNumber(slot.qty)})
-                    </option>
-                  );
-                })}
-              </select>
-              {resolvedInvEntry && (
-                <div className="grid grid-cols-3 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onDeposit(
-                        resolvedInvEntry.slot.itemId,
-                        1,
-                        selectedTargetTile ?? undefined,
-                        resolvedInvEntry.invIndex
-                      );
-                      setSelectedTargetTile(null);
-                    }}
-                    className="pixel-btn pixel-btn-primary !py-1 !text-[10px]"
-                  >
-                    Store 1
-                  </button>
-                  <button
-                    type="button"
-                    disabled={resolvedInvEntry.slot.qty < 5}
-                    onClick={() => {
-                      onDeposit(
-                        resolvedInvEntry.slot.itemId,
-                        5,
-                        selectedTargetTile ?? undefined,
-                        resolvedInvEntry.invIndex
-                      );
-                      setSelectedTargetTile(null);
-                    }}
-                    className="pixel-btn pixel-btn-primary !py-1 !text-[10px] disabled:opacity-40"
-                  >
-                    Store 5
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onDeposit(
-                        resolvedInvEntry.slot.itemId,
-                        resolvedInvEntry.slot.qty,
-                        selectedTargetTile ?? undefined,
-                        resolvedInvEntry.invIndex
-                      );
-                      setSelectedTargetTile(null);
-                    }}
-                    className="pixel-btn pixel-btn-emerald !py-1 !text-[10px]"
-                  >
-                    Store All
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+      {!isOwner && usedCount === 0 && (
+        <div className="text-[10px] text-[#23476d] text-center py-1">Vaultbox is empty.</div>
+      )}
+
+      {isOwner && selectedWithdrawSlot && selectedWithdrawIdx !== null && (
+        <div
+          data-testid="vaultbox-withdraw-controls"
+          className="hud-subpanel p-2 flex flex-col gap-1.5"
+        >
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="font-bold text-[#091e3a] truncate">
+              {getItemDef(selectedWithdrawSlot.itemId)?.name ?? 'Stored Item'}
+            </span>
+            <span className="font-mono-num font-bold text-[#92400e]">
+              Stored: ×{formatHudNumber(selectedWithdrawSlot.qty)}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              data-testid="vaultbox-withdraw-all"
+              onClick={() => {
+                onWithdraw(selectedWithdrawIdx, selectedWithdrawSlot.qty);
+                setSelectedWithdrawIdx(null);
+              }}
+              className="pixel-btn pixel-btn-gold !py-1 !px-2.5 !text-[10px] shrink-0"
+            >
+              All Stack
+            </button>
+            <input
+              type="number"
+              data-testid="vaultbox-withdraw-qty"
+              min={1}
+              max={selectedWithdrawSlot.qty}
+              value={withdrawCustomQty}
+              onChange={(e) => setWithdrawCustomQty(e.target.value)}
+              aria-label="Custom Amount to Take"
+              className="hud-input w-16 px-1.5 py-1 text-[11px] font-mono-num text-center"
+            />
+            <button
+              type="button"
+              data-testid="vaultbox-withdraw-confirm"
+              onClick={() => {
+                const parsed = Math.max(
+                  1,
+                  Math.min(
+                    selectedWithdrawSlot.qty,
+                    Math.floor(Number(withdrawCustomQty) || 1)
+                  )
+                );
+                onWithdraw(selectedWithdrawIdx, parsed);
+                setSelectedWithdrawIdx(null);
+              }}
+              className="pixel-btn pixel-btn-primary flex-1 !py-1 !px-2 !text-[10px]"
+            >
+              Custom Amount
+            </button>
+          </div>
         </div>
       )}
     </div>

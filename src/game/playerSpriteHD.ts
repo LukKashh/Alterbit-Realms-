@@ -111,12 +111,56 @@ export interface EquippedWearables {
 
 export type WearableBodyPart = 'head' | 'hair' | 'face' | 'torso' | 'back' | 'hand' | 'legs' | 'feet';
 export type WearableRenderLayer =
+  | 'behind_character'
   | 'behind_torso'
   | 'on_torso'
   | 'on_legs'
   | 'on_feet'
   | 'on_face'
   | 'on_head';
+
+export type ModularRenderStage =
+  | 'back_wings'
+  | 'back_hand'
+  | 'back_pack'
+  | 'back_foot'
+  | 'front_foot'
+  | 'torso'
+  | 'torso_armor'
+  | 'head'
+  | 'face'
+  | 'face_wearable'
+  | 'head_wearable'
+  | 'front_hand';
+
+export function isWingWearable(itemId?: number): boolean {
+  return itemId === 404 || itemId === 410;
+}
+
+export function getModularRenderLayerOrder(equipped?: EquippedWearables): ModularRenderStage[] {
+  const hasWings = isWingWearable(equipped?.back);
+  const hasNonWingBack = Boolean(equipped?.back && !hasWings);
+  const order: ModularRenderStage[] = [];
+  if (hasWings) {
+    order.push('back_wings');
+  }
+  order.push('back_hand');
+  if (hasNonWingBack) {
+    order.push('back_pack');
+  }
+  order.push(
+    'back_foot',
+    'front_foot',
+    'torso',
+    'torso_armor',
+    'head',
+    'face',
+    'face_wearable',
+    'head_wearable',
+    'front_hand'
+  );
+  return order;
+}
 
 export interface WearableLocalizationSpec {
   itemId: number;
@@ -172,12 +216,12 @@ export const WEARABLE_LOCALIZATION: Record<number, WearableLocalizationSpec> = {
     extraTopClearancePx: 0,
   },
   404: {
-    // Aether Feather Wings: anchored to rear torso shoulder socket, drawn behind torso
+    // Aether Feather Wings: left & right shoulder-linked feather wings behind the entire character model
     itemId: 404,
     slot: 'back',
     bodyPart: 'back',
     parentPart: 'torso',
-    layer: 'behind_torso',
+    layer: 'behind_character',
     offsetX: -10,
     offsetY: -28,
     pivotX: 28,
@@ -250,12 +294,12 @@ export const WEARABLE_LOCALIZATION: Record<number, WearableLocalizationSpec> = {
     extraTopClearancePx: 0,
   },
   410: {
-    // Dragon Bone Wings: paired left/right skeletal wing cutouts anchored symmetrically behind left & right shoulders
+    // Dragon Bone Wings: paired left/right skeletal wing cutouts anchored symmetrically behind left & right shoulders & entire character model
     itemId: 410,
     slot: 'back',
     bodyPart: 'back',
     parentPart: 'torso',
-    layer: 'behind_torso',
+    layer: 'behind_character',
     offsetX: 0,
     offsetY: -35,
     pivotX: 18,
@@ -1702,7 +1746,7 @@ export function drawModularWearableSubLayer(
   if (!equipped) return;
 
   const candidateIds: number[] = [];
-  if (layer === 'behind_torso' && equipped.back) {
+  if ((layer === 'behind_character' || layer === 'behind_torso') && equipped.back) {
     candidateIds.push(equipped.back);
   }
   if (layer === 'on_torso') {
@@ -1785,13 +1829,29 @@ export function drawModularWearableSubLayer(
       }
       ctx.restore();
     } else if (itemId === 404) {
-      // Pivot feather wings neatly around shoulder harness socket so flight flutter doesn't detach mount
-      ctx.translate(spec.offsetX, spec.offsetY);
-      const wingFlap = grounded ? Math.sin(nowMs * 0.003) * 0.03 : Math.sin(nowMs * 0.022) * 0.16;
+      // Draw Left & Right Aether Feather Wing halves independently behind left & right torso shoulders
+      const wingFlap = grounded ? Math.sin(nowMs * 0.003) * 0.04 : Math.sin(nowMs * 0.022) * 0.16;
+      const shoulderOffsetX = 9;
+      const shoulderOffsetY = spec.offsetY;
+
+      // Left wing half (linked behind left torso shoulder, oriented outward to the left)
+      ctx.save();
+      ctx.translate(-shoulderOffsetX, shoulderOffsetY);
       if (Math.abs(wingFlap) > 0.002) {
         ctx.rotate(wingFlap);
       }
       ctx.drawImage(img, Math.round(-spec.pivotX), Math.round(-spec.pivotY));
+      ctx.restore();
+
+      // Right wing half (linked behind right torso shoulder, mirrored cleanly outward to the right)
+      ctx.save();
+      ctx.translate(shoulderOffsetX, shoulderOffsetY);
+      ctx.scale(-1, 1);
+      if (Math.abs(wingFlap) > 0.002) {
+        ctx.rotate(wingFlap);
+      }
+      ctx.drawImage(img, Math.round(-spec.pivotX), Math.round(-spec.pivotY));
+      ctx.restore();
     } else if (spec.layer === 'on_face') {
       ctx.drawImage(img, Math.round(spec.offsetX), Math.round(spec.offsetY));
     } else {
@@ -1830,13 +1890,25 @@ export function drawModularCharacter(
   ctx.translate(rig.centerX, rig.groundBottomY);
   ctx.scale(rig.facing * rig.scaleX, rig.scaleY);
 
+  // 0. Back Wings Sub-Layer (Wings render behind the entire character model, including back hand)
+  drawModularWearableSubLayer(
+    ctx,
+    rig,
+    equipped,
+    'behind_character',
+    params.nowMs,
+    params.grounded,
+    params.vy,
+    params.landing
+  );
+
   // 1. Back Hand Sub-Layer (bare or linked Astro Suit sleeve/glove connected to back shoulder socket)
   const backHandImg = wearingAstroSuit
     ? (getAstroSuitArmCanvas(false, rig.backHandVariant) ?? parts.handsBack[rig.backHandVariant])
     : parts.handsBack[rig.backHandVariant];
   drawSubLayerPart(ctx, backHandImg, rig.handBack);
 
-  // 2. Back Wearables Sub-Layer (Lifesup Backpack or wings anchored behind torso spine)
+  // 2. Non-Wing Back Wearables Sub-Layer (Lifesup Backpack anchored behind torso spine, ahead of back hand)
   drawModularWearableSubLayer(
     ctx,
     rig,

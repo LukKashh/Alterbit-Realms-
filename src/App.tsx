@@ -99,6 +99,7 @@ export default function App() {
   const [role, setRole] = useState<UserRole>('player');
   const [worldName, setWorldName] = useState<string>('NEXUS');
   const [worldOwner, setWorldOwner] = useState<string | null>(null);
+  const [worldOwnerId, setWorldOwnerId] = useState<string | null>(null);
   const [worldKind, setWorldKind] = useState<'standard' | 'mine_shaft'>('standard');
   const [mineExpiresAt, setMineExpiresAt] = useState<number | null>(null);
   const [playerCount, setPlayerCount] = useState<number>(1);
@@ -114,6 +115,8 @@ export default function App() {
   const [worldLevel, setWorldLevel] = useState<number>(1);
   const [worldCoreTokens, setWorldCoreTokens] = useState<number>(0);
   const [worldHasFurnaceExpansion, setWorldHasFurnaceExpansion] = useState<boolean>(false);
+  const [worldHasVaultboxExpansion, setWorldHasVaultboxExpansion] = useState<boolean>(false);
+  const [vaultboxPlacementActive, setVaultboxPlacementActive] = useState<boolean>(false);
   const [cropMasteryXp, setCropMasteryXp] = useState<number>(0);
   const [cropMasteryLevel, setCropMasteryLevel] = useState<number>(1);
   const [farmablockMasteryXp, setFarmablockMasteryXp] = useState<number>(0);
@@ -299,6 +302,10 @@ export default function App() {
   }, [viewZoom, orientation]);
 
   useEffect(() => {
+    engineRef.current?.setVaultboxPlacementMode(vaultboxPlacementActive);
+  }, [vaultboxPlacementActive]);
+
+  useEffect(() => {
     if (appState !== 'playing' && appState !== 'paused') return;
     const engine = engineRef.current;
     const socket = socketRef.current;
@@ -378,6 +385,10 @@ export default function App() {
       onUseConsumable: (itemId) => socket.send({ type: 'use_consumable', itemId }),
       onUseDoor: (tx, ty) => socket.send({ type: 'use_door', tx, ty }),
       onUseEntrancePortal: () => socket.send({ type: 'use_entrance_portal' }),
+      onPlaceWorldCoreVaultbox: (tx, ty) => {
+        setVaultboxPlacementActive(false);
+        socket.send({ type: 'unlock_worldcore_vaultbox', tx, ty });
+      },
       onHazardHit: (hazard) =>
         engineRef.current?.queuePlayerAnnouncement(
           hazard === 'acid' ? 'Burned by Acid!' : 'Hit Spikes!',
@@ -491,10 +502,13 @@ export default function App() {
           }
           setWorldName(msg.world.name);
           setWorldOwner(msg.world.worldLock?.ownerName ?? null);
+          setWorldOwnerId(msg.world.worldLock?.ownerId ?? null);
           setWorldXp(msg.world.worldXp ?? 0);
           setWorldLevel(msg.world.worldLevel ?? 1);
           setWorldCoreTokens(msg.world.coreTokens ?? 0);
           setWorldHasFurnaceExpansion(Boolean(msg.world.hasFurnaceExpansion));
+          setWorldHasVaultboxExpansion(Boolean(msg.world.hasVaultboxExpansion));
+          if (!isReconnectSameWorld) setVaultboxPlacementActive(false);
           setWorldKind(msg.world.worldKind ?? 'standard');
           setMineExpiresAt(msg.world.expiresAt ?? null);
           setFishingCast(null);
@@ -573,6 +587,7 @@ export default function App() {
           }
           if (msg.worldLock !== undefined) {
             setWorldOwner(msg.worldLock?.ownerName ?? null);
+            setWorldOwnerId(msg.worldLock?.ownerId ?? null);
           }
           setInspectInfo((cur) => {
             if (cur && cur.tx === msg.tx && cur.ty === msg.ty) {
@@ -626,7 +641,12 @@ export default function App() {
         }
         case 'world_xp_updated':
           if (engine.getWorldState().name === msg.worldName) {
-            engine.updateWorldXp(msg.worldXp, msg.worldLevel, msg.coreTokens);
+            engine.updateWorldXp(
+              msg.worldXp,
+              msg.worldLevel,
+              msg.coreTokens,
+              msg.hasVaultboxExpansion
+            );
             setWorldXp(msg.worldXp);
             setWorldLevel(msg.worldLevel);
             if (typeof msg.coreTokens === 'number') {
@@ -634,6 +654,10 @@ export default function App() {
             }
             if (typeof msg.hasFurnaceExpansion === 'boolean') {
               setWorldHasFurnaceExpansion(msg.hasFurnaceExpansion);
+            }
+            if (typeof msg.hasVaultboxExpansion === 'boolean') {
+              setWorldHasVaultboxExpansion(msg.hasVaultboxExpansion);
+              if (msg.hasVaultboxExpansion) setVaultboxPlacementActive(false);
             }
           }
           break;
@@ -1045,10 +1069,13 @@ export default function App() {
           onToggleAdminWorldEdit={handleToggleAdminWorldEdit}
           worldName={worldName}
           worldOwner={worldOwner}
+          worldOwnerId={worldOwnerId}
           worldXp={worldXp}
           worldLevel={worldLevel}
           worldCoreTokens={worldCoreTokens}
           worldHasFurnaceExpansion={worldHasFurnaceExpansion}
+          worldHasVaultboxExpansion={worldHasVaultboxExpansion}
+          vaultboxPlacementActive={vaultboxPlacementActive}
           playerCount={playerCount}
           coords={coords}
           gems={gems}
@@ -1176,6 +1203,8 @@ export default function App() {
           onUnlockWorldCoreFurnace={() =>
             socketRef.current?.send({ type: 'unlock_worldcore_furnace' })
           }
+          onStartWorldCoreVaultboxPlacement={() => setVaultboxPlacementActive(true)}
+          onCancelWorldCoreVaultboxPlacement={() => setVaultboxPlacementActive(false)}
           onTrashInventoryItem={(opts) =>
             socketRef.current?.send({ type: 'trash_inventory_item', ...opts })
           }

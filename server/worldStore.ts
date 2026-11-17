@@ -61,6 +61,7 @@ import {
   canBreakTile,
   canEnterWorld,
   canPlaceTile,
+  canPlaceWorldCoreVaultbox,
   canPlowTile,
   getCropMasteryRequiredLevel,
   getFarmableMasteryRequiredLevel,
@@ -72,6 +73,8 @@ import {
   resolveSplice,
   sortInventorySlots,
   tileIndexIn,
+  VAULTBOX_UPGRADE_DIGIBITS_COST,
+  VAULTBOX_UPGRADE_MIN_LEVEL,
   validateWorldName,
   worldHeight,
   worldWidth,
@@ -1483,6 +1486,20 @@ export class AuthoritativeWorldStore {
     state.worldLevel = Math.max(1, Math.floor(Number(state.worldLevel ?? 1)));
     state.coreTokens = Math.max(0, Math.floor(Number(state.coreTokens ?? 0)));
     state.hasFurnaceExpansion = Boolean(state.hasFurnaceExpansion);
+    state.hasVaultboxExpansion = Boolean(state.hasVaultboxExpansion);
+    for (const vb of Object.values(state.vaultboxes)) {
+      vb.slots = this.compactVaultboxSlots(vb.slots);
+      const vbIdx = tileIndexIn(state, vb.x, vb.y);
+      if (vbIdx >= 0 && vbIdx < state.fg.length) {
+        if (state.fg[vbIdx] === ITEM_IDS.VAULTBOX) {
+          state.fg[vbIdx] = ITEM_IDS.AIR;
+          state.bg[vbIdx] = ITEM_IDS.VAULTBOX;
+        }
+      }
+      if (vb.slots.some(Boolean)) {
+        state.hasVaultboxExpansion = true;
+      }
+    }
     ensureFluidArrays(state);
 
     // Retire old physical lock blocks and convert existing ownership anchors to WorldCore.
@@ -2400,9 +2417,6 @@ export class AuthoritativeWorldStore {
       if (live.state.atmMachines?.[key]) {
         delete live.state.atmMachines[key];
       }
-      if (live.state.vaultboxes?.[key]) {
-        delete live.state.vaultboxes[key];
-      }
       if (prevFg === ITEM_IDS.SEED_POT && live.state.seedPots) {
         delete live.state.seedPots[key];
       }
@@ -2464,6 +2478,9 @@ export class AuthoritativeWorldStore {
       const prevBg = live.state.bg[idx];
       if (isDoorBlock(prevBg) && live.state.doorLinks) {
         delete live.state.doorLinks[key];
+      }
+      if (prevBg === ITEM_IDS.VAULTBOX && live.state.vaultboxes?.[key]) {
+        delete live.state.vaultboxes[key];
       }
       live.state.bg[idx] = ITEM_IDS.BG_SKY;
       if (!suppressDrops) {
@@ -2612,13 +2629,24 @@ export class AuthoritativeWorldStore {
     };
   }
 
+  private compactVaultboxSlots(slots?: (VaultboxSlot | null)[]): (VaultboxSlot | null)[] {
+    const compacted: (VaultboxSlot | null)[] = (slots ?? [])
+      .filter((s): s is VaultboxSlot => Boolean(s && s.qty > 0))
+      .slice(0, VAULTBOX_SLOT_COUNT);
+    while (compacted.length < VAULTBOX_SLOT_COUNT) {
+      compacted.push(null);
+    }
+    return compacted;
+  }
+
   private playerHasFarmingHoeAnywhere(account: PlayerAccount): boolean {
     if (account.inventory.some((s) => s.itemId === ITEM_IDS.FARMING_HOE && s.qty >= 1)) {
       return true;
     }
     for (const live of this.worlds.values()) {
       for (const vb of Object.values(live.state.vaultboxes ?? {})) {
-        if (vb.ownerId === account.id && vb.slots.some((s) => s?.itemId === ITEM_IDS.FARMING_HOE && s.qty >= 1)) {
+        const effectiveOwnerId = live.state.worldLock?.ownerId ?? vb.ownerId;
+        if (effectiveOwnerId === account.id && vb.slots.some((s) => s?.itemId === ITEM_IDS.FARMING_HOE && s.qty >= 1)) {
           return true;
         }
       }
@@ -2982,6 +3010,16 @@ export class AuthoritativeWorldStore {
 
     if (check.layer === 'bg') {
       live.state.bg[idx] = itemId;
+      if (itemId === ITEM_IDS.VAULTBOX) {
+        live.state.vaultboxes = live.state.vaultboxes ?? {};
+        live.state.vaultboxes[key] = {
+          x: tx,
+          y: ty,
+          ownerId: live.state.worldLock?.ownerId ?? account.id,
+          ownerName: live.state.worldLock?.ownerName ?? account.name,
+          slots: Array.from({ length: VAULTBOX_SLOT_COUNT }, () => null),
+        };
+      }
       if (!effectiveAdminEdit) account.stats.blocksPlaced = (account.stats.blocksPlaced ?? 0) + 1;
     } else if (check.layer === 'seed') {
       if (!isCropSeed(itemId)) {
@@ -3103,16 +3141,6 @@ export class AuthoritativeWorldStore {
           storedGems: 0,
         };
         notice = 'ATM Machine placed! Synthesizing 5–125 Gems (30m–1.5h cycle).';
-      } else if (itemId === ITEM_IDS.VAULTBOX) {
-        live.state.vaultboxes = live.state.vaultboxes ?? {};
-        live.state.vaultboxes[key] = {
-          x: tx,
-          y: ty,
-          ownerId: account.id,
-          ownerName: account.name,
-          slots: Array.from({ length: VAULTBOX_SLOT_COUNT }, () => null),
-        };
-        notice = 'Vaultbox placed! 10 private storage tiles unlocked for your items.';
       } else if (getItemDef(itemId)?.key.includes('sign')) {
         live.state.signs = live.state.signs ?? {};
         live.state.signs[key] = `Sign by ${account.name}`;
@@ -3642,16 +3670,18 @@ export class AuthoritativeWorldStore {
     const key = `${tx},${ty}`;
     const vault = live.state.vaultboxes?.[key];
     if (!vault) return { ok: false, message: 'Vaultbox not found.' };
-    if (vault.ownerId !== account.id && account.role !== 'admin') {
-      return { ok: false, message: `Locked: Only ${vault.ownerName} can access this Vaultbox.` };
-    }
 
-    // Normalize fixed 10-tile array
-    const normalized: (VaultboxSlot | null)[] = Array.from(
-      { length: VAULTBOX_SLOT_COUNT },
-      (_, idx) => vault.slots?.[idx] ?? null
-    );
-    vault.slots = normalized;
+    // Dynamic per-world ownership verification: tied directly to current world owner
+    const effectiveOwnerId = live.state.worldLock?.ownerId ?? vault.ownerId;
+    const effectiveOwnerName = live.state.worldLock?.ownerName ?? vault.ownerName;
+    if (effectiveOwnerId !== account.id && account.role !== 'admin') {
+      return { ok: false, message: `Locked: Only ${effectiveOwnerName} can access this Vaultbox.` };
+    }
+    vault.ownerId = effectiveOwnerId;
+    vault.ownerName = effectiveOwnerName;
+
+    // Keep stored slots compacted cleanly (max VAULTBOX_SLOT_COUNT = 6 tiles)
+    vault.slots = this.compactVaultboxSlots(vault.slots);
 
     if (opts.action === 'withdraw') {
       const slotIdx = Number(opts.slotIndex);
@@ -3667,6 +3697,7 @@ export class AuthoritativeWorldStore {
       if (isUniqueGear) {
         account.inventory.push({ ...stored, qty: 1 });
         vault.slots[slotIdx] = null;
+        vault.slots = this.compactVaultboxSlots(vault.slots);
         live.state.revision += 1;
         live.dirty = true;
         this.saveWorld(live);
@@ -3684,6 +3715,7 @@ export class AuthoritativeWorldStore {
       stored.qty -= takeQty;
       if (stored.qty <= 0) {
         vault.slots[slotIdx] = null;
+        vault.slots = this.compactVaultboxSlots(vault.slots);
       }
       live.state.revision += 1;
       live.dirty = true;
@@ -3706,7 +3738,7 @@ export class AuthoritativeWorldStore {
 
     const isUniqueGear = Boolean(def.maxDurability || def.toolKind === 'rod');
     if (isUniqueGear) {
-      let invIdx =
+      const invIdx =
         typeof opts.invIndex === 'number' &&
         opts.invIndex >= 0 &&
         opts.invIndex < account.inventory.length &&
@@ -3717,18 +3749,13 @@ export class AuthoritativeWorldStore {
         return { ok: false, message: `You do not have ${def.name} in your Backpack.` };
       }
 
-      let targetSlotIdx =
-        typeof opts.slotIndex === 'number' &&
-        opts.slotIndex >= 0 &&
-        opts.slotIndex < VAULTBOX_SLOT_COUNT
-          ? opts.slotIndex
-          : vault.slots.findIndex((s) => s === null);
-
-      if (targetSlotIdx < 0 || vault.slots[targetSlotIdx] !== null) {
-        return { ok: false, message: 'No empty Vaultbox tile available (10 slots max).' };
+      const targetSlotIdx = vault.slots.findIndex((s) => s === null);
+      if (targetSlotIdx < 0) {
+        return { ok: false, message: `No empty Vaultbox tile available (${VAULTBOX_SLOT_COUNT} slots max).` };
       }
       const [moved] = account.inventory.splice(invIdx, 1);
       vault.slots[targetSlotIdx] = { ...moved, qty: 1 };
+      vault.slots = this.compactVaultboxSlots(vault.slots);
       live.state.revision += 1;
       live.dirty = true;
       this.saveWorld(live);
@@ -3736,7 +3763,7 @@ export class AuthoritativeWorldStore {
       return {
         ok: true,
         vaultbox: vault,
-        notice: `Stored ${def.name} in Vaultbox slot #${targetSlotIdx + 1}.`,
+        notice: `Stored ${def.name} in Vaultbox.`,
       };
     }
 
@@ -3758,7 +3785,7 @@ export class AuthoritativeWorldStore {
     ) {
       const existing = vault.slots[opts.slotIndex];
       if (existing === null) {
-        targetSlotIdx = opts.slotIndex;
+        targetSlotIdx = vault.slots.findIndex((s) => s === null);
         depositQty = Math.min(reqQty, maxStack);
       } else if (existing.itemId === itemId && existing.qty < maxStack) {
         targetSlotIdx = opts.slotIndex;
@@ -3767,7 +3794,6 @@ export class AuthoritativeWorldStore {
         return { ok: false, message: 'Selected Vaultbox tile cannot hold more of this item.' };
       }
     } else {
-      // First look for an existing non-full matching stack, then first empty tile
       const stackIdx = vault.slots.findIndex(
         (s) => s !== null && s.itemId === itemId && s.qty < maxStack
       );
@@ -3777,7 +3803,7 @@ export class AuthoritativeWorldStore {
       } else {
         const emptyIdx = vault.slots.findIndex((s) => s === null);
         if (emptyIdx === -1) {
-          return { ok: false, message: 'Vaultbox is full (all 10 storage tiles occupied).' };
+          return { ok: false, message: `Vaultbox is full (${VAULTBOX_SLOT_COUNT} storage tiles max).` };
         }
         targetSlotIdx = emptyIdx;
         depositQty = Math.min(reqQty, maxStack);
@@ -3794,6 +3820,7 @@ export class AuthoritativeWorldStore {
     } else {
       vault.slots[targetSlotIdx] = { itemId, qty: depositQty };
     }
+    vault.slots = this.compactVaultboxSlots(vault.slots);
 
     live.state.revision += 1;
     live.dirty = true;
@@ -4555,6 +4582,78 @@ export class AuthoritativeWorldStore {
       ty: fTy,
       coreTokens: live.state.coreTokens,
       notice: `WorldCore Expansion unlocked! Interactive Furnace spawned above WorldCore at (${fTx}, ${fTy}).`,
+    };
+  }
+
+  unlockWorldCoreVaultbox(
+    account: PlayerAccount,
+    worldName: string,
+    tx: number,
+    ty: number
+  ):
+    | {
+        ok: true;
+        tx: number;
+        ty: number;
+        notice: string;
+      }
+    | { ok: false; message: string } {
+    const live = this.worlds.get(worldName);
+    if (!live) return { ok: false, message: 'World not found.' };
+    if (!live.state.worldLock || isSystemWorld(live.state.name) || live.state.worldKind === 'mine_shaft') {
+      return { ok: false, message: 'WorldCore Vaultbox upgrade requires an owned standard world.' };
+    }
+    if (live.state.worldLock.ownerId !== account.id && account.role !== 'admin') {
+      return { ok: false, message: 'Only the World Owner can unlock WorldCore upgrades.' };
+    }
+    const worldLevel = Math.max(1, Math.floor(Number(live.state.worldLevel ?? 1)));
+    if (worldLevel < VAULTBOX_UPGRADE_MIN_LEVEL) {
+      return { ok: false, message: `WorldCore Vaultbox unlocks at World Level ${VAULTBOX_UPGRADE_MIN_LEVEL}.` };
+    }
+    if (live.state.hasVaultboxExpansion) {
+      return { ok: false, message: 'Vaultbox Expansion is already placed in this world.' };
+    }
+
+    const curDb = Math.max(0, Math.floor(Number(account.alterbits ?? 0)));
+    if (curDb < VAULTBOX_UPGRADE_DIGIBITS_COST) {
+      return {
+        ok: false,
+        message: `Need ${VAULTBOX_UPGRADE_DIGIBITS_COST.toLocaleString()} Digibits (you have ${curDb.toLocaleString()}).`,
+      };
+    }
+
+    const ptx = Math.floor(Number(tx));
+    const pty = Math.floor(Number(ty));
+    const placementCheck = canPlaceWorldCoreVaultbox(live.state, ptx, pty);
+    if (!placementCheck.ok) {
+      return { ok: false, message: placementCheck.reason ?? 'Invalid Vaultbox placement tile.' };
+    }
+
+    const vIdx = tileIndexIn(live.state, ptx, pty);
+    const vKey = `${ptx},${pty}`;
+
+    account.alterbits = curDb - VAULTBOX_UPGRADE_DIGIBITS_COST;
+    live.state.hasVaultboxExpansion = true;
+    live.state.fg[vIdx] = ITEM_IDS.AIR;
+    if (live.state.plants[vKey]) delete live.state.plants[vKey];
+    live.state.bg[vIdx] = ITEM_IDS.VAULTBOX;
+    live.state.vaultboxes = live.state.vaultboxes ?? {};
+    live.state.vaultboxes[vKey] = {
+      x: ptx,
+      y: pty,
+      ownerId: live.state.worldLock.ownerId,
+      ownerName: live.state.worldLock.ownerName,
+      slots: Array.from({ length: VAULTBOX_SLOT_COUNT }, () => null),
+    };
+    live.state.revision += 1;
+    live.dirty = true;
+    this.saveWorld(live);
+    this.savePlayer(account);
+    return {
+      ok: true,
+      tx: ptx,
+      ty: pty,
+      notice: `WorldCore Vaultbox placed at (${ptx}, ${pty})! Use Tinker Wrench to manage storage.`,
     };
   }
 

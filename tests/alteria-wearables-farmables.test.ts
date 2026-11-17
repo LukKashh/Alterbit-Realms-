@@ -209,7 +209,7 @@ test('Wearables localize strictly to modular body parts and render attached to h
 
   assert.equal(wings?.bodyPart, 'back');
   assert.equal(wings?.parentPart, 'torso');
-  assert.equal(wings?.layer, 'behind_torso');
+  assert.equal(wings?.layer, 'behind_character');
 
   assert.equal(Object.keys(WEARABLE_LOCALIZATION).length >= 4, true);
   assert.equal(getWearableExtraTopClearance({ head: 401 }), 12);
@@ -272,9 +272,9 @@ test('Wearables localize strictly to modular body parts and render attached to h
     });
     const clothedDrawCount = drawnImages.length - bareDrawCount;
 
-    // Bare character draws 6 sub-layers (back hand, back foot, front foot, torso, head, face, front hand = 7)
-    // Wearing crown + visor + wings adds 3 modular wearable sub-layers (10 total)
-    assert.equal(clothedDrawCount - bareDrawCount, 3, 'Must draw Crown, Visor, and Wings sub-layers on their body parts');
+    // Bare character draws 7 sub-layers (back hand, back foot, front foot, torso, head, face, front hand = 7)
+    // Wearing crown + visor + split left/right wings adds 4 modular wearable sub-layers (11 total)
+    assert.equal(clothedDrawCount - bareDrawCount, 4, 'Must draw Crown, Visor, and separate Left/Right Wing sub-layers on their body parts');
     assert.ok(crownedTopY < bareTopY, 'Crown must expand top clearance smoothly for floating nameplates');
   } finally {
     if (origDoc === undefined) {
@@ -546,7 +546,7 @@ test('Dragon Bone Wings (410) render in 30-bit pixel art, localize behind torso,
   assert.equal(loc?.slot, 'back');
   assert.equal(loc?.bodyPart, 'back');
   assert.equal(loc?.parentPart, 'torso');
-  assert.equal(loc?.layer, 'behind_torso');
+  assert.equal(loc?.layer, 'behind_character');
 
   const artColors = new Set<string>();
   const artCtx = createMockCanvas2D();
@@ -594,11 +594,11 @@ test('Dragon Bone Wings (410) render in 30-bit pixel art, localize behind torso,
         scales.push([sx, sy]);
       };
       (ctx as unknown as { drawImage: () => void }).drawImage = () => {
-        // Order: 0 = backHand, 1 = left wing half, 2 = right wing half
-        if (drawCount === 1) {
+        // Order: 0 = left wing half, 1 = right wing half, 2 = backHand ... (wings completely behind character)
+        if (drawCount === 0) {
           leftWingRot = rotations[rotations.length - 1];
           leftWingScale = scales[scales.length - 1];
-        } else if (drawCount === 2) {
+        } else if (drawCount === 1) {
           rightWingRot = rotations[rotations.length - 1];
           rightWingScale = scales[scales.length - 1];
         }

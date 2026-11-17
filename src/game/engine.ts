@@ -20,6 +20,7 @@ import { createPlayerBody, stepPlayerPhysics, type PlayerBody } from './physics.
 import {
   CRACK_STAGE_COUNT,
   getCrackOverlay,
+  getEntrancePortalFrameSprite,
   getMarketStandSprite,
   getPixobyteDigichangeSprite,
   getTileSprite,
@@ -35,9 +36,11 @@ import {
 import {
   canBreakTile,
   canPlaceTile,
+  canPlaceWorldCoreVaultbox,
   canPlowTile,
   getCoveringAreaLock,
   getCoveringShareLock,
+  getEntrancePortalAt,
   getMarketStandAt,
   getPixobyteDigichangeAt,
   getPlantGrowthState,
@@ -46,12 +49,14 @@ import {
   isDoorBlock,
   isWithinReach,
   tileIndexIn,
+  VAULTBOX_PLACEMENT_RADIUS,
   worldHeight,
   worldWidth,
 } from './rules.ts';
 import { isSystemWorld } from './expansion.ts';
 import {
   generateWorld,
+  VAULTBOX_SLOT_COUNT,
   type AreaLockRecord,
   type AtmMachineRecord,
   type DoorLinkRecord,
@@ -172,6 +177,7 @@ export interface EngineCallbacks {
   onHazardHit?: (hazard: 'acid' | 'spikes') => void;
   onUseDoor?: (tx: number, ty: number) => void;
   onUseEntrancePortal?: () => void;
+  onPlaceWorldCoreVaultbox?: (tx: number, ty: number) => void;
   onInspectPlayer?: (playerId: string) => void;
 }
 
@@ -264,6 +270,14 @@ export class BlockgroveEngine {
   private wrenchIconTargets: Array<{ playerId: string; x: number; y: number; w: number; h: number }> = [];
   private digibitsCoinImg: HTMLImageElement | null = null;
   private lastTeleportAt = 0;
+  private vaultboxPlacementMode = false;
+  private portalTransition: {
+    kind: 'enter' | 'leave';
+    progress: number;
+    duration: number;
+    startX: number;
+    triggered?: boolean;
+  } | null = null;
 
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
     this.container = container;
@@ -598,6 +612,14 @@ export class BlockgroveEngine {
     this.adminBrushItemId = brushItemId;
   }
 
+  public setVaultboxPlacementMode(enabled: boolean) {
+    this.vaultboxPlacementMode = enabled;
+  }
+
+  public isVaultboxPlacementMode(): boolean {
+    return this.vaultboxPlacementMode;
+  }
+
   public getPlayerZoomScale(): number {
     return this.playerZoomScale;
   }
@@ -710,6 +732,10 @@ export class BlockgroveEngine {
         this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.24)';
         this.worldLayerCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
         this.worldLayerCtx.drawImage(getTileSprite(bgId), px, py, TILE_SIZE, TILE_SIZE);
+      } else if (bgId === ITEM_IDS.VAULTBOX) {
+        this.worldLayerCtx.drawImage(getTileSprite(ITEM_IDS.VAULTBOX), px, py, TILE_SIZE, TILE_SIZE);
+        this.worldLayerCtx.fillStyle = 'rgba(7, 13, 22, 0.14)';
+        this.worldLayerCtx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
       } else {
         this.worldLayerCtx.drawImage(getTileSprite(bgId), px, py, TILE_SIZE, TILE_SIZE);
         // Recessed depth tint so background walls sit visually behind foreground blocks
@@ -723,6 +749,7 @@ export class BlockgroveEngine {
     }
     if (
       fgId !== ITEM_IDS.AIR &&
+      fgId !== ITEM_IDS.ENTRANCE_PORTAL &&
       fgId !== ITEM_IDS.LANDLORD_NPC &&
       fgId !== ITEM_IDS.GREENS_VENDOR_NPC
     ) {
@@ -740,11 +767,19 @@ export class BlockgroveEngine {
     }
   }
 
-  public updateWorldXp(worldXp: number, worldLevel: number, coreTokens?: number) {
+  public updateWorldXp(
+    worldXp: number,
+    worldLevel: number,
+    coreTokens?: number,
+    hasVaultboxExpansion?: boolean
+  ) {
     const prevLevel = this.world.worldLevel ?? 1;
     const prevTokens = this.world.coreTokens ?? 0;
     this.world.worldXp = worldXp;
     this.world.worldLevel = worldLevel;
+    if (typeof hasVaultboxExpansion === 'boolean') {
+      this.world.hasVaultboxExpansion = hasVaultboxExpansion;
+    }
     if (typeof coreTokens === 'number') {
       this.world.coreTokens = coreTokens;
       if (coreTokens > prevTokens) {
@@ -931,6 +966,15 @@ export class BlockgroveEngine {
     this.pickupAttempted.clear();
     this.pickupRetryAt.clear();
     this.activeCasts.clear();
+    if (!isSameWorldReconnect) {
+      this.vaultboxPlacementMode = false;
+      const hasPortal = Boolean(
+        getEntrancePortalAt(this.world, this.world.spawnX, this.world.spawnY)
+      );
+      this.portalTransition = hasPortal
+        ? { kind: 'enter', progress: 0, duration: 0.72, startX: this.body.x }
+        : null;
+    }
     if (!prevBody) {
       this.snapCameraToPlayer();
     }
@@ -1455,6 +1499,7 @@ export class BlockgroveEngine {
       fgId === ITEM_IDS.GREENS_VENDOR_NPC ||
       fgId === ITEM_IDS.ATM_MACHINE ||
       fgId === ITEM_IDS.VAULTBOX ||
+      bgId === ITEM_IDS.VAULTBOX ||
       isMatteragen;
 
     const canEditDoor = isDoor
@@ -1501,16 +1546,19 @@ export class BlockgroveEngine {
     const idx = tileIndexIn(this.world, tx, ty);
     const key = `${tx},${ty}`;
     const rawFgId = this.world.fg[idx];
+    const bgId = this.world.bg[idx];
     const stand = getMarketStandAt(this.world, tx, ty);
     const digichange = getPixobyteDigichangeAt(this.world, tx, ty);
+    const isBgVaultbox = rawFgId === ITEM_IDS.AIR && bgId === ITEM_IDS.VAULTBOX;
     const fgId = stand
       ? stand.itemId
       : digichange
         ? ITEM_IDS.PIXOBYTE_DIGICHANGE
-        : rawFgId;
+        : isBgVaultbox
+          ? ITEM_IDS.VAULTBOX
+          : rawFgId;
     const fgDef = getItemDef(fgId);
-    const bgDef = getItemDef(this.world.bg[idx]);
-    const bgId = this.world.bg[idx];
+    const bgDef = getItemDef(bgId);
     const hasFurnace = fgId === ITEM_IDS.STONE_FURNACE || bgId === ITEM_IDS.STONE_FURNACE;
     const isDoor = isDoorBlock(bgId) || isDoorBlock(fgId);
     const { interactable, canEditDoor, canEditSign } = this.getTileInteractability(tx, ty);
@@ -1525,9 +1573,11 @@ export class BlockgroveEngine {
       fgName:
         digichange
           ? 'Pixobyte Digichange'
-          : fgId === ITEM_IDS.AIR && bgId === ITEM_IDS.STONE_FURNACE
-            ? 'Stone Furnace'
-            : (fgDef?.name ?? 'Air'),
+          : isBgVaultbox
+            ? 'Vaultbox'
+            : fgId === ITEM_IDS.AIR && bgId === ITEM_IDS.STONE_FURNACE
+              ? 'Stone Furnace'
+              : (fgDef?.name ?? 'Air'),
       bgName: bgDef?.name ?? 'Open Sky',
       worldLock: fgId === ITEM_IDS.WORLD_CORE || fgId === ITEM_IDS.WORLD_LOCK ? this.world.worldLock : null,
       areaLock: fgId === ITEM_IDS.SMALL_LOCK ? (this.world.areaLocks?.[key] ?? null) : getCoveringAreaLock(this.world, tx, ty),
@@ -1546,7 +1596,7 @@ export class BlockgroveEngine {
           ? (this.world.matteragenEngines?.[key] ?? null)
           : null,
       atmMachine: fgId === ITEM_IDS.ATM_MACHINE ? (this.world.atmMachines?.[key] ?? null) : null,
-      vaultbox: fgId === ITEM_IDS.VAULTBOX ? (this.world.vaultboxes?.[key] ?? null) : null,
+      vaultbox: fgId === ITEM_IDS.VAULTBOX || bgId === ITEM_IDS.VAULTBOX ? (this.world.vaultboxes?.[key] ?? null) : null,
       bgId,
       isDoor,
       isNexusDoor: isDoor && this.world.name === 'NEXUS',
@@ -1584,8 +1634,25 @@ export class BlockgroveEngine {
   }
 
   private performTileInteraction(tx: number, ty: number) {
+    if (this.portalTransition?.kind === 'leave') return;
     if (this.punchTimer > 0) return;
     if (!inBoundsWorld(this.world, tx, ty)) return;
+
+    if (this.vaultboxPlacementMode) {
+      this.punchTimer = 0.22;
+      this.mouseDown = false;
+      const check = canPlaceWorldCoreVaultbox(this.world, tx, ty);
+      if (check.ok) {
+        soundEngine.placeBlock(ITEM_IDS.VAULTBOX);
+        this.vaultboxPlacementMode = false;
+        this.callbacks.onPlaceWorldCoreVaultbox?.(tx, ty);
+      } else {
+        soundEngine.uiClick();
+        this.queuePlayerAnnouncement(check.reason ?? 'Select a highlighted green tile', 'ruby');
+      }
+      return;
+    }
+
     this.updateActionDirectionToTile(tx, ty);
     const playerCtx = {
       id: this.localPlayerId,
@@ -1628,12 +1695,22 @@ export class BlockgroveEngine {
         : undefined;
     const isBreakTool = activeItemId === ITEM_IDS.FIST || selectedDef?.toolKind === 'pickaxe';
     if (!(this.adminWorldEdit && isBreakTool)) {
-      if (targetFgId === ITEM_IDS.ENTRANCE_PORTAL && this.world.name !== 'NEXUS' && activeItemId === ITEM_IDS.FIST) {
+      if (
+        Boolean(getEntrancePortalAt(this.world, tx, ty)) &&
+        this.world.name !== 'NEXUS' &&
+        activeItemId === ITEM_IDS.FIST
+      ) {
         this.punchTimer = 0.3;
         this.punchAnimTimer = PUNCH_ANIM_DURATION;
         this.mouseDown = false;
         soundEngine.uiClick();
-        this.callbacks.onUseEntrancePortal?.();
+        this.portalTransition = {
+          kind: 'leave',
+          progress: 0,
+          duration: 0.65,
+          startX: this.body.x,
+          triggered: false,
+        };
         return;
       }
       if (targetHasDoor && this.world.name === 'NEXUS') {
@@ -1732,7 +1809,6 @@ export class BlockgroveEngine {
           fgId === ITEM_IDS.GREENS_VENDOR_NPC ||
           fgId === ITEM_IDS.WORLD_CORE ||
           fgId === ITEM_IDS.ATM_MACHINE ||
-          fgId === ITEM_IDS.VAULTBOX ||
           targetHasFurnace ||
           (fgId >= ITEM_IDS.MATTERAGEN_BOTANICAL && fgId <= ITEM_IDS.MATTERAGEN_COSMIC)
         ) {
@@ -2009,26 +2085,56 @@ export class BlockgroveEngine {
     this.placeAnimTimer = Math.max(0, this.placeAnimTimer - dt);
     this.landAnimTimer = Math.max(0, this.landAnimTimer - dt);
 
-    if (this.punchStick.active && this.punchTimer <= 0) {
-      if (Math.abs(this.punchStick.dx) > 0.12) {
-        this.body.facing = this.punchStick.dx > 0 ? 1 : -1;
+    if (this.portalTransition) {
+      this.portalTransition.progress = Math.min(
+        1,
+        this.portalTransition.progress + dt / Math.max(0.05, this.portalTransition.duration)
+      );
+      if (this.portalTransition.kind === 'leave') {
+        const targetCenterX = this.world.spawnX * TILE_SIZE + (TILE_SIZE - PLAYER_WIDTH) * 0.5;
+        const walkPhase = Math.min(1, this.portalTransition.progress / 0.55);
+        this.body.x =
+          this.portalTransition.startX + (targetCenterX - this.portalTransition.startX) * walkPhase;
+        this.body.vx = walkPhase < 1 ? (targetCenterX >= this.portalTransition.startX ? 85 : -85) : 0;
+        this.body.vy = 0;
+        if (Math.abs(targetCenterX - this.portalTransition.startX) > 3) {
+          this.body.facing = targetCenterX >= this.portalTransition.startX ? 1 : -1;
+        }
+        this.body.walkDistance += Math.abs(this.body.vx) * dt;
+        if (this.portalTransition.progress >= 1 && !this.portalTransition.triggered) {
+          this.portalTransition.triggered = true;
+          this.callbacks.onUseEntrancePortal?.();
+        }
+      } else if (this.portalTransition.progress >= 1) {
+        this.portalTransition = null;
       }
-      const { tx, ty } = this.getTargetTileFromJoystick();
-      this.performTileInteraction(tx, ty);
-    } else if (this.mouseDown && this.punchTimer <= 0) {
-      this.tryInteractAtCursor();
-    } else if (this.touchState.punchHeld && this.punchTimer <= 0) {
-      this.tryInteractFacing();
     }
 
-    const left = this.keysHeld.has('KeyA') || this.keysHeld.has('ArrowLeft') || this.touchState.left;
-    const right = this.keysHeld.has('KeyD') || this.keysHeld.has('ArrowRight') || this.touchState.right;
-    const down = this.keysHeld.has('KeyS') || this.keysHeld.has('ArrowDown') || this.touchState.down;
+    const isLeavingViaPortal = this.portalTransition?.kind === 'leave';
+
+    if (!isLeavingViaPortal) {
+      if (this.punchStick.active && this.punchTimer <= 0) {
+        if (Math.abs(this.punchStick.dx) > 0.12) {
+          this.body.facing = this.punchStick.dx > 0 ? 1 : -1;
+        }
+        const { tx, ty } = this.getTargetTileFromJoystick();
+        this.performTileInteraction(tx, ty);
+      } else if (this.mouseDown && this.punchTimer <= 0) {
+        this.tryInteractAtCursor();
+      } else if (this.touchState.punchHeld && this.punchTimer <= 0) {
+        this.tryInteractFacing();
+      }
+    }
+
+    const left = !isLeavingViaPortal && (this.keysHeld.has('KeyA') || this.keysHeld.has('ArrowLeft') || this.touchState.left);
+    const right = !isLeavingViaPortal && (this.keysHeld.has('KeyD') || this.keysHeld.has('ArrowRight') || this.touchState.right);
+    const down = !isLeavingViaPortal && (this.keysHeld.has('KeyS') || this.keysHeld.has('ArrowDown') || this.touchState.down);
     const jumpHeld =
-      this.keysHeld.has('Space') ||
-      this.keysHeld.has('KeyW') ||
-      this.keysHeld.has('ArrowUp') ||
-      this.touchState.jumpHeld;
+      !isLeavingViaPortal &&
+      (this.keysHeld.has('Space') ||
+        this.keysHeld.has('KeyW') ||
+        this.keysHeld.has('ArrowUp') ||
+        this.touchState.jumpHeld);
 
     const speedBonus = this.getActiveBuffBonusPct('move_speed');
     const effMechanics =
@@ -2047,7 +2153,7 @@ export class BlockgroveEngine {
         right,
         down,
         jumpHeld,
-        jumpJustPressed: this.jumpJustPressed,
+        jumpJustPressed: !isLeavingViaPortal && this.jumpJustPressed,
       },
       dt,
       effMechanics
@@ -2921,7 +3027,7 @@ export class BlockgroveEngine {
         const used = vb.slots.filter(Boolean).length;
         if (used > 0) {
           ctx.font = 'bold 8px monospace';
-          const tag = `${used}/10`;
+          const tag = `${used}/${VAULTBOX_SLOT_COUNT}`;
           const tw = ctx.measureText(tag).width;
           ctx.fillStyle = 'rgba(9, 14, 23, 0.86)';
           ctx.fillRect(vsx + 2, vsy + 2, tw + 6, 11);
@@ -2929,6 +3035,12 @@ export class BlockgroveEngine {
           ctx.fillText(tag, vsx + 5, vsy + 10);
         }
       }
+    }
+
+    // 5e. 1x2 Entrance Portal back vortex (behind players)
+    const activePortal = getEntrancePortalAt(this.world, this.world.spawnX, this.world.spawnY);
+    if (activePortal) {
+      this.drawEntrancePortalEntity(ctx, activePortal.anchorX, activePortal.topY, cx, cy, nowMs, 'back');
     }
 
     // 6. Remote players
@@ -2999,9 +3111,36 @@ export class BlockgroveEngine {
           ? 'reel'
           : 'hold'
         : 'none';
+      const ptState = this.portalTransition;
+      let portalVisualOffsetX = 0;
+      let portalVisualScale = 1;
+      let portalVisualAlpha = 1;
+      if (ptState) {
+        if (ptState.kind === 'leave') {
+          const env = Math.max(0, Math.min(1, (ptState.progress - 0.35) / 0.65));
+          portalVisualScale = 1 - env * 0.28;
+          portalVisualAlpha = Math.max(0.08, 1 - env * 0.92);
+        } else {
+          const emerge = Math.max(0, Math.min(1, (ptState.progress - 0.18) / 0.56));
+          const easeOut = 1 - (1 - emerge) * (1 - emerge);
+          portalVisualOffsetX = (easeOut - 0.15) * 14 * this.body.facing;
+          portalVisualScale = 0.78 + 0.22 * easeOut;
+          portalVisualAlpha = Math.min(1, 0.25 + emerge * 0.75);
+        }
+      }
+
+      ctx.save();
+      if (portalVisualAlpha < 0.99 || Math.abs(portalVisualScale - 1) > 0.005) {
+        const pCenterX = this.body.x + portalVisualOffsetX - cx + PLAYER_WIDTH * 0.5;
+        const pCenterY = this.body.y - cy + PLAYER_HEIGHT * 0.5;
+        ctx.globalAlpha = portalVisualAlpha;
+        ctx.translate(pCenterX, pCenterY);
+        ctx.scale(portalVisualScale, portalVisualScale);
+        ctx.translate(-pCenterX, -pCenterY);
+      }
       const localTopY = this.drawCharacter(
         ctx,
-        this.body.x - cx,
+        this.body.x + portalVisualOffsetX - cx,
         this.body.y - cy,
         this.body.facing,
         this.body.vx,
@@ -3021,12 +3160,18 @@ export class BlockgroveEngine {
         this.actionAimX,
         this.actionAimY
       );
+      ctx.restore();
+
+      if (activePortal) {
+        this.drawEntrancePortalEntity(ctx, activePortal.anchorX, activePortal.topY, cx, cy, nowMs, 'front');
+      }
+
       queuedPlayerTags.push({
         playerId: this.localPlayerId,
         name: this.localPlayerName,
         role: this.localRole,
         access: this.getPlayerWorldAccess(this.localPlayerId),
-        screenX: (this.body.x - cx + PLAYER_WIDTH * 0.5) * viewScale,
+        screenX: (this.body.x + portalVisualOffsetX - cx + PLAYER_WIDTH * 0.5) * viewScale,
         screenY: localTopY * viewScale,
         isRemote: false,
         worldDistSq: 0,
@@ -3220,6 +3365,34 @@ export class BlockgroveEngine {
         }
         ctx.restore();
       }
+
+      if (this.vaultboxPlacementMode && this.world.worldLock) {
+        const coreX = this.world.worldLock.x;
+        const coreY = this.world.worldLock.y;
+        const pulse = 0.65 + Math.sin(nowMs * 0.008) * 0.25;
+        ctx.save();
+        for (
+          let hy = Math.max(0, coreY - VAULTBOX_PLACEMENT_RADIUS);
+          hy <= Math.min(wh - 1, coreY + VAULTBOX_PLACEMENT_RADIUS);
+          hy++
+        ) {
+          for (
+            let hx = Math.max(0, coreX - VAULTBOX_PLACEMENT_RADIUS);
+            hx <= Math.min(ww - 1, coreX + VAULTBOX_PLACEMENT_RADIUS);
+            hx++
+          ) {
+            if (!canPlaceWorldCoreVaultbox(this.world, hx, hy).ok) continue;
+            const rx = hx * TILE_SIZE - cx;
+            const ry = hy * TILE_SIZE - cy;
+            ctx.fillStyle = `rgba(34, 197, 94, ${0.22 * pulse})`;
+            ctx.fillRect(rx + 2, ry + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            ctx.strokeStyle = `rgba(74, 222, 128, ${0.95 * pulse})`;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(rx + 1.5, ry + 1.5, TILE_SIZE - 3, TILE_SIZE - 3);
+          }
+        }
+        ctx.restore();
+      }
     }
 
     // 8. Pooled multi-shape VFX particles & floating world popups
@@ -3307,14 +3480,12 @@ export class BlockgroveEngine {
 
       const nearbyDistSqMax = (TILE_SIZE * 8.5) ** 2;
       for (const pt of queuedPlayerTags) {
-        const { canvas: tagCanvas, textOffsetCssX, textCssWidth, iconCssHeight } =
+        const { canvas: tagCanvas, iconCssHeight } =
           this.getPlayerTitleCanvas(pt.name, pt.role === 'admin', pt.access);
         const cw = tagCanvas.width / 2;
         const ch = tagCanvas.height / 2;
-        // Center the bare username text horizontally over player hitbox center regardless of facing
-        const textCenterOffsetFromLeft = textOffsetCssX + textCssWidth * 0.5;
-        const tagX = Math.round(pt.screenX - textCenterOffsetFromLeft);
-        const tagY = Math.round(pt.screenY - ch - 8);
+        const tagX = Math.round(pt.screenX - cw * 0.5);
+        const tagY = Math.round(pt.screenY - ch - 5);
         ctx.drawImage(tagCanvas, tagX, tagY, cw, ch);
 
         if (!pt.isRemote) {
@@ -3728,14 +3899,14 @@ export class BlockgroveEngine {
   ): { canvas: HTMLCanvasElement; textOffsetCssX: number; textCssWidth: number; iconCssHeight: number } {
     const displayName = name;
     const roleIconKind = isAdmin ? 'admin' : access;
-    const cacheKey = `pillbox::${displayName}::${roleIconKind}`;
+    const cacheKey = `pillbox_metal_v2::${displayName}::${roleIconKind}`;
     const existing = this.playerTitleCache.get(cacheKey);
     if (existing) return existing;
 
     const scaleBoost = isAdmin ? 1.1 : 1;
     const circleDia = Math.round(20 * scaleBoost);
-    const gap = Math.round(6 * scaleBoost);
-    const fontPx = Math.round(13 * scaleBoost); // 10% larger than 12px
+    const gap = Math.round(5 * scaleBoost);
+    const fontPx = Math.round(13 * scaleBoost);
     const fontStr = `bold ${fontPx}px "Pixelify Sans", monospace`;
 
     const tmpC = document.createElement('canvas');
@@ -3743,50 +3914,64 @@ export class BlockgroveEngine {
     measureCtx.font = fontStr;
     const textW = Math.ceil(measureCtx.measureText(displayName).width);
 
-    const padX = 6;
-    const padY = 4;
-    const pillW = padX * 2 + circleDia + gap + textW + 4;
-    const pillH = Math.max(circleDia + padY * 2, fontPx + padY * 2 + 2);
+    // Trim outer frame strictly down to the outer edge border lining up with circular role icon
+    const rightPad = 6;
+    const pillH = Math.max(circleDia + 2, fontPx + 6);
+    const pillW = Math.ceil(pillH + gap + textW + rightPad);
 
     const c = document.createElement('canvas');
-    c.width = pillW * 2; // 2x HiDPI
+    c.width = pillW * 2;
     c.height = pillH * 2;
 
     const ctx = c.getContext('2d')!;
     ctx.scale(2, 2);
 
-    // Connected Frosted Foggy Pillbox Background
+    // Polished Metallic Pillbox Background (-25% opacity vs prior 0.68 -> 0.51)
     ctx.save();
-    ctx.fillStyle = 'rgba(232, 244, 254, 0.68)';
-    ctx.strokeStyle = '#1e3a5f';
-    ctx.lineWidth = 2.5;
+    const metalGrad = ctx.createLinearGradient(0, 0, pillW, pillH);
+    if (isAdmin) {
+      metalGrad.addColorStop(0, 'rgba(255, 246, 206, 0.56)');
+      metalGrad.addColorStop(0.28, 'rgba(236, 186, 82, 0.48)');
+      metalGrad.addColorStop(0.52, 'rgba(255, 251, 232, 0.62)');
+      metalGrad.addColorStop(0.76, 'rgba(212, 152, 46, 0.48)');
+      metalGrad.addColorStop(1, 'rgba(248, 214, 120, 0.52)');
+    } else {
+      metalGrad.addColorStop(0, 'rgba(248, 252, 255, 0.56)');
+      metalGrad.addColorStop(0.28, 'rgba(202, 224, 246, 0.48)');
+      metalGrad.addColorStop(0.52, 'rgba(255, 255, 255, 0.62)');
+      metalGrad.addColorStop(0.76, 'rgba(182, 210, 238, 0.48)');
+      metalGrad.addColorStop(1, 'rgba(226, 240, 252, 0.51)');
+    }
+    ctx.fillStyle = metalGrad;
+    ctx.strokeStyle = isAdmin ? '#9a3412' : '#1e3a5f';
+    ctx.lineWidth = 2.2;
     ctx.lineJoin = 'round';
     ctx.beginPath();
-    ctx.roundRect(1, 1, pillW - 2, pillH - 2, pillH / 2);
+    ctx.roundRect(1, 1, pillW - 2, pillH - 2, (pillH - 2) / 2);
     ctx.fill();
     ctx.stroke();
 
-    // Inner highlight
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
-    ctx.lineWidth = 1;
+    // Brushed metal top specular highlight rim
+    ctx.strokeStyle = isAdmin ? 'rgba(254, 249, 195, 0.72)' : 'rgba(255, 255, 255, 0.74)';
+    ctx.lineWidth = 0.9;
     ctx.beginPath();
-    ctx.roundRect(2, 2, pillW - 4, pillH - 4, pillH / 2 - 1);
+    ctx.roundRect(2, 2, pillW - 4, pillH - 4, (pillH - 4) / 2);
     ctx.stroke();
     ctx.restore();
 
     const cy = pillH / 2;
-    const circCx = padX + circleDia / 2;
+    const circCx = pillH / 2;
     const circCy = cy;
-    const r = circleDia / 2 - 1.5;
+    const r = Math.max(6, pillH / 2 - 2.3);
 
-    // Draw Role Icon inside pillbox
+    // Draw Role Icon aligned flush inside the left circular boundary
     if (roleIconKind === 'admin') {
       ctx.fillStyle = '#2a0f18';
       ctx.beginPath();
       ctx.arc(circCx, circCy, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#ff9f1c';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.2;
       ctx.stroke();
 
       const u = Math.max(2, Math.round(circleDia * 0.11));
@@ -3810,12 +3995,12 @@ export class BlockgroveEngine {
             ? '#34d399'
             : '#94a3b8';
 
-      ctx.fillStyle = 'rgba(19, 35, 54, 0.75)';
+      ctx.fillStyle = 'rgba(19, 35, 54, 0.78)';
       ctx.beginPath();
       ctx.arc(circCx, circCy, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = ringColor;
-      ctx.lineWidth = 2.2;
+      ctx.lineWidth = 2;
       ctx.stroke();
 
       ctx.save();
@@ -3841,14 +4026,14 @@ export class BlockgroveEngine {
       ctx.restore();
     }
 
-    const textStartX = padX + circleDia + gap;
+    const textStartX = pillH + gap - 1;
     ctx.font = fontStr;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
     ctx.lineWidth = 3.8;
     ctx.strokeStyle = '#0b1622';
-    const textY = cy + 1;
+    const textY = cy + 0.5;
     ctx.strokeText(displayName, textStartX, textY);
     ctx.fillStyle = isAdmin ? '#fde047' : '#ffffff';
     ctx.fillText(displayName, textStartX, textY);
@@ -3944,6 +4129,107 @@ export class BlockgroveEngine {
     });
     this.nameplateCache.set(cacheKey, c);
     return c;
+  }
+
+  private drawEntrancePortalEntity(
+    ctx: CanvasRenderingContext2D,
+    anchorX: number,
+    topY: number,
+    cx: number,
+    cy: number,
+    nowMs: number,
+    layer: 'back' | 'front'
+  ) {
+    const px = anchorX * TILE_SIZE - cx;
+    const py = topY * TILE_SIZE - cy;
+    const pw = TILE_SIZE;
+    const ph = TILE_SIZE * 2;
+    const centerX = px + pw * 0.5;
+    const centerY = py + ph * 0.54;
+
+    const ptState = this.portalTransition;
+    let surge = 0;
+    if (ptState) {
+      if (ptState.kind === 'enter') {
+        surge = Math.sin(Math.min(1, ptState.progress) * Math.PI);
+      } else {
+        surge = Math.min(1, ptState.progress * 1.35);
+      }
+    }
+
+    if (layer === 'back') {
+      const openFactor = 0.62 + surge * 0.58;
+      const spin = nowMs * (ptState ? 0.011 : 0.004);
+      ctx.save();
+      // Deep void behind the stone doorway aperture
+      ctx.fillStyle = '#070b18';
+      ctx.fillRect(px + 9, py + 14, pw - 18, ph - 18);
+
+      // Swirling cosmic portal vortex ellipse
+      const rx = 14 * Math.min(1.25, openFactor);
+      const ry = 32 * Math.min(1.2, openFactor);
+      const vGrad = ctx.createRadialGradient(centerX, centerY, 2, centerX, centerY, ry);
+      vGrad.addColorStop(0, surge > 0.3 ? 'rgba(224, 242, 254, 0.96)' : 'rgba(165, 243, 252, 0.85)');
+      vGrad.addColorStop(0.42, 'rgba(56, 189, 248, 0.78)');
+      vGrad.addColorStop(0.78, 'rgba(79, 70, 229, 0.62)');
+      vGrad.addColorStop(1, 'rgba(15, 23, 42, 0)');
+      ctx.fillStyle = vGrad;
+      ctx.beginPath();
+      ctx.ellipse(centerX, centerY, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Twirling energy arcs inside the vortex field
+      for (let ring = 0; ring < 3; ring++) {
+        const arcR = (0.35 + ring * 0.25) * openFactor;
+        const startAng = spin * (ring % 2 === 0 ? 1 : -1.3) + ring * 2.1;
+        ctx.strokeStyle =
+          ring === 0
+            ? 'rgba(224, 242, 254, 0.85)'
+            : ring === 1
+              ? 'rgba(56, 232, 216, 0.78)'
+              : 'rgba(168, 85, 247, 0.72)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(centerX, centerY, 13 * arcR, 29 * arcR, 0, startAng, startAng + Math.PI * 1.15);
+        ctx.stroke();
+      }
+      // Draw the carved stone archway behind idle players so standing at spawn does not slice the character
+      ctx.drawImage(getEntrancePortalFrameSprite(), px, py, pw, ph);
+      ctx.restore();
+      return;
+    }
+
+    // Front layer: only envelop the player with the front archway rim & swirling tendrils during active enter/leave transition
+    if (!ptState) return;
+
+    const frontFrameAlpha =
+      ptState.kind === 'leave'
+        ? Math.min(1, ptState.progress * 1.8)
+        : Math.max(0, 1 - Math.max(0, (ptState.progress - 0.52) / 0.48));
+    if (frontFrameAlpha > 0.02) {
+      ctx.save();
+      ctx.globalAlpha = frontFrameAlpha;
+      ctx.drawImage(getEntrancePortalFrameSprite(), px, py, pw, ph);
+      ctx.restore();
+    }
+
+    if (surge > 0.08) {
+      const spin = nowMs * 0.013;
+      ctx.save();
+      const envAlpha =
+        ptState.kind === 'leave'
+          ? Math.min(0.88, ptState.progress * 0.95)
+          : Math.max(0, 0.65 * (1 - ptState.progress));
+      ctx.strokeStyle = `rgba(103, 232, 249, ${envAlpha})`;
+      ctx.lineWidth = 2.5;
+      for (let i = 0; i < 2; i++) {
+        const ang = spin + i * Math.PI;
+        ctx.beginPath();
+        ctx.ellipse(centerX, centerY, 15 * (0.75 + surge * 0.35), 34 * (0.75 + surge * 0.3), 0, ang, ang + 1.9);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   private drawCharacter(
